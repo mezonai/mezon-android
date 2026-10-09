@@ -22,6 +22,8 @@ import com.mezon.mobile.core.AlertDialog
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.di.FragmentEntryPoint
+import com.mezon.mobile.home.chat.input.SlashCommand
+import com.mezon.mobile.home.chat.input.SlashCommandCatalog
 import com.mezon.mobile.home.clans.settings.ClanRolesUiTheme
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.session.SessionManager
@@ -114,7 +116,7 @@ class ChannelQuickActionFragment : BaseFragment() {
 
         val inner = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(LayoutHelper.dp(16f), LayoutHelper.dp(12f), LayoutHelper.dp(16f), LayoutHelper.dp(88f))
+            setPadding(LayoutHelper.dp(16f), LayoutHelper.dp(12f), LayoutHelper.dp(16f), 0)
         }
         inner.addView(buildTabs(context), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 44, 0f, Gravity.NO_GRAVITY, 0f, 0f, 0f, 16f))
 
@@ -122,6 +124,8 @@ class ChannelQuickActionFragment : BaseFragment() {
         val scroll = NestedScrollView(context).apply {
             overScrollMode = View.OVER_SCROLL_NEVER
             isFillViewport = true
+            clipToPadding = false
+            setPadding(0, 0, 0, LayoutHelper.dp(88f))
         }
         listWrap = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
         scroll.addView(listWrap, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
@@ -272,17 +276,22 @@ class ChannelQuickActionFragment : BaseFragment() {
         loadingBar?.visibility = View.VISIBLE
         listWrap.visibility = View.INVISIBLE
         emptyWrap.visibility = View.GONE
+        val targetChannelId = channelId
+        val menuType = activeMenuType
         fragmentScope.launch {
             val result = runCatching {
                 sessionManager.withAutoRefresh { session ->
                     withContext(Dispatchers.IO) {
-                        api.listQuickMenuAccess(session.apiUrl, session.token, channelId, activeMenuType)
+                        api.listQuickMenuAccess(session.apiUrl, session.token, targetChannelId, menuType)
                     }
                 }
             }
             withContext(Dispatchers.Main.immediate) {
+                result.onSuccess { list ->
+                    SlashCommandCatalog.replace(targetChannelId, menuType, list.listMenusList.map(SlashCommand::fromProto))
+                }
+                if (isFinished || menuType != activeMenuType) return@withContext
                 loadingBar?.visibility = View.GONE
-                if (isFinished) return@withContext
                 menuItems.clear()
                 result.onSuccess { menuItems.addAll(it.listMenusList) }
                 renderMenus()
@@ -389,7 +398,13 @@ class ChannelQuickActionFragment : BaseFragment() {
     }
 
     private fun normalizeMenuName(raw: String): String =
-        raw.trim().removePrefix("/").trim()
+        java.text.Normalizer.normalize(raw.trim().removePrefix("/").trim(), java.text.Normalizer.Form.NFC)
+
+    private fun menuNameError(name: String, existing: QuickMenuAccess?): String? = when {
+        !QuickMenuNameRules.isValidName(name) -> getString(R.string.channel_quick_action_error_invalid_name)
+        QuickMenuNameRules.nameExists(name, menuItems, existing?.id) -> getString(R.string.channel_quick_action_error_duplicate_name)
+        else -> null
+    }
 
     private fun showCreateDialog(context: Context) {
         showEditDialog(context, null)
@@ -509,6 +524,13 @@ class ChannelQuickActionFragment : BaseFragment() {
                     MezonToast.show(this@ChannelQuickActionFragment, ToastOverlay.ToastType.ERROR, getString(R.string.channel_quick_action_fields_required))
                     return@setOnClickListener
                 }
+                val nameError = menuNameError(key, existing)
+                    ?: if (QuickMenuNameRules.isValidActionMsg(content)) null
+                    else getString(R.string.channel_quick_action_error_message_too_long)
+                if (nameError != null) {
+                    MezonToast.show(this@ChannelQuickActionFragment, ToastOverlay.ToastType.ERROR, nameError)
+                    return@setOnClickListener
+                }
                 dialog.dismiss()
                 if (existing == null) createMenu(key, content) else updateMenu(existing, key, content)
             }
@@ -612,6 +634,11 @@ class ChannelQuickActionFragment : BaseFragment() {
             positiveButton?.setOnClickListener {
                 val name = normalizeMenuName(nameField.text.toString())
                 if (name.isEmpty()) return@setOnClickListener
+                val nameError = menuNameError(name, existing)
+                if (nameError != null) {
+                    MezonToast.show(this@ChannelQuickActionFragment, ToastOverlay.ToastType.ERROR, nameError)
+                    return@setOnClickListener
+                }
                 dialog.dismiss()
                 if (existing == null) createMenu(name, BOT_EVENT_ACTION) else updateMenu(existing, name, BOT_EVENT_ACTION)
             }
@@ -627,7 +654,7 @@ class ChannelQuickActionFragment : BaseFragment() {
             setTextColor(themeColors.textStrong)
             setHintTextColor(themeColors.textDisabled)
             setPadding(LayoutHelper.dp(14f), LayoutHelper.dp(12f), LayoutHelper.dp(14f), LayoutHelper.dp(12f))
-            background = rounded(themeColors.channelPanelBg, 12f)
+            background = rounded(themeColors.tertiary, 12f)
             inputType = if (singleLine) {
                 InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
             } else {
@@ -635,6 +662,8 @@ class ChannelQuickActionFragment : BaseFragment() {
             }
             if (!singleLine) {
                 minLines = 3
+                maxLines = 6
+                isVerticalScrollBarEnabled = true
                 gravity = Gravity.TOP or Gravity.START
             }
         }

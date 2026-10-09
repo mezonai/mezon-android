@@ -60,4 +60,31 @@ class SlashCommandSuggestionsTest {
         val filtered = InputSuggestionsController.buildSlashCommandItems("LUN", commands)
         assertEquals(listOf(commands[1]), filtered.map { (it as InputSuggestionItem.SlashCommand).command })
     }
+
+    @Test
+    fun `ephemeral leads the slash list only when allowed and matching`() {
+        val all = InputSuggestionsController.buildSlashCommandItems("", commands, includeEphemeral = true)
+        assertEquals(InputSuggestionItem.EphemeralCommand, all.first())
+        assertEquals(3, all.size)
+
+        val matching = InputSuggestionsController.buildSlashCommandItems("EPH", commands, includeEphemeral = true)
+        assertEquals(listOf<InputSuggestionItem>(InputSuggestionItem.EphemeralCommand), matching)
+
+        val other = InputSuggestionsController.buildSlashCommandItems("lun", commands, includeEphemeral = true)
+        assertEquals(listOf(commands[1]), other.map { (it as InputSuggestionItem.SlashCommand).command })
+
+        val disallowed = InputSuggestionsController.buildSlashCommandItems("", commands)
+        assertEquals(false, disallowed.contains(InputSuggestionItem.EphemeralCommand))
+    }
+
+    @Test
+    fun `bot flash commands carry the bot name`() {
+        val botCommand = SlashCommand(4L, "deploy", "*deploy", botId = 99L)
+        val items = InputSuggestionsController.buildSlashCommandItems(
+            "dep",
+            listOf(botCommand),
+            botNameFor = { if (it == 99L) "Komu" else "" }
+        )
+        assertEquals("Komu", (items.single() as InputSuggestionItem.SlashCommand).botName)
+    }
 }

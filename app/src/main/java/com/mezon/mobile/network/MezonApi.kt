@@ -5,6 +5,8 @@ import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.home.clans.CHANNEL_MUTE_ACTIVE_INFINITY
 import com.mezon.mobile.home.clans.SET_MUTE_ACTIVE_UNMUTE
 import com.mezon.mobile.util.SentryReporter
+import com.mezon.mobile.ui.cells.utf8ByteCount
+import com.mezon.mobile.ui.cells.utf8Prefix
 import android.util.Base64
 import com.mezon.mezon.api.Account
 import com.mezon.mezon.api.AllUsersAddChannelResponse
@@ -44,6 +46,7 @@ import com.mezon.mezon.api.NotificationList
 import com.mezon.mezon.api.Message2InboxRequest
 import com.mezon.mezon.api.SearchCtrlKResponse
 import com.mezon.mezon.api.SearchMentionUsersResponse
+import com.mezon.mezon.api.GenerateCDNSignatureResponse
 import com.mezon.mezon.api.SearchMessageResponse
 import com.mezon.mezon.api.ChannelAttachmentList
 import com.mezon.mezon.api.ChannelCanvasDetailResponse
@@ -135,6 +138,7 @@ import com.mezon.mezon.api.listFriendsRequest
 import com.mezon.mezon.api.listNotificationsRequest
 import com.mezon.mezon.api.searchCtrlKRequest
 import com.mezon.mezon.api.searchMentionUsersRequest
+import com.mezon.mezon.api.generateCDNSignatureRequest
 import com.mezon.mezon.api.searchMessageRequest
 import com.mezon.mezon.api.sessionRefreshRequest
 import com.mezon.mezon.api.Session
@@ -375,6 +379,9 @@ class MezonApi @Inject constructor(
         private val SERVER_KEY = BuildConfig.MEZON_API_KEY
         private const val DISCOVER_ITEMS_PER_PAGE = 6
         private const val SOCKET_WAIT_MS = 5_000L
+        private const val SOCKET_API_TIMEOUT_MS = 4_000L
+        private const val SOCKET_MESSAGE_FETCH_TIMEOUT_MS = 1_500L
+        private val MESSAGE_FETCH_API_NAMES = setOf("ListChannelMessages")
         private const val HEALTHY_ENDPOINT_TIMEOUT_MS = 5_000L
         private const val SOCKET_DEGRADED_COOLDOWN_MS = 12_000L
         private const val READ_SINGLE_FLIGHT_MAX_AGE_MS = 3_000L
@@ -422,6 +429,21 @@ class MezonApi @Inject constructor(
             "SearchMessage",
             "GenerateHashChannelApps"
         )
+        private const val SOCKET_UNKNOWN_API_CODE = 404
+        private const val SOCKET_UNKNOWN_API_MESSAGE = "msg='Not found.'"
+        private const val UPLOAD_FILENAME_MAX_BYTES = 100
+        private const val UPLOAD_EXTENSION_MAX_BYTES = 16
+
+        internal fun fittedUploadFilename(filename: String): String {
+            if (filename.utf8ByteCount() <= UPLOAD_FILENAME_MAX_BYTES) return filename
+            val dot = filename.lastIndexOf('.')
+            val suffix = if (dot > 0) filename.substring(dot) else ""
+            if (suffix.length <= 1 || suffix.utf8ByteCount() > UPLOAD_EXTENSION_MAX_BYTES) {
+                return filename.utf8Prefix(UPLOAD_FILENAME_MAX_BYTES).toString()
+            }
+            val stem = filename.substring(0, dot).utf8Prefix(UPLOAD_FILENAME_MAX_BYTES - suffix.utf8ByteCount())
+            return "$stem$suffix"
+        }
     }
 
     private val linkInvitePreviewCache = android.util.LruCache<Long, LinkInvitePreview>(256)
@@ -608,7 +630,9 @@ class MezonApi @Inject constructor(
         } catch (e: UnauthorizedException) {
             throw e
         } catch (e: SocketRpcServerException) {
-            throw e
+            if (e.code != SOCKET_UNKNOWN_API_CODE || e.message?.contains(SOCKET_UNKNOWN_API_MESSAGE) != true) throw e
+            Log.w("MezonApi", "SOCKET does not serve method=$method, falling back to HTTP")
+            rpcOverHttpWithRetry(apiUrl, token, method, body, retryable = retryableRead)
         } catch (e: com.google.protobuf.InvalidProtocolBufferException) {
             if (method != "GenerateMeetToken") throw e
             rpcOverHttpWithRetry(apiUrl, token, method, body, retryable = retryableRead)
@@ -654,6 +678,9 @@ class MezonApi @Inject constructor(
         return Base64.encodeToString(digest, Base64.NO_WRAP)
     }
 
+    private fun socketApiTimeoutMs(method: String): Long =
+        if (method in MESSAGE_FETCH_API_NAMES) SOCKET_MESSAGE_FETCH_TIMEOUT_MS else SOCKET_API_TIMEOUT_MS
+
     private suspend fun rpcOverSocket(method: String, body: ByteArray, token: String): ByteArray {
         val socket = mezonSocketLazy.get()
         if (!socket.awaitConnected(SOCKET_WAIT_MS)) {
@@ -674,7 +701,7 @@ class MezonApi @Inject constructor(
         }
         val started = System.currentTimeMillis()
         try {
-            val resp = socket.sendApiRequest(apiName = method, body = body)
+            val resp = socket.sendApiRequest(apiName = method, body = body, timeoutMs = socketApiTimeoutMs(method))
             markSocketHealthy()
             return resp
         } catch (e: Exception) {
@@ -1786,6 +1813,19 @@ class MezonApi @Inject constructor(
         return com.mezon.mezon.rtapi.ChannelMessageAck.parseFrom(bytes)
     }
 
+    suspend fun sendEphemeralMessageToBot(
+        apiUrl: String,
+        token: String,
+        message: com.mezon.mezon.rtapi.ChannelMessageSend
+    ): com.mezon.mezon.rtapi.ChannelMessageAck {
+        val body = com.mezon.mezon.rtapi.EphemeralMessageSend.newBuilder()
+            .setMessage(message)
+            .build()
+            .toByteArray()
+        val bytes = rpc(apiUrl, token, "SendEphemeralMessageToBot", body, httpOnly = true)
+        return com.mezon.mezon.rtapi.ChannelMessageAck.parseFrom(bytes)
+    }
+
     suspend fun updateChannelMessage(
         apiUrl: String,
         token: String,
@@ -2056,14 +2096,16 @@ class MezonApi @Inject constructor(
         filetype: String,
         size: Int,
         width: Int = 0,
-        height: Int = 0
+        height: Int = 0,
+        channelId: Long = 0L
     ): UploadAttachment {
         val request = uploadAttachmentRequest {
-            this.filename = filename
+            this.filename = fittedUploadFilename(filename)
             this.filetype = filetype
             this.size = size
             if (width > 0) this.width = width
             if (height > 0) this.height = height
+            if (channelId != 0L) this.channelId = channelId
         }
         val bytes = rpc(apiUrl, token, "UploadAttachmentFile", request.toByteArray())
         return UploadAttachment.parseFrom(bytes)
@@ -2078,14 +2120,16 @@ class MezonApi @Inject constructor(
         width: Int = 0,
         height: Int = 0,
         partCount: Int = 1,
+        channelId: Long = 0L,
     ): MultipartUploadAttachment {
         val request = uploadAttachmentRequest {
-            this.filename = filename
+            this.filename = fittedUploadFilename(filename)
             this.filetype = filetype
             this.size = size
             if (width > 0) this.width = width
             if (height > 0) this.height = height
             if (partCount > 0) this.partCount = partCount
+            if (channelId != 0L) this.channelId = channelId
         }
         val bytes = rpc(apiUrl, token, "MultipartUploadAttachmentFileStart", request.toByteArray())
         return MultipartUploadAttachment.parseFrom(bytes)
@@ -2346,9 +2390,6 @@ class MezonApi @Inject constructor(
             this.activePermissionIds.addAll(activePermissionIds)
             this.removePermissionIds.addAll(removePermissionIds)
         }
-        if (BuildConfig.DEBUG) {
-            Log.d("MezonApi", "UpdateRole payload bytes=${request.serializedSize} $request")
-        }
         rpc(apiUrl, token, "UpdateRole", request.toByteArray())
     }
 
@@ -2576,6 +2617,19 @@ class MezonApi @Inject constructor(
         return SearchMentionUsersResponse.parseFrom(bytes)
     }
 
+    suspend fun generateCDNSignature(
+        apiUrl: String,
+        token: String,
+        channelId: Long
+    ): GenerateCDNSignatureResponse {
+        require(channelId != 0L) { "GenerateCDNSignature needs a channel id" }
+        val request = generateCDNSignatureRequest {
+            this.channelId = channelId
+        }
+        val bytes = rpc(apiUrl, token, "GenerateCDNSignature", request.toByteArray())
+        return GenerateCDNSignatureResponse.parseFrom(bytes)
+    }
+
     suspend fun listEmojisByUserId(
         apiUrl: String,
         token: String
@@ -2713,8 +2767,12 @@ class MezonApi @Inject constructor(
             this.metadata = metadata
         }
         val bytes = rpc(apiUrl, token, "GenerateMeetToken", request.toByteArray())
-        // Both transports can return either raw JWT or GenerateMeetTokenResponse protobuf.
-        return decodeMeetTokenResponse(bytes)
+        val response = decodeMeetTokenResponse(bytes)
+        val sfuUrl = normalizedSfuWsUrl(response.url)
+        if (sfuUrl == null && response.url.isNotBlank()) {
+            Log.w("MezonApi", "GenerateMeetToken returned an unusable SFU url=${response.url}; using MEZON_SFU_WS_URL")
+        }
+        return response.toBuilder().setUrl(sfuUrl.orEmpty()).build()
     }
 
     suspend fun listChannelVoiceUsers(

@@ -50,6 +50,7 @@ import com.mezon.mobile.home.profile.AccountController
 import com.mezon.mobile.home.profile.DeviceController
 import com.mezon.mobile.home.profile.UserController
 import com.mezon.mobile.network.ApiCacheTracker
+import com.mezon.mobile.network.EndpointFailover
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.deeplink.DeepLinkRouter
 import com.mezon.mobile.network.NetworkMonitor
@@ -80,6 +81,7 @@ interface FragmentEntryPoint {
     fun channelCategoryExpandStore(): ChannelCategoryExpandStore
     fun showEmptyCategoryStore(): ShowEmptyCategoryStore
     fun connectionController(): ConnectionController
+    fun endpointFailover(): EndpointFailover
     fun dialogsController(): DialogsController
     fun forwardTargetUsageStore(): ForwardTargetUsageStore
     fun messageActivitiesController(): MessageActivitiesController

@@ -40,7 +40,6 @@ class AbridgedTcpTransport {
                 val ssl = HappyEyeballsConnector.connectTls(host, port, network, connectTimeoutMs.toInt())
                 socket = ssl
                 output = ssl.getOutputStream()
-                Log.d(TAG, "[ABRIDGED] TLS connected $host:$port via ${ssl.inetAddress?.hostAddress} (cipher=${ssl.session.cipherSuite}), sending handshake (cred=${credential.length} chars)")
                 writeRaw(AbridgedFrameCodec.frameHandshake(credential))
                 onOpen?.invoke()
                 startReadLoop(ssl)

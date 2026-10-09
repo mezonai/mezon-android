@@ -46,7 +46,6 @@ class FcmRepository @Inject constructor(
                     context.contentResolver,
                     Settings.Secure.ANDROID_ID
                 )
-                Log.d(TAG, "Got FCM token, registering with backend...")
                 registerToken(fcmToken, deviceId)
             } catch (e: Exception) {
                 Log.e(TAG, "Error getting/registering FCM token", e)
@@ -80,7 +79,6 @@ class FcmRepository @Inject constructor(
                     )
                     RegistFcmDeviceTokenResponse.parseFrom(bytes)
                 }
-                Log.d(TAG, "FCM token registered: deviceId=${response.deviceId}")
                 return@withContext Result.success(response)
             } catch (e: Exception) {
                 lastError = e
@@ -97,7 +95,6 @@ class FcmRepository @Inject constructor(
     suspend fun deleteToken() = withContext(ioDispatcher) {
         runCatching {
             FirebaseMessaging.getInstance().deleteToken().await()
-            Log.d(TAG, "FCM token deleted")
         }.onFailure { e ->
             Log.w(TAG, "Failed to delete FCM token", e)
         }

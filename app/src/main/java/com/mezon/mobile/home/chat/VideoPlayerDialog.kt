@@ -31,6 +31,11 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import com.mezon.mobile.network.CdnRequestUrl
+import com.mezon.mobile.network.CdnSigner
+import com.mezon.mobile.network.CdnSigningDataSource
 import androidx.media3.ui.PlayerView
 import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.MainActivity
@@ -114,6 +119,9 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
     private var lastMenuDismissTime = 0L
     private var saveProgressJob: Job? = null
     private var pendingDownloadId = NO_PENDING_DOWNLOAD_ID
+    private var pendingDownloadSourceUrl = ""
+    private var pendingDownloadRequest: CdnRequestUrl? = null
+    private var pendingDownloadRetried = false
     private var isDownloadReceiverRegistered = false
     private val hostLifecycleOwner = context.findLifecycleOwner()
     private var isLifecycleObserverRegistered = false
@@ -173,9 +181,9 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
             val pendingResult = goAsync()
             entryPoint.applicationScope().launch(entryPoint.ioDispatcher()) {
                 try {
-                    val status = getDownloadStatus(downloadId)
+                    val snapshot = getDownloadProgress(downloadId)
                     withContext(entryPoint.mainDispatcher()) {
-                        handleDownloadTerminalStatus(downloadId, status)
+                        handleDownloadTerminalStatus(downloadId, snapshot?.status, snapshot?.reason ?: 0)
                     }
                 } finally {
                     pendingResult.finish()
@@ -434,6 +442,7 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
     private fun initializePlayer(startPositionMs: Long, playWhenReady: Boolean) {
         releasePlayer()
         player = ExoPlayer.Builder(context)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(CdnSigningDataSource.Factory(DefaultDataSource.Factory(context))))
             .setSeekBackIncrementMs(VIDEO_SEEK_INCREMENT_MS)
             .setSeekForwardIncrementMs(VIDEO_SEEK_INCREMENT_MS)
             .build()
@@ -557,21 +566,47 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
     private fun saveVideo() {
         val url = currentItem.url
         if (url.isEmpty() || pendingDownloadId != NO_PENDING_DOWNLOAD_ID) return
+        CdnSigner.requestUrlOnMain(url) { signed ->
+            if (isShowing && pendingDownloadId == NO_PENDING_DOWNLOAD_ID) {
+                enqueueVideoDownload(url, signed, retried = false)
+            }
+        }
+    }
 
+    private fun enqueueVideoDownload(url: String, signed: CdnRequestUrl, retried: Boolean) {
         try {
             val filename = url.substringAfterLast('/').substringBefore('?').ifEmpty { "video" }
-            val request = DownloadManager.Request(Uri.parse(url))
+            val request = DownloadManager.Request(Uri.parse(signed.url))
                 .setTitle(filename)
                 .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
                 .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, filename)
             val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
             registerDownloadReceiver()
             pendingDownloadId = downloadManager.enqueue(request)
+            pendingDownloadSourceUrl = url
+            pendingDownloadRequest = signed
+            pendingDownloadRetried = retried
             startSaveProgress(pendingDownloadId)
         } catch (_: Exception) {
             cancelPendingDownload()
             showToast(ToastOverlay.ToastType.ERROR, R.string.message_toast_save_failed)
         }
+    }
+
+    private fun retryDownloadWithFreshSignature(reason: Int): Boolean {
+        val request = pendingDownloadRequest ?: return false
+        if (pendingDownloadRetried || !CdnSigner.shouldRetry(request, reason)) return false
+        val url = pendingDownloadSourceUrl
+        cancelPendingDownload()
+        CdnSigner.freshRequestUrlOnMain(request, url) { fresh ->
+            if (!isShowing || pendingDownloadId != NO_PENDING_DOWNLOAD_ID) return@freshRequestUrlOnMain
+            if (fresh == null) {
+                showToast(ToastOverlay.ToastType.ERROR, R.string.message_toast_save_failed)
+                return@freshRequestUrlOnMain
+            }
+            enqueueVideoDownload(url, fresh, retried = true)
+        }
+        return true
     }
 
     private fun registerDownloadReceiver() {
@@ -617,7 +652,7 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
                     getDownloadProgress(downloadId)
                 }
                 if (snapshot != null) {
-                    if (handleDownloadTerminalStatus(downloadId, snapshot.status)) break
+                    if (handleDownloadTerminalStatus(downloadId, snapshot.status, snapshot.reason)) break
                     updateSaveProgress(snapshot)
                 }
                 delay(VIDEO_SAVE_PROGRESS_POLL_INTERVAL_MS)
@@ -625,8 +660,9 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
         }
     }
 
-    private fun handleDownloadTerminalStatus(downloadId: Long, status: Int?): Boolean {
+    private fun handleDownloadTerminalStatus(downloadId: Long, status: Int?, reason: Int): Boolean {
         if (downloadId != pendingDownloadId) return false
+        if (status == DownloadManager.STATUS_FAILED && retryDownloadWithFreshSignature(reason)) return true
         val toast = when (status) {
             DownloadManager.STATUS_SUCCESSFUL -> ToastOverlay.ToastType.SUCCESS to R.string.message_toast_save_success
             DownloadManager.STATUS_FAILED -> ToastOverlay.ToastType.ERROR to R.string.message_toast_save_failed
@@ -663,7 +699,8 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
     private data class DownloadProgressSnapshot(
         val status: Int?,
         val downloadedBytes: Long,
-        val totalBytes: Long
+        val totalBytes: Long,
+        val reason: Int
     )
 
     private fun getDownloadProgress(downloadId: Long): DownloadProgressSnapshot? {
@@ -674,17 +711,15 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
                 val statusIndex = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS)
                 val downloadedIndex = cursor.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)
                 val totalIndex = cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)
+                val reasonIndex = cursor.getColumnIndex(DownloadManager.COLUMN_REASON)
                 DownloadProgressSnapshot(
                     status = if (statusIndex >= 0) cursor.getInt(statusIndex) else null,
                     downloadedBytes = if (downloadedIndex >= 0) cursor.getLong(downloadedIndex) else 0L,
-                    totalBytes = if (totalIndex >= 0) cursor.getLong(totalIndex) else -1L
+                    totalBytes = if (totalIndex >= 0) cursor.getLong(totalIndex) else -1L,
+                    reason = if (reasonIndex >= 0) cursor.getInt(reasonIndex) else 0
                 )
             }
         }.getOrNull()
-    }
-
-    private fun getDownloadStatus(downloadId: Long): Int? {
-        return getDownloadProgress(downloadId)?.status
     }
 
     private fun buildShareAttachment(): AttachmentInfo? {

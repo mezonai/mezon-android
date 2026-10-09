@@ -61,7 +61,7 @@ class ChangeUserStatusBottomSheet(
             orientation = LinearLayout.VERTICAL
             val bg = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(12f).toFloat()
-                setColor(themeColors.surfaceVariant)
+                setColor(themeColors.getColor(ThemeColors.key_sheetItemBackground))
             }
             background = bg
             setPadding(LayoutHelper.dp(8), LayoutHelper.dp(8), LayoutHelper.dp(8), LayoutHelper.dp(8))
@@ -151,7 +151,7 @@ class ChangeUserStatusBottomSheet(
             gravity = Gravity.CENTER_VERTICAL
             val bg = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(12f).toFloat()
-                setColor(themeColors.surfaceVariant)
+                setColor(themeColors.getColor(ThemeColors.key_sheetItemBackground))
             }
             background = bg
             setPadding(LayoutHelper.dp(20), LayoutHelper.dp(16), LayoutHelper.dp(20), LayoutHelper.dp(16))

@@ -35,6 +35,7 @@ class ChatAdapter(
     var topicCreatorResolver: ((Long) -> Pair<String, String>?)? = null
     var topicLastMessageIdResolver: ((Long) -> Long)? = null
     var topicBadgeResolver: ((Long) -> Int)? = null
+    var botCommandResolver: ((Long) -> com.mezon.mobile.home.chat.botcommand.BotCommandDisplay?)? = null
     var topicButtonEnabled = true
 
     init { setHasStableIds(true) }
@@ -402,6 +403,7 @@ class ChatAdapter(
                 holder.cell.topicCreatorResolver = topicCreatorResolver
                 holder.cell.topicLastMessageIdResolver = topicLastMessageIdResolver
                 holder.cell.topicBadgeResolver = topicBadgeResolver
+                holder.cell.botCommandResolver = botCommandResolver
                 holder.cell.topicButtonEnabled = topicButtonEnabled
                 holder.cell.hasMentionHighlight = cachedHasMention(msg)
                 holder.cell.update(0, msg)

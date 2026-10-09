@@ -910,7 +910,7 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
     }
 
     private fun downloadToFile(url: String, destFile: java.io.File) {
-        val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+        val conn = java.net.URL(com.mezon.mobile.network.CdnSigner.requestUrlBlocking(url).url).openConnection() as java.net.HttpURLConnection
         conn.connect()
         if (conn.responseCode !in 200..299) {
             throw Exception("HTTP Error: ${conn.responseCode}")

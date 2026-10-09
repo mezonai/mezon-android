@@ -60,7 +60,7 @@ class PeerConnectionWrapper(
     private val answerLock = Any()
     private var pendingAnswerCallback: ((SessionDescription) -> Unit)? = null
     private var iceReconnectRunnable: Runnable? = null
-    private var disposed = false
+    @Volatile private var disposed = false
     private val attachedLocalSinks = mutableSetOf<SurfaceViewRenderer>()
     private val attachedRemoteSinks = mutableSetOf<SurfaceViewRenderer>()
     private var captureStarted = false
@@ -163,6 +163,7 @@ class PeerConnectionWrapper(
     }
 
     fun createOffer(isVideo: Boolean, callback: (SessionDescription) -> Unit) {
+        if (disposed) return
         createPeerConnection()
         holdLocalCandidates = true 
         addLocalMedia(isVideo)
@@ -171,11 +172,11 @@ class PeerConnectionWrapper(
 
         peerConnection?.createOffer(object : SimpleSdpObserver() {
             override fun onCreateSuccess(sdp: SessionDescription?) {
+                if (disposed) return
                 sdp?.let { offer ->
                     val preferredSdp = preferVp8Codec(offer)
-                    android.util.Log.d(TAG, "DIAG_OFFER_SDP:\n${preferredSdp.description}")
                     peerConnection?.setLocalDescription(SimpleSdpObserver(), preferredSdp)
-                    mainHandler.post { callback(preferredSdp) }
+                    mainHandler.post { if (!disposed) callback(preferredSdp) }
                 }
             }
         }, constraints)
@@ -187,22 +188,20 @@ class PeerConnectionWrapper(
             android.util.Log.e(TAG, "handleRemoteOffer: createPeerConnection returned null!")
             return
         }
-        android.util.Log.d(TAG, "handleRemoteOffer: add local audio then remote SDP, sdp length=${sdp.description.length}")
         addLocalAudioTrackIfPermitted()
 
         peerConnection?.setRemoteDescription(object : SimpleSdpObserver() {
             override fun onSetSuccess() {
-                android.util.Log.d(TAG, "handleRemoteOffer: setRemoteDescription SUCCESS")
                 remoteDescriptionSet = true
                 flushPendingIce()
 
                 peerConnection?.createAnswer(object : SimpleSdpObserver() {
                     override fun onCreateSuccess(answer: SessionDescription?) {
-                        android.util.Log.d(TAG, "handleRemoteOffer: createAnswer SUCCESS, answer=${answer != null}")
+                        if (disposed) return
                         answer?.let {
                             val preferredAnswer = preferVp8Codec(it)
                             peerConnection?.setLocalDescription(SimpleSdpObserver(), preferredAnswer)
-                            mainHandler.post { callback(preferredAnswer) }
+                            mainHandler.post { if (!disposed) callback(preferredAnswer) }
                         }
                     }
                 }, MediaConstraints())
@@ -210,33 +209,26 @@ class PeerConnectionWrapper(
 
             override fun onSetFailure(error: String?) {
                 android.util.Log.e(TAG, "handleRemoteOffer: setRemoteDescription FAILED: $error")
-                mainHandler.post {
-                    listener.onInboundSignalingSetupFailed(error ?: "setRemoteDescription failed")
-                }
+                reportInboundSignalingSetupFailure(error ?: "setRemoteDescription failed")
             }
         }, sdp)
     }
 
     fun handleRemoteOfferEager(sdp: SessionDescription) {
         if (peerConnection != null) {
-            android.util.Log.d(TAG, "handleRemoteOfferEager: peerConnection already exists, skipping")
             return
         }
         createPeerConnection()
         if (peerConnection == null) {
             android.util.Log.e(TAG, "handleRemoteOfferEager: createPeerConnection returned null")
-            mainHandler.post {
-                listener.onInboundSignalingSetupFailed("createPeerConnection returned null")
-            }
+            reportInboundSignalingSetupFailure("createPeerConnection returned null")
             return
         }
         holdLocalCandidates = true
-        android.util.Log.d(TAG, "handleRemoteOfferEager: add local audio then remote SDP, sdp length=${sdp.description.length}")
         addLocalAudioTrackIfPermitted()
 
         peerConnection?.setRemoteDescription(object : SimpleSdpObserver() {
             override fun onSetSuccess() {
-                android.util.Log.d(TAG, "handleRemoteOfferEager: setRemoteDescription SUCCESS")
                 remoteDescriptionSet = true
                 flushPendingIce()
                 drainPendingAnswerAfterRemoteSet()
@@ -247,9 +239,7 @@ class PeerConnectionWrapper(
                 synchronized(answerLock) {
                     pendingAnswerCallback = null
                 }
-                mainHandler.post {
-                    listener.onInboundSignalingSetupFailed(error ?: "eager setRemoteDescription failed")
-                }
+                reportInboundSignalingSetupFailure(error ?: "eager setRemoteDescription failed")
             }
         }, sdp)
     }
@@ -295,16 +285,15 @@ class PeerConnectionWrapper(
         }
         pc.createAnswer(object : SimpleSdpObserver() {
             override fun onCreateSuccess(answer: SessionDescription?) {
-                android.util.Log.d(TAG, "createAnswerAndFlush: createAnswer SUCCESS, answer=${answer != null}")
+                if (disposed) return
                 if (answer == null) {
-                    mainHandler.post {
-                        listener.onInboundSignalingSetupFailed("createAnswer returned null sdp")
-                    }
+                    reportInboundSignalingSetupFailure("createAnswer returned null sdp")
                     return
                 }
                 val preferredAnswer = preferVp8Codec(answer)
                 pc.setLocalDescription(SimpleSdpObserver(), preferredAnswer)
                 mainHandler.post {
+                    if (disposed) return@post
                     callback(preferredAnswer)
                     flushPendingLocalIce()
                 }
@@ -312,11 +301,15 @@ class PeerConnectionWrapper(
 
             override fun onCreateFailure(error: String?) {
                 android.util.Log.e(TAG, "createAnswerAndFlush: onCreateFailure: $error")
-                mainHandler.post {
-                    listener.onInboundSignalingSetupFailed(error ?: "createAnswer failed")
-                }
+                reportInboundSignalingSetupFailure(error ?: "createAnswer failed")
             }
         }, MediaConstraints())
+    }
+
+    private fun reportInboundSignalingSetupFailure(error: String) {
+        mainHandler.post {
+            if (!disposed) listener.onInboundSignalingSetupFailed(error)
+        }
     }
 
     private fun flushPendingLocalIce() {
@@ -327,7 +320,6 @@ class PeerConnectionWrapper(
             copy
         }
         if (toFlush.isEmpty()) return
-        android.util.Log.d(TAG, "flushPendingLocalIce: flushing ${toFlush.size} buffered local candidates")
         for (candidate in toFlush) {
             if (disposed) return
             listener.onLocalIceCandidate(candidate)
@@ -336,7 +328,6 @@ class PeerConnectionWrapper(
 
     fun handleRenegotiationRemoteOffer(sdp: SessionDescription, callback: (SessionDescription) -> Unit) {
         val pc = peerConnection ?: return
-        android.util.Log.d(TAG, "handleRenegotiationRemoteOffer: sdp length=${sdp.description.length}")
         pc.setRemoteDescription(object : SimpleSdpObserver() {
             override fun onSetSuccess() {
                 remoteDescriptionSet = true
@@ -346,7 +337,7 @@ class PeerConnectionWrapper(
                         answer?.let {
                             val preferredAnswer = preferVp8Codec(it)
                             pc.setLocalDescription(SimpleSdpObserver(), preferredAnswer)
-                            mainHandler.post { callback(preferredAnswer) }
+                            mainHandler.post { if (!disposed) callback(preferredAnswer) }
                         }
                     }
                 }, MediaConstraints())
@@ -365,7 +356,7 @@ class PeerConnectionWrapper(
                 sdp?.let { offer ->
                     val preferredSdp = preferVp8Codec(offer)
                     peerConnection?.setLocalDescription(SimpleSdpObserver(), preferredSdp)
-                    mainHandler.post { callback(preferredSdp) }
+                    mainHandler.post { if (!disposed) callback(preferredSdp) }
                 }
             }
         }, constraints)
@@ -380,7 +371,6 @@ class PeerConnectionWrapper(
     fun hasLocalVideoTrack(): Boolean = localVideoTrack != null
 
     fun handleRemoteAnswer(sdp: SessionDescription) {
-        android.util.Log.d(TAG, "DIAG_ANSWER_SDP:\n${sdp.description}")
         peerConnection?.setRemoteDescription(object : SimpleSdpObserver() {
             override fun onSetSuccess() {
                 remoteDescriptionSet = true
@@ -411,38 +401,6 @@ class PeerConnectionWrapper(
 
     fun setLocalAudioEnabled(enabled: Boolean) {
         localAudioTrack?.setEnabled(enabled)
-    }
-
-    fun dumpSendDiagnostics() {
-        val pc = peerConnection ?: run {
-            android.util.Log.d(TAG, "DIAG_SEND: no peerConnection")
-            return
-        }
-        android.util.Log.d(TAG, "DIAG_SEND: localAudioTrack=${localAudioTrack?.id()} enabled=${localAudioTrack?.enabled()} state=${localAudioTrack?.state()}")
-        try {
-            pc.senders.forEach { sender ->
-                val t = sender.track()
-                android.util.Log.d(TAG, "DIAG_SENDER kind=${t?.kind()} id=${t?.id()} enabled=${t?.enabled()} state=${t?.state()}")
-            }
-            pc.transceivers.forEach { tr ->
-                android.util.Log.d(TAG, "DIAG_TRANSCEIVER mediaType=${tr.mediaType} mid=${tr.mid} direction=${tr.direction} currentDirection=${tr.currentDirection}")
-            }
-        } catch (e: Exception) {
-            android.util.Log.w(TAG, "DIAG_SEND senders/transceivers failed", e)
-        }
-        pc.getStats { report ->
-            report.statsMap.values.forEach { s ->
-                val kind = s.members["kind"]
-                when (s.type) {
-                    "outbound-rtp" -> if (kind == "audio") {
-                        android.util.Log.d(TAG, "DIAG_OUTBOUND_AUDIO bytesSent=${s.members["bytesSent"]} packetsSent=${s.members["packetsSent"]}")
-                    }
-                    "media-source" -> if (kind == "audio") {
-                        android.util.Log.d(TAG, "DIAG_AUDIO_SOURCE audioLevel=${s.members["audioLevel"]} totalAudioEnergy=${s.members["totalAudioEnergy"]}")
-                    }
-                }
-            }
-        }
     }
 
     fun setLocalVideoEnabled(enabled: Boolean) {

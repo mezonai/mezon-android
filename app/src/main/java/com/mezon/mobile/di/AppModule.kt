@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.preferencesDataStore
 import com.mezon.mobile.core.NotificationCenter
+import com.mezon.mobile.network.CdnSigner
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -66,6 +67,7 @@ object AppModule {
     @Singleton
     fun provideOkHttpClient(): OkHttpClient = OkHttpClient.Builder()
         .readTimeout(0, TimeUnit.MILLISECONDS)
+        .addInterceptor(CdnSigner.interceptor)
         .build()
 
     @Provides

@@ -37,6 +37,7 @@ open class AdjustPanLayoutHelper(
     private var contentView: ViewGroup? = null
     private var resizableView: View? = null
     private var usingInsetAnimator = false
+    private var insetsAnimationView: View? = null
     private var animationInProgress = false
     private var needDelay = false
     private val delayedAnimationRunnable = Runnable {
@@ -89,7 +90,7 @@ open class AdjustPanLayoutHelper(
         }
 
         if (previousHeight != -1 && previousContentHeight == (contentView?.height ?: 0)) {
-            isKeyboardVisible = contentHeight < (contentView?.bottom ?: 0)
+            isKeyboardVisible = contentHeight < previousHeight
             animateHeight(previousHeight, contentHeight, isKeyboardVisible)
             previousHeight = contentHeight
             previousContentHeight = contentView?.height ?: 0
@@ -291,7 +292,8 @@ open class AdjustPanLayoutHelper(
             parentForListener = null
         }
         if (useInsetsAnimator && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            parent.setWindowInsetsAnimationCallback(null)
+            insetsAnimationView?.setWindowInsetsAnimationCallback(null)
+            insetsAnimationView = null
         }
     }
 
@@ -348,13 +350,14 @@ open class AdjustPanLayoutHelper(
     @RequiresApi(api = Build.VERSION_CODES.R)
     private fun setupNewCallback() {
         val rv = resizableView ?: return
+        insetsAnimationView = rv
         rv.setWindowInsetsAnimationCallback(
             object : WindowInsetsAnimation.Callback(DISPATCH_MODE_CONTINUE_ON_SUBTREE) {
                 override fun onProgress(
                     insets: WindowInsets,
                     runningAnimations: MutableList<WindowInsetsAnimation>
                 ): WindowInsets {
-                    if (!animationInProgress || AndroidUtilities.screenRefreshRate < 90) {
+                    if (!animationInProgress) {
                         return insets
                     }
 
@@ -374,7 +377,9 @@ open class AdjustPanLayoutHelper(
                 }
 
                 override fun onEnd(animation: WindowInsetsAnimation) {
-                    if (!animationInProgress || AndroidUtilities.screenRefreshRate < 90) {
+                    if (!animationInProgress ||
+                        animation.typeMask and WindowInsetsCompat.Type.ime() == 0
+                    ) {
                         return
                     }
                     stopTransition()

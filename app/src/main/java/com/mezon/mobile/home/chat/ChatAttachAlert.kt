@@ -8,7 +8,6 @@ import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.text.TextPaint
-import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -28,7 +27,6 @@ import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.PhotoAttachPhotoCell
 
-private const val TAG = "ChatAttachAlert"
 private const val ITEMS_PER_ROW = 3
 private const val GRID_GAP = 2
 
@@ -238,7 +236,6 @@ class ChatAttachAlert(
             } else if (insertedCount > 0) {
                 adapter?.notifyItemRangeInserted(previousSize + 1, insertedCount)
             }
-            Log.d(TAG, "Gallery page loaded: $totalLoaded items total, hasMore=$hasMore")
         }
     }
 

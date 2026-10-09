@@ -9,7 +9,6 @@ import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
-import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
@@ -53,7 +52,6 @@ private const val MENU_SAVE = 3
 class RoleDetailFragment : BaseFragment() {
 
     companion object {
-        private const val TAG = "RoleDetailEdit"
         private const val ARG_CLAN_ID = "clanId"
         private const val ARG_ROLE_ID = "roleId"
 
@@ -466,7 +464,6 @@ class RoleDetailFragment : BaseFragment() {
 
     private fun applyDetailEditableState(role: ClanRole) {
         val can = canEdit(role)
-        logEditabilityDiag(role, can)
         nameInput.isEnabled = can && !role.isEveryoneRole()
         nameLock.visibility = if (can && !role.isEveryoneRole()) View.GONE else View.VISIBLE
         colorRow.isClickable = can
@@ -491,28 +488,6 @@ class RoleDetailFragment : BaseFragment() {
     private fun updateEditableChrome() {
         val role = roleController.getRole(clanId, roleId) ?: return
         applyDetailEditableState(role)
-    }
-
-    private fun logEditabilityDiag(role: ClanRole, can: Boolean) {
-        val selfId = userController.userId
-        val members = userClanController.getClanMembers(clanId)
-        val selfMember = members.firstOrNull { it.userId == selfId }
-        val fromMember = maxSelfRoleLevelFromMemberAssignments()
-        val fromApiMerged = roleController.effectiveUserMaxPermissionLevel(clanId)
-        val effective = maxOf(fromApiMerged, fromMember)
-        val clan = clansController.clans.value.firstOrNull { it.clanId == clanId }
-        val perm = permissionPolicy.clanSettingsPermissionState(clanId)
-        val creatorMatch = clan != null && selfId != 0L && selfId == clan.creatorId
-        val coarseBypass = perm.isCanEditRole || creatorMatch
-        val levelOk = effective >= role.maxLevelPermission
-        Log.d(
-            TAG,
-            "editable=$can clanId=$clanId roleId=${role.roleId} slug=${role.slug} roleMaxLevel=${role.maxLevelPermission} isEveryone=${role.isEveryoneRole()} " +
-                "selfUserId=$selfId creatorMatch=$creatorMatch permIsClanOwner=${perm.isClanOwner} permAdmin=${perm.hasAdminPermission} permManageClan=${perm.hasManageClanPermission} " +
-                "permIsCanEditRole=${perm.isCanEditRole} coarseSettingsBypass=$coarseBypass memberCount=${members.size} selfInMembers=${selfMember != null} selfRoleIds=${selfMember?.roleIds} " +
-                "maxFromAssignments=$fromMember ${roleController.userMaxPermissionSourceLog(clanId)} mergedApi=${fromApiMerged} effectiveMax=$effective " +
-                "levelGate(${effective}>=${role.maxLevelPermission})=$levelOk",
-        )
     }
 
     private fun maxSelfRoleLevelFromMemberAssignments(): Int {

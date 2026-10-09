@@ -9,6 +9,7 @@ import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import android.util.Log
+import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.home.chat.AttachmentPickerItem
 import com.mezon.mobile.network.MezonApi
 import java.io.ByteArrayOutputStream
@@ -31,6 +32,15 @@ object AttachmentUploader {
     private const val MULTIPART_PART_SIZE = 10 * 1024 * 1024
     private const val MULTIPART_MIN_FILE_SIZE = 50L * 1024 * 1024
     private const val MULTIPART_UPLOAD_ENABLED = true
+
+    private fun cdnUrlForView(typeCdn: Int, fallback: String, filename: String): String {
+        val baseUrl = when (typeCdn) {
+            1 -> BuildConfig.MEZON_BASE_MEZON_IMG_URL
+            2 -> BuildConfig.MEZON_BASE_IMG_URL
+            else -> fallback
+        }
+        return "$baseUrl/$filename"
+    }
 
     internal fun attachmentTypeForUpload(filetype: String): String {
         val normalized = filetype.lowercase()
@@ -286,12 +296,13 @@ object AttachmentUploader {
         width: Int = 0,
         height: Int = 0,
         cdnBaseUrl: String,
+        channelId: Long = 0L,
     ): PresignedFileResult {
         if (willUseMultipart(sizeBytes)) {
             try {
                 return presignMultipartBytes(
                     api, apiUrl, token, uploadFilename, mimeType, sizeBytes.toInt(),
-                    width, height, cdnBaseUrl,
+                    width, height, cdnBaseUrl, channelId,
                 )
             } catch (_: MultipartNotApplicable) {
                 skipMultipartStartForSession = true
@@ -301,9 +312,9 @@ object AttachmentUploader {
         }
         val presign = api.uploadAttachmentFile(
             apiUrl, token, uploadFilename, attachmentTypeForUpload(mimeType), sizeBytes.toInt(), width, height,
+            channelId = channelId,
         )
-        val cdnUrl = "$cdnBaseUrl/${presign.filename}"
-        Log.d(TAG, "presign bytes file=$uploadFilename cdnUrl=$cdnUrl minioUrl=${presign.url}")
+        val cdnUrl = cdnUrlForView(presign.typeCdn, cdnBaseUrl, presign.filename)
         return PresignedFileResult(
             serverFilename = presign.filename,
             cdnUrl = cdnUrl,
@@ -321,12 +332,13 @@ object AttachmentUploader {
         width: Int = 0,
         height: Int = 0,
         cdnBaseUrl: String,
+        channelId: Long = 0L,
     ): PresignedFileResult {
         if (willUseMultipart(fileSize)) {
             try {
                 return presignMultipartFromFile(
                     api, apiUrl, token, uploadFilename, mimeType, fileSize.toInt(),
-                    width, height, cdnBaseUrl,
+                    width, height, cdnBaseUrl, channelId,
                 )
             } catch (_: MultipartNotApplicable) {
                 skipMultipartStartForSession = true
@@ -336,9 +348,9 @@ object AttachmentUploader {
         }
         val presign = api.uploadAttachmentFile(
             apiUrl, token, uploadFilename, attachmentTypeForUpload(mimeType), fileSize.toInt(), width, height,
+            channelId = channelId,
         )
-        val cdnUrl = "$cdnBaseUrl/${presign.filename}"
-        Log.d(TAG, "presign file=$uploadFilename cdnUrl=$cdnUrl minioUrl=${presign.url}")
+        val cdnUrl = cdnUrlForView(presign.typeCdn, cdnBaseUrl, presign.filename)
         return PresignedFileResult(
             serverFilename = presign.filename,
             cdnUrl = cdnUrl,
@@ -357,7 +369,6 @@ object AttachmentUploader {
     ) {
         when (plan) {
             is UploadExecutionPlan.SinglePut -> {
-                Log.d(TAG, "minio PUT start url=${plan.presignedUrl}")
                 val total = bytes?.size?.toLong() ?: file?.length() ?: 0L
                 onProgress?.invoke(0, total)
                 when {
@@ -366,12 +377,9 @@ object AttachmentUploader {
                     else -> throw IllegalArgumentException("executeUploadPlan SinglePut requires bytes or file")
                 }
                 onProgress?.invoke(total, total)
-                Log.d(TAG, "minio PUT done url=${plan.presignedUrl}")
             }
             is UploadExecutionPlan.Multipart -> {
-                Log.d(TAG, "minio multipart PUT start uploadId=${plan.uploadId} cdnFile=${plan.serverFilename} parts=${plan.presignedUrls.size}")
                 executeMultipartPlan(api, apiUrl, token, plan, bytes, file, onProgress)
-                Log.d(TAG, "minio multipart PUT done uploadId=${plan.uploadId} cdnFile=${plan.serverFilename}")
             }
         }
     }
@@ -494,11 +502,13 @@ object AttachmentUploader {
         width: Int,
         height: Int,
         cdnBaseUrl: String,
+        channelId: Long = 0L,
     ): PresignedFileResult {
         val requestedPartCount = multipartPartCount(sizeBytes.toLong())
         val start = api.multipartUploadAttachmentFileStart(
             apiUrl, token, uploadFilename, attachmentTypeForUpload(mimeType), sizeBytes, width, height,
             partCount = requestedPartCount,
+            channelId = channelId,
         )
         val urls = start.urlsList
         val uploadId = start.uploadId
@@ -506,9 +516,8 @@ object AttachmentUploader {
         // silently builds a CDN url that points at nothing.
         val serverFilename = start.filename
         require(serverFilename.isNotEmpty()) { "multipart upload start returned an empty filename" }
-        val cdnUrl = "$cdnBaseUrl/$serverFilename"
+        val cdnUrl = cdnUrlForView(start.typeCdn, cdnBaseUrl, serverFilename)
         if (urls.size == 1 && uploadId.isEmpty()) {
-            Log.d(TAG, "presign multipart→single file=$uploadFilename cdnUrl=$cdnUrl minioUrl=${urls[0]}")
             return PresignedFileResult(
                 serverFilename = serverFilename,
                 cdnUrl = cdnUrl,
@@ -518,7 +527,6 @@ object AttachmentUploader {
         if (urls.isEmpty() || uploadId.isEmpty()) {
             throw MultipartNotApplicable()
         }
-        Log.d(TAG, "presign multipart file=$uploadFilename cdnUrl=$cdnUrl uploadId=$uploadId parts=${urls.size}")
         return PresignedFileResult(
             serverFilename = serverFilename,
             cdnUrl = cdnUrl,
@@ -542,11 +550,13 @@ object AttachmentUploader {
         width: Int,
         height: Int,
         cdnBaseUrl: String,
+        channelId: Long = 0L,
     ): PresignedFileResult {
         val requestedPartCount = multipartPartCount(sizeBytes.toLong())
         val start = api.multipartUploadAttachmentFileStart(
             apiUrl, token, uploadFilename, attachmentTypeForUpload(mimeType), sizeBytes, width, height,
             partCount = requestedPartCount,
+            channelId = channelId,
         )
         val urls = start.urlsList
         val uploadId = start.uploadId
@@ -554,9 +564,8 @@ object AttachmentUploader {
         // silently builds a CDN url that points at nothing.
         val serverFilename = start.filename
         require(serverFilename.isNotEmpty()) { "multipart upload start returned an empty filename" }
-        val cdnUrl = "$cdnBaseUrl/$serverFilename"
+        val cdnUrl = cdnUrlForView(start.typeCdn, cdnBaseUrl, serverFilename)
         if (urls.size == 1 && uploadId.isEmpty()) {
-            Log.d(TAG, "presign multipart→single bytes file=$uploadFilename cdnUrl=$cdnUrl minioUrl=${urls[0]}")
             return PresignedFileResult(
                 serverFilename = serverFilename,
                 cdnUrl = cdnUrl,
@@ -566,7 +575,6 @@ object AttachmentUploader {
         if (urls.isEmpty() || uploadId.isEmpty()) {
             throw MultipartNotApplicable()
         }
-        Log.d(TAG, "presign multipart bytes file=$uploadFilename cdnUrl=$cdnUrl uploadId=$uploadId parts=${urls.size}")
         return PresignedFileResult(
             serverFilename = serverFilename,
             cdnUrl = cdnUrl,

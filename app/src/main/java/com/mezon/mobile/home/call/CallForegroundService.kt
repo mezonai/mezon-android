@@ -11,6 +11,8 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
+import android.telecom.DisconnectCause
 import android.util.Log
 import androidx.core.content.ContextCompat
 
@@ -19,14 +21,90 @@ class CallForegroundService : Service() {
     private val escalationHandler = Handler(Looper.getMainLooper())
     private var escalationRunnable: Runnable? = null
     private var ringQuiet = false
+    @Volatile private var localCallId: String? = null
+    @Volatile private var notificationGeneration = 0L
+    private var pendingDeadline = 0L
+    private var pendingTimeout: Runnable? = null
 
     override fun onDestroy() {
         cancelEscalation()
+        cancelPendingTimeout()
+        notificationGeneration++
+        endOwnedCall()
         try {
             stopForeground(STOP_FOREGROUND_REMOVE)
         } catch (_: Exception) {
         }
         super.onDestroy()
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        val currentId = CallController.instance?.currentCallInfo()?.localCallId
+        val removedId = rootIntent?.getStringExtra(CallManager.EXTRA_LOCAL_CALL_ID)
+        if ((currentId != null && currentId != localCallId) || (removedId != null && removedId != localCallId)) {
+            super.onTaskRemoved(rootIntent)
+            return
+        }
+        val state = CallController.instance?.callState
+        if (state is CallState.Connecting || state is CallState.Outgoing || state is CallState.Idle || state == null) {
+            endOwnedCall()
+            stopSelf()
+        }
+        super.onTaskRemoved(rootIntent)
+    }
+
+    private fun endOwnedCall() {
+        val owner = localCallId
+        val controller = CallController.instance
+        if (owner != null && controller?.currentCallInfo()?.localCallId == owner) {
+            controller.hangup()
+        }
+        if (owner != null) CallTelecomBridge.instance?.endIfOwned(owner, DisconnectCause.CANCELED)
+        if (CallController.instance?.currentCallInfo() == null) {
+            CallTelecomBridge.instance?.endOrphanedConnection(DisconnectCause.CANCELED)
+            val notifications = CallNotificationManager(this)
+            notifications.dismissIncomingNotification()
+            notifications.dismissOngoingNotification()
+            getSharedPreferences("call_data", Context.MODE_PRIVATE).edit().remove("incoming_call").apply()
+        }
+    }
+
+    private fun cancelPendingTimeout() {
+        pendingTimeout?.let { escalationHandler.removeCallbacks(it) }
+        pendingTimeout = null
+    }
+
+    private fun schedulePendingTimeout(phase: Int) {
+        cancelPendingTimeout()
+        if (phase == PHASE_CONNECTED) {
+            pendingDeadline = 0L
+            return
+        }
+        if (pendingDeadline == 0L) pendingDeadline = SystemClock.elapsedRealtime() + CONNECT_TIMEOUT_MS
+        val owner = localCallId ?: return
+        val timeout = object : Runnable {
+            override fun run() {
+                if (localCallId != owner) return
+                val controller = CallController.instance
+                if (controller == null || controller.currentCallInfo()?.localCallId != owner) {
+                    stopSelf()
+                    return
+                }
+                if (controller.callState is CallState.Connected) return
+                val remaining = controller.connectingTimeoutRemainingMs()
+                    ?: (pendingDeadline - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
+                if (remaining > 0L) {
+                    escalationHandler.postDelayed(this, remaining)
+                    return
+                }
+                controller.timeoutConnectingCall()
+                endOwnedCall()
+                stopSelf()
+            }
+        }
+        pendingTimeout = timeout
+        escalationHandler.postDelayed(timeout, CallController.instance?.connectingTimeoutRemainingMs()
+            ?: (pendingDeadline - SystemClock.elapsedRealtime()).coerceAtLeast(0L))
     }
 
     private fun cancelEscalation() {
@@ -37,11 +115,32 @@ class CallForegroundService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent == null) {
             Log.w(TAG, "onStartCommand with null intent, stopping")
+            endOwnedCall()
             stopSelf()
             return START_NOT_STICKY
         }
+        val owner = intent.getStringExtra(CallManager.EXTRA_LOCAL_CALL_ID)
+        val controller = CallController.instance
+        if (owner == null || controller?.currentCallInfo()?.localCallId != owner) {
+            if (localCallId == null || localCallId == owner) stopSelf(startId)
+            return START_NOT_STICKY
+        }
+        if (localCallId != owner) pendingDeadline = 0L
+        localCallId = owner
+        notificationGeneration++
         try {
-            val phase = intent.getIntExtra(EXTRA_PHASE, PHASE_CONNECTED)
+            val phase = when (controller?.callState) {
+                is CallState.Incoming -> PHASE_RINGING
+                is CallState.Outgoing -> PHASE_OUTGOING
+                is CallState.Connecting -> PHASE_CONNECTING
+                is CallState.Connected -> PHASE_CONNECTED
+                else -> {
+                    stopSelf(startId)
+                    return START_NOT_STICKY
+                }
+            }
+            intent.putExtra(EXTRA_PHASE, phase)
+            schedulePendingTimeout(phase)
             val nm = CallNotificationManager(this)
             when (phase) {
                 PHASE_RINGING -> startRingingPhase(intent, nm)
@@ -102,6 +201,7 @@ class CallForegroundService : Service() {
                 callerName, callerAvatar, callerId, channelId, offerJson, useFsi, ringQuiet
             )
         }
+        val generation = notificationGeneration
         startForegroundWithType(
             CallNotificationManager.INCOMING_CALL_NOTIFICATION_ID,
             build(),
@@ -110,7 +210,8 @@ class CallForegroundService : Service() {
         nm.warmAvatarThenRepost(
             callerAvatar,
             CallNotificationManager.INCOMING_CALL_NOTIFICATION_ID,
-            build
+            build,
+            isCurrent = { generation == notificationGeneration && CallController.instance?.currentCallInfo()?.localCallId == localCallId && CallController.instance?.callState is CallState.Incoming }
         )
 
         if (systemOpensCallScreen) return
@@ -123,8 +224,11 @@ class CallForegroundService : Service() {
 
     private fun scheduleHeadsUpEscalation(build: () -> Notification) {
         cancelEscalation()
+        val owner = localCallId
+        val generation = notificationGeneration
         val runnable = Runnable {
             escalationRunnable = null
+            if (generation != notificationGeneration || CallController.instance?.currentCallInfo()?.localCallId != owner) return@Runnable
             if (IncomingCallActivity.isIncomingCallUiShown()) return@Runnable
             if (CallController.instance?.callState !is CallState.Incoming) return@Runnable
             Log.w(TAG, "call screen never appeared, escalating ring to a heads-up notification")
@@ -150,11 +254,13 @@ class CallForegroundService : Service() {
         val callerId = intent.getStringExtra(CallManager.EXTRA_CALLER_ID) ?: ""
         val isVideo = intent.getBooleanExtra(CallManager.EXTRA_IS_VIDEO_CALL, false)
         val connectedTime =
-            if (phase == PHASE_CONNECTED) intent.getLongExtra(EXTRA_CONNECTED_TIME, 0L) else 0L
+            if (phase == PHASE_CONNECTED) (CallController.instance?.callState as? CallState.Connected)?.connectedTime
+                ?: intent.getLongExtra(EXTRA_CONNECTED_TIME, 0L) else 0L
 
         val build = {
             nm.buildInCallNotification(callerName, callerAvatar, callerId, isVideo, connectedTime)
         }
+        val generation = notificationGeneration
         startForegroundWithType(
             CallNotificationManager.ONGOING_CALL_NOTIFICATION_ID,
             build(),
@@ -164,11 +270,14 @@ class CallForegroundService : Service() {
         nm.warmAvatarThenRepost(
             callerAvatar,
             CallNotificationManager.ONGOING_CALL_NOTIFICATION_ID,
-            build
+            build,
+            isCurrent = { generation == notificationGeneration && CallController.instance?.currentCallInfo()?.localCallId == localCallId }
         )
     }
 
     private fun tryStartIncomingCallActivityFromRingIntent(ringIntent: Intent) {
+        if (ringIntent.getStringExtra(CallManager.EXTRA_LOCAL_CALL_ID) != CallController.instance?.currentCallInfo()?.localCallId ||
+            CallController.instance?.callState !is CallState.Incoming) return
         val ex = ringIntent.extras ?: return
         val act = Intent(this, IncomingCallActivity::class.java).apply {
             var f = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -179,6 +288,7 @@ class CallForegroundService : Service() {
             putExtra(CallManager.EXTRA_CALLER_NAME, ex.getString(CallManager.EXTRA_CALLER_NAME))
             putExtra(CallManager.EXTRA_CALLER_ID, ex.getString(CallManager.EXTRA_CALLER_ID))
             putExtra(CallManager.EXTRA_CHANNEL_ID, ex.getString(CallManager.EXTRA_CHANNEL_ID))
+            putExtra(CallManager.EXTRA_LOCAL_CALL_ID, ex.getString(CallManager.EXTRA_LOCAL_CALL_ID))
             ex.getString(CallManager.EXTRA_CALLER_AVATAR)?.let {
                 putExtra(CallManager.EXTRA_CALLER_AVATAR, it)
             }
@@ -244,7 +354,8 @@ class CallForegroundService : Service() {
             channelId: String,
             offerJson: String,
             useFullScreenIntent: Boolean,
-            deviceLocked: Boolean
+            deviceLocked: Boolean,
+            localCallId: String
         ) {
             try {
                 ContextCompat.startForegroundService(
@@ -255,6 +366,7 @@ class CallForegroundService : Service() {
                         putExtra(CallManager.EXTRA_CALLER_AVATAR, callerAvatar)
                         putExtra(CallManager.EXTRA_CALLER_ID, callerId)
                         putExtra(CallManager.EXTRA_CHANNEL_ID, channelId)
+                        putExtra(CallManager.EXTRA_LOCAL_CALL_ID, localCallId)
                         putExtra(CallManager.EXTRA_OFFER_JSON, offerJson)
                         putExtra(EXTRA_USE_FULL_SCREEN_INTENT, useFullScreenIntent)
                         putExtra(EXTRA_DEVICE_LOCKED, deviceLocked)
@@ -291,6 +403,8 @@ class CallForegroundService : Service() {
                     putExtra(CallManager.EXTRA_CALLER_NAME, callInfo.peerName)
                     putExtra(CallManager.EXTRA_CALLER_AVATAR, callInfo.peerAvatar ?: "")
                     putExtra(CallManager.EXTRA_CALLER_ID, callInfo.peerId.toString())
+                    putExtra(CallManager.EXTRA_CHANNEL_ID, callInfo.channelId.toString())
+                    putExtra(CallManager.EXTRA_LOCAL_CALL_ID, callInfo.localCallId)
                     putExtra(CallManager.EXTRA_IS_VIDEO_CALL, callInfo.isVideo)
                     putExtra(EXTRA_CONNECTED_TIME, connectedTime)
                 }

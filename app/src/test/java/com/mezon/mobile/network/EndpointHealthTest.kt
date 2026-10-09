@@ -10,14 +10,15 @@ class EndpointHealthTest {
 
     private val slow = EndpointHealth.SLOW_RTT_MS + 100
     private val fast = 40L
+    private val overdue = EndpointHealth.PONG_OVERDUE_AFTER_MS + 1
 
     private fun node(id: Int, host: String, port: Int = 443) = RealtimeEndpoint(id, host, port)
 
-    private fun settledHealth(now: Long = 1_000_000L): Pair<EndpointHealth, Long> {
+    private fun warmedHealth(now: Long = 1_000_000L): Pair<EndpointHealth, Long> {
         val health = EndpointHealth()
         health.setEndpoint(node(1, "sock.mezon.ai"))
         health.recordConnected(now)
-        return health to now + EndpointHealth.SLOW_SWITCH_COOLDOWN_MS
+        return health to now + EndpointHealth.PROBE_WARMUP_MS
     }
 
     private fun EndpointHealth.probeSlowly(times: Int, now: Long) {
@@ -25,79 +26,133 @@ class EndpointHealthTest {
     }
 
     @Test
-    fun `a slow link is reported only after settling and a full streak`() {
+    fun `a slow link is reported only after the warmup and a full streak`() {
         val now = 1_000_000L
-        val (health, settled) = settledHealth(now)
+        val (health, warmed) = warmedHealth(now)
 
         assertFalse(health.recordActiveProbe(slow, now))
 
-        health.probeSlowly(EndpointHealth.SLOW_STREAK_REQUIRED - 1, settled)
-        assertTrue(health.recordActiveProbe(slow, settled))
+        health.probeSlowly(EndpointHealth.SLOW_STREAK_REQUIRED - 1, warmed)
+        assertTrue(health.recordActiveProbe(slow, warmed))
     }
 
     @Test
-    fun `reporting is suppressed for a cooldown after a report`() {
-        val (health, settled) = settledHealth()
-        health.probeSlowly(EndpointHealth.SLOW_STREAK_REQUIRED - 1, settled)
-        assertTrue(health.recordActiveProbe(slow, settled))
+    fun `weak reports are spaced out`() {
+        val (health, warmed) = warmedHealth()
+        health.probeSlowly(EndpointHealth.SLOW_STREAK_REQUIRED - 1, warmed)
+        assertTrue(health.recordActiveProbe(slow, warmed))
 
-        health.probeSlowly(EndpointHealth.SLOW_STREAK_REQUIRED * 2, settled)
+        health.probeSlowly(EndpointHealth.SLOW_STREAK_REQUIRED * 2, warmed)
 
-        val afterCooldown = settled + EndpointHealth.SLOW_SWITCH_COOLDOWN_MS + 1
-        health.probeSlowly(EndpointHealth.SLOW_STREAK_REQUIRED - 1, afterCooldown)
-        assertTrue(health.recordActiveProbe(slow, afterCooldown))
+        val afterSpacing = warmed + EndpointHealth.WEAK_REPORT_SPACING_MS
+        assertTrue(health.recordActiveProbe(slow, afterSpacing))
     }
 
     @Test
     fun `one fast sample breaks the streak`() {
-        val (health, settled) = settledHealth()
+        val (health, warmed) = warmedHealth()
 
-        health.probeSlowly(EndpointHealth.SLOW_STREAK_REQUIRED - 1, settled)
-        assertFalse(health.recordActiveProbe(fast, settled))
+        health.probeSlowly(EndpointHealth.SLOW_STREAK_REQUIRED - 1, warmed)
+        assertFalse(health.recordActiveProbe(fast, warmed))
 
-        health.probeSlowly(EndpointHealth.SLOW_STREAK_REQUIRED - 1, settled)
-        assertTrue(health.recordActiveProbe(slow, settled))
+        health.probeSlowly(EndpointHealth.SLOW_STREAK_REQUIRED - 1, warmed)
+        assertTrue(health.recordActiveProbe(slow, warmed))
     }
 
     @Test
-    fun `a probe before the node has settled never counts`() {
+    fun `a probe before the warmup never counts`() {
         val now = 1_000_000L
         val health = EndpointHealth()
         health.setEndpoint(node(1, "sock.mezon.ai"))
         health.recordConnected(now)
 
-        val justBeforeSettled = now + EndpointHealth.SLOW_SWITCH_COOLDOWN_MS - 1
-        health.probeSlowly(EndpointHealth.SLOW_STREAK_REQUIRED * 3, justBeforeSettled)
+        val justBeforeWarmed = now + EndpointHealth.PROBE_WARMUP_MS - 1
+        health.probeSlowly(EndpointHealth.SLOW_STREAK_REQUIRED * 3, justBeforeWarmed)
     }
 
     @Test
     fun `a gateway confirmed slow node stops reporting until the next connect`() {
-        val (health, settled) = settledHealth()
-        health.probeSlowly(EndpointHealth.SLOW_STREAK_REQUIRED - 1, settled)
-        assertTrue(health.recordActiveProbe(slow, settled))
+        val (health, warmed) = warmedHealth()
+        health.probeSlowly(EndpointHealth.SLOW_STREAK_REQUIRED - 1, warmed)
+        assertTrue(health.recordActiveProbe(slow, warmed))
 
         health.disableSlowReports()
-        val muchLater = settled + EndpointHealth.SLOW_SWITCH_COOLDOWN_MS * 10
+        val muchLater = warmed + EndpointHealth.WEAK_REPORT_SPACING_MS * 10
         health.probeSlowly(EndpointHealth.SLOW_STREAK_REQUIRED * 3, muchLater)
+        assertFalse(health.recordHeartbeat(overdue, muchLater))
 
         health.recordConnected(muchLater)
-        val resettled = muchLater + EndpointHealth.SLOW_SWITCH_COOLDOWN_MS
-        health.probeSlowly(EndpointHealth.SLOW_STREAK_REQUIRED - 1, resettled)
-        assertTrue(health.recordActiveProbe(slow, resettled))
+        val rewarmed = muchLater + EndpointHealth.PROBE_WARMUP_MS
+        health.probeSlowly(EndpointHealth.SLOW_STREAK_REQUIRED - 1, rewarmed)
+        assertTrue(health.recordActiveProbe(slow, rewarmed))
     }
 
     @Test
-    fun `a fresh connection does not inherit the previous suppression`() {
-        val (health, settled) = settledHealth()
-        health.probeSlowly(EndpointHealth.SLOW_STREAK_REQUIRED - 1, settled)
-        assertTrue(health.recordActiveProbe(slow, settled))
+    fun `a reconnect does not reset the spacing between weak reports`() {
+        val (health, warmed) = warmedHealth()
+        health.probeSlowly(EndpointHealth.SLOW_STREAK_REQUIRED - 1, warmed)
+        assertTrue(health.recordActiveProbe(slow, warmed))
 
         health.recordDisconnected()
-        health.recordConnected(settled)
+        health.recordConnected(warmed)
 
-        val resettled = settled + EndpointHealth.SLOW_SWITCH_COOLDOWN_MS
-        health.probeSlowly(EndpointHealth.SLOW_STREAK_REQUIRED - 1, resettled)
-        assertTrue(health.recordActiveProbe(slow, resettled))
+        val rewarmed = warmed + EndpointHealth.PROBE_WARMUP_MS
+        health.probeSlowly(EndpointHealth.SLOW_STREAK_REQUIRED, rewarmed)
+
+        val afterSpacing = warmed + EndpointHealth.WEAK_REPORT_SPACING_MS
+        assertTrue(health.recordActiveProbe(slow, afterSpacing))
+    }
+
+    @Test
+    fun `two socket timeouts within the window report a weak node`() {
+        val (health, _) = warmedHealth()
+        val now = 1_000_000L
+
+        assertFalse(health.recordApiTimeout(now))
+        assertTrue(health.recordApiTimeout(now + 1_000L))
+    }
+
+    @Test
+    fun `socket timeouts further apart than the window do not add up`() {
+        val (health, _) = warmedHealth()
+        val now = 1_000_000L
+
+        assertFalse(health.recordApiTimeout(now))
+        assertFalse(health.recordApiTimeout(now + EndpointHealth.API_TIMEOUT_WINDOW_MS + 1))
+    }
+
+    @Test
+    fun `an overdue pong reports a weak node`() {
+        val (health, _) = warmedHealth()
+        val now = 1_000_000L
+
+        assertFalse(health.recordHeartbeat(EndpointHealth.PONG_OVERDUE_AFTER_MS, now))
+        assertTrue(health.recordHeartbeat(overdue, now))
+    }
+
+    @Test
+    fun `weak signals need a confirmed connection`() {
+        val now = 1_000_000L
+        val health = EndpointHealth()
+        health.setEndpoint(node(1, "sock.mezon.ai"))
+
+        assertFalse(health.recordApiTimeout(now))
+        assertFalse(health.recordApiTimeout(now + 1))
+        assertFalse(health.recordHeartbeat(overdue, now))
+    }
+
+    @Test
+    fun `every weak signal shares one spacing`() {
+        val (health, _) = warmedHealth()
+        val now = 1_000_000L
+
+        assertTrue(health.recordHeartbeat(overdue, now))
+        assertFalse(health.recordApiTimeout(now + 1))
+        assertFalse(health.recordApiTimeout(now + 2))
+
+        val later = now + EndpointHealth.WEAK_REPORT_SPACING_MS
+        assertFalse(health.recordApiTimeout(later))
+        assertTrue(health.recordApiTimeout(later + 1))
     }
 
     @Test
@@ -123,9 +178,9 @@ class EndpointHealthTest {
         assertNull(health.connectedEndpoint())
 
         health.recordConnected(now)
-        val settled = now + EndpointHealth.SLOW_SWITCH_COOLDOWN_MS
-        health.probeSlowly(EndpointHealth.SLOW_STREAK_REQUIRED - 1, settled)
-        assertTrue(health.recordActiveProbe(slow, settled))
+        val warmed = now + EndpointHealth.PROBE_WARMUP_MS
+        health.probeSlowly(EndpointHealth.SLOW_STREAK_REQUIRED - 1, warmed)
+        assertTrue(health.recordActiveProbe(slow, warmed))
     }
 
     @Test
@@ -137,7 +192,7 @@ class EndpointHealthTest {
         health.recordDisconnected()
 
         assertNull(health.connectedEndpoint())
-        assertFalse(health.recordActiveProbe(slow, now + EndpointHealth.SLOW_SWITCH_COOLDOWN_MS * 2))
+        assertFalse(health.recordActiveProbe(slow, now + EndpointHealth.PROBE_WARMUP_MS * 2))
     }
 
     @Test

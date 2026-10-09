@@ -9,6 +9,7 @@ import android.graphics.PorterDuffColorFilter
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextUtils
+import android.text.TextPaint
 import android.view.View
 import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.LayoutHelper
@@ -32,6 +33,7 @@ class SharingTargetCell(context: Context, private val theme: ThemeColors) : View
 
     private var nameLayout: StaticLayout? = null
     private var subtitleLayout: StaticLayout? = null
+    private val usernamePaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
     private val checkBoxRect = RectF()
     private val checkPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -101,9 +103,23 @@ class SharingTargetCell(context: Context, private val theme: ThemeColors) : View
             .setEllipsize(TextUtils.TruncateAt.END)
             .setAlignment(Layout.Alignment.ALIGN_NORMAL)
             .build()
-        subtitleLayout = if (t.isClanChannel && t.clanName.isNotEmpty()) {
+        val username = t.username.trim()
+        val subtitle = when {
+            t.isDm && username.isNotEmpty() -> username
+            t.isClanChannel -> t.clanName
+            else -> ""
+        }
+        subtitleLayout = if (subtitle.isNotEmpty()) {
+            val subtitlePaint = if (t.isDm) {
+                usernamePaint.apply {
+                    set(theme.dialogMessagePaint)
+                    textSize = LayoutHelper.sp(12f)
+                }
+            } else {
+                theme.dialogMessagePaint
+            }
             StaticLayout.Builder
-                .obtain(t.clanName, 0, t.clanName.length, theme.dialogMessagePaint, availableWidth)
+                .obtain(subtitle, 0, subtitle.length, subtitlePaint, availableWidth)
                 .setMaxLines(1)
                 .setEllipsize(TextUtils.TruncateAt.END)
                 .setAlignment(Layout.Alignment.ALIGN_NORMAL)

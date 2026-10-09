@@ -24,6 +24,7 @@ import android.text.Spanned
 import android.text.TextWatcher
 import android.text.style.ImageSpan
 import com.mezon.mobile.network.NetworkMonitor
+import com.mezon.mobile.network.CdnSigner
 import android.view.TouchDelegate
 import android.util.Log
 import android.util.LongSparseArray
@@ -34,6 +35,7 @@ import android.view.Menu
 import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewConfiguration
 import android.view.inputmethod.EditorInfo
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -89,6 +91,10 @@ import com.mezon.mobile.home.chat.input.InputSuggestionItem
 import com.mezon.mobile.home.chat.input.InputSuggestionsAdapter
 import com.mezon.mobile.home.chat.input.SlashCommand
 import com.mezon.mobile.home.chat.input.SlashCommandCatalog
+import com.mezon.mobile.home.chat.botcommand.BotCommandDispatch
+import com.mezon.mobile.home.chat.botcommand.BotCommandTracker
+import com.mezon.mobile.home.chat.botcommand.BotCommandUserAction
+import com.mezon.mobile.home.chat.botcommand.BotFlashCommand
 import com.mezon.mobile.home.chat.input.InputSuggestionsController
 import com.mezon.mobile.home.chat.input.InputSuggestionsPopup
 import com.mezon.mobile.home.chat.input.MentionSearchController
@@ -161,7 +167,6 @@ import com.mezon.mobile.home.chat.poll.parsePollContent
 import com.mezon.mobile.home.chat.poll.votedAnswerIndices
 import com.mezon.mobile.home.call.CallManager
 import com.mezon.mobile.home.call.CallPermissionUi
-import com.mezon.mobile.home.call.parseCallLogMessage
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -397,11 +402,18 @@ open class ChatFragment : BaseFragment() {
     private var pendingBottomScroll: Runnable? = null
     private var chatAdjustPanHelper: com.mezon.mobile.core.AdjustPanLayoutHelper? = null
     private var waitingForKeyboardOpen = false
+    private var keyboardOpenAttemptsRemaining = 0
     private var lastResumeTime = 0L
     private val openKeyboardRunnable = object : Runnable {
         override fun run() {
             if (!waitingForKeyboardOpen || isPaused) return
-            AndroidUtilities.showKeyboard(inputField)
+            if (!inputField.isAttachedToWindow || !inputField.hasFocus() ||
+                keyboardOpenAttemptsRemaining-- <= 0
+            ) {
+                waitingForKeyboardOpen = false
+                return
+            }
+            if (inputField.hasWindowFocus()) AndroidUtilities.showKeyboard(inputField)
             AndroidUtilities.runOnUIThread(this, 100)
         }
     }
@@ -462,6 +474,21 @@ open class ChatFragment : BaseFragment() {
     private var currentTrigger: InputSuggestionsController.TriggerState = InputSuggestionsController.TriggerState.NONE
     private var slashCommandDebounceJob: Job? = null
     private var slashCommandLoadJob: Job? = null
+    private var quickMenuLoadJob: Job? = null
+    private var isSelectingEphemeralTarget = false
+    private var ephemeralTarget: EphemeralTarget? = null
+    private var flashCommand: BotFlashCommand? = null
+    private var ephemeralBar: LinearLayout? = null
+    private var ephemeralNameView: TextView? = null
+    private var ephemeralCloseButton: ImageButton? = null
+    private val botCommandRowIds = HashSet<Long>()
+    private val botCommandTracker: BotCommandTracker by lazy {
+        BotCommandTracker(fragmentScope, mainDispatcher) { request ->
+            chatController.sendEphemeralMessageToBot(request).messageId
+        }.also { tracker -> tracker.onChange = { syncBotCommandRows() } }
+    }
+
+    private data class EphemeralTarget(val userId: Long, val displayName: String)
 
     private var slidingView: ChatMessageCell? = null
     private var maybeStartTrackingSlidingView = false
@@ -528,6 +555,7 @@ open class ChatFragment : BaseFragment() {
 
     fun getChannelId(): Long = channelId
     fun getClanId(): Long = clanId
+    fun getTopicId(): Long = topicId
 
     override fun onFragmentCreate(): Boolean {
         super.onFragmentCreate()
@@ -596,7 +624,6 @@ open class ChatFragment : BaseFragment() {
             loadTopicRootHeaderMessage()
         }
         refreshPermissionGates()
-        Log.d(TAG, "onFragmentCreate: startLoadFromMessageId=$startLoadFromMessageId forceLatest=$forceLatest channelId=$channelId")
         observe(NotificationCenter.channelPermissionOverridesDidLoad) { _, _, args ->
             val changedChannelId = args.getOrNull(0) as? Long ?: return@observe
             if (changedChannelId == channelId) refreshPermissionGates()
@@ -643,7 +670,6 @@ open class ChatFragment : BaseFragment() {
             if (serverLastSeenId != 0L) {
                 val newSeen = maxOf(lastSeenMessageId, serverLastSeenId)
                 if (newSeen != lastSeenMessageId) {
-                    Log.d(TAG, "lastSeenMessageId Math.max: $lastSeenMessageId → $newSeen")
                     lastSeenMessageId = newSeen
                     if (firstLoad || dividerSeenMessageId == 0L) dividerSeenMessageId = newSeen
                 }
@@ -736,7 +762,6 @@ open class ChatFragment : BaseFragment() {
             initialLoadRetryAttempt = 0
 
             if (jumpingToPresent && isCache) {
-                Log.d(TAG, "jumpToPresent: skip cache response (waiting for API), loaded=${loadedMessages.size}")
                 return@observe
             }
 
@@ -795,7 +820,6 @@ open class ChatFragment : BaseFragment() {
                         }
                         pendingEchoTempIds.remove(pending.id)
                         messagesDict.delete(pending.id)
-                        Log.d(TAG, "messagesDidLoad reconciled pending tempId=${pending.id} → realId=${echo.id}")
                         false
                     }
 
@@ -811,12 +835,14 @@ open class ChatFragment : BaseFragment() {
                     for (m in chatController.getActivePendingAttachmentMessages(messageListKey)) {
                         messagesDict.put(m.id, m)
                     }
+                    injectBotCommandRows()
                     messages.clear()
                     val all = ArrayList<MessageEntity>(messagesDict.size())
                     for (i in 0 until messagesDict.size()) all.add(messagesDict.valueAt(i))
                     sortMessagesByIdDesc(all)
                     messages.addAll(all)
                     pruneEmbedFormState()
+                    if (botCommandRowIds.isNotEmpty()) botCommandTracker.resolveReplies(messages)
                     hasMoreTop = moreTop
                     hasMoreBottom = moreBottom
 
@@ -843,7 +869,6 @@ open class ChatFragment : BaseFragment() {
                     && lastSeenMessageId < lastSentMessageId) {
                     hasUnread = true
                     if (dividerSeenMessageId == 0L) dividerSeenMessageId = lastSeenMessageId
-                    Log.d(TAG, "hasUnread re-evaluated to TRUE: lastSeen=$lastSeenMessageId < lastSent=$lastSentMessageId dividerSeen=$dividerSeenMessageId")
                 }
 
                 if (lastSentMessageId != 0L && newestReadableInList != 0L) {
@@ -890,16 +915,13 @@ open class ChatFragment : BaseFragment() {
                     jumpingToPresent = false
                     hasMoreBottom = false
                     isViewingOlder = false
-                    Log.d(TAG, "jumpToPresent: API done, msgs=${messages.size}, showing list + scrollToBottom")
                     showMessages()
                     forceScrollToBottom()
                     markAsRead()
                     updatePageDownVisibility()
                 } else {
-                    Log.d(TAG, "messagesDidLoad decision: wasFirstLoad=$wasFirstLoad hasUnread=$hasUnread isCache=$isCache firstLoad=$firstLoad msgs=${messages.size}")
 
                     if (rebuildUnchanged && !wasFirstLoad && pendingHighlightMessageId == 0L) {
-                        Log.d(TAG, "messagesDidLoad skip refresh: list unchanged")
                         if (!isViewingOlder) markAsRead()
                         return@observe
                     }
@@ -931,7 +953,6 @@ open class ChatFragment : BaseFragment() {
                         val highlightId = pendingHighlightMessageId
                         pendingHighlightMessageId = 0L
                         val hIdx = messages.indexOfFirst { it.id == highlightId }
-                        Log.d(TAG, "pendingHighlight: id=$highlightId idx=$hIdx msgsSize=${messages.size}")
                         if (hIdx >= 0) {
                             val newestInList = newestReadStateMessageId()
                             if (lastSentMessageId != 0L && newestInList < lastSentMessageId) {
@@ -953,14 +974,12 @@ open class ChatFragment : BaseFragment() {
                         forceScrollToBottom()
                         markAsRead()
                     } else if (wasFirstLoad) {
-                        Log.d(TAG, "scrollDecision: wasFirstLoad→forceScrollToBottom")
                         forceScrollToBottom()
                         markAsRead()
                     } else if (!isViewingOlder) {
                         forceScrollToBottom()
                         markAsRead()
                     } else if (anchorMsgId != 0L) {
-                        Log.d(TAG, "scrollDecision: anchorRestore anchorMsgId=$anchorMsgId offset=$anchorOffset")
                         val idx = messages.indexOfFirst { it.id == anchorMsgId }
                         if (idx >= 0) {
                             val lm = recyclerView.layoutManager as? LinearLayoutManager
@@ -985,38 +1004,16 @@ open class ChatFragment : BaseFragment() {
             if (args.size < 2) return@observe
             val eventChannelId = args[0] as? Long ?: return@observe
             if (eventChannelId != messageListKey) {
-                if (BuildConfig.DEBUG) {
-                    Log.d(
-                        TAG,
-                        "didReceiveNewMessages skip channel mismatch current=$channelId event=$eventChannelId"
-                    )
-                }
                 return@observe
             }
             val entity = args[1] as? MessageEntity ?: return@observe
             if (entity.channelId != 0L && entity.channelId != messageListKey) {
-                if (BuildConfig.DEBUG) {
-                    Log.d(
-                        TAG,
-                        "didReceiveNewMessages skip entity channel mismatch id=${entity.id} " +
-                            "entityChannel=${entity.channelId} key=$messageListKey"
-                    )
-                }
                 return@observe
             }
-            if (BuildConfig.DEBUG) {
-                val refId = debugReferencedMessageId(entity.content)
-                val refIdx = if (refId != 0L) messages.indexOfFirst { it.id == refId } else -1
-                val refMsg = if (refIdx >= 0) messages[refIdx] else if (refId != 0L) messagesDict.get(refId) else null
-                Log.d(
-                    TAG,
-                    "didReceiveNewMessages id=${entity.id} channel=${entity.channelId} code=${entity.code} " +
-                        "ts=${entity.timestampSeconds} ref=$refId refIdx=$refIdx refTs=${refMsg?.timestampSeconds ?: 0L} " +
-                        "dict=${messagesDict.get(entity.id) != null} isMe=${entity.isMe} isSending=${entity.isSending} " +
-                        "isViewingOlder=$isViewingOlder hasMoreBottom=$hasMoreBottom paused=$isPaused " +
-                        "first=${debugMessageAt(0)} last=${debugMessageAt(messages.lastIndex)} " +
-                        "content=${debugMessagePreview(entity.content)}"
-                )
+            if (!entity.isSending && botCommandRowIds.isNotEmpty() &&
+                botCommandTracker.resolveReplies(listOf(entity))
+            ) {
+                syncBotCommandRows()
             }
             if (entity.isSending) {
                 val insertIndex = insertSendingOptimisticMessage(entity)
@@ -1035,12 +1032,6 @@ open class ChatFragment : BaseFragment() {
                     }
                 }
                 if (isViewingOlder || hasMoreBottom) {
-                    if (BuildConfig.DEBUG) {
-                        Log.d(
-                            TAG,
-                            "didReceiveNewMessages sending jumpToPresent id=${entity.id} index=$insertIndex"
-                        )
-                    }
                     jumpToPresent()
                 } else if (fragmentView != null) {
                     forceScrollToBottom()
@@ -1081,12 +1072,6 @@ open class ChatFragment : BaseFragment() {
             if (isViewingOlder) {
                 newUnreadCount++
                 hasMoreBottom = true
-                if (BuildConfig.DEBUG) {
-                    Log.d(
-                        TAG,
-                        "didReceiveNewMessages buffer because viewingOlder id=${entity.id} unread=$newUnreadCount"
-                    )
-                }
                 if (::pageDownButton.isInitialized) {
                     pageDownButton.setUnreadCount(newUnreadCount)
                     pageDownButton.show(true)
@@ -1095,13 +1080,6 @@ open class ChatFragment : BaseFragment() {
             }
             messagesDict.put(entity.id, entity)
             val insertIndex = insertIndexForMessage(entity)
-            if (referencedEmbedResponseInsertIndex(entity) >= 0 && BuildConfig.DEBUG) {
-                Log.d(
-                    TAG,
-                    "didReceiveNewMessages anchored embed response id=${entity.id} " +
-                        "ref=${referencedMessageId(entity.content)} index=$insertIndex"
-                )
-            }
             messages.add(insertIndex, entity)
             refreshThreadWelcomeCreator()
             val trimmed = trimViewportOldest()
@@ -1120,22 +1098,12 @@ open class ChatFragment : BaseFragment() {
                 }
                 if (entity.isMe) forceScrollToBottom() else scrollToBottom()
             }
-            if (BuildConfig.DEBUG) {
-                Log.d(
-                    TAG,
-                    "didReceiveNewMessages inserted id=${entity.id} ts=${entity.timestampSeconds} " +
-                        "ref=${debugReferencedMessageId(entity.content)} index=$insertIndex size=${messages.size} " +
-                        "prev=${debugMessageAt(insertIndex - 1)} self=${debugMessageAt(insertIndex)} " +
-                        "next=${debugMessageAt(insertIndex + 1)}"
-                )
-            }
             if (!isPaused) markAsRead()
         }
         observe(NotificationCenter.pendingMessageSent) { _, _, args ->
             if (args.size < 3 || args[0] != messageListKey) return@observe
             val tempId = args[1] as? Long ?: return@observe
             val apiRealId = args[2] as? Long ?: return@observe
-            Log.d(TAG, "pendingMessageSent tempId=$tempId apiRealId=$apiRealId")
             if (apiRealId != 0L) {
                 sentByApiRealIds.add(apiRealId)
                 applyRealId(tempId, apiRealId)
@@ -1399,6 +1367,13 @@ open class ChatFragment : BaseFragment() {
             }
             replyBar?.setBackgroundColor(themeColors.surface)
             replyNameView?.setTextColor(themeColors.onSurface)
+            ephemeralBar?.setBackgroundColor(themeColors.surface)
+            ephemeralNameView?.setTextColor(themeColors.onSurface)
+            ephemeralCloseButton?.let { btn ->
+                val d = MezonIcon.closeSmallBold.getDrawable(btn.context)
+                d.colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
+                btn.setImageDrawable(d)
+            }
             replyCloseButton?.let { btn ->
                 val d = MezonIcon.closeSmallBold.getDrawable(btn.context)
                 d.colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
@@ -1426,7 +1401,6 @@ open class ChatFragment : BaseFragment() {
 
         observe(NotificationCenter.appDidReconnect) { _, _, _ ->
             if (isPaused) return@observe
-            Log.d(TAG, "appDidReconnect: reloading messages for channel $channelId")
             rejoinChannelOnSocket()
             chatController.loadMessages(channelId, clanId, forceRefresh = true, refreshWhenBackOnline = true, topicId = topicId)
         }
@@ -1500,7 +1474,6 @@ open class ChatFragment : BaseFragment() {
         }
 
         observe(NotificationCenter.dialogsNeedReload) { _, _, _ ->
-            Log.d("DmCallMenu", "dialogsNeedReload fired isPaused=$isPaused clanId=$clanId channelType=$channelType actionBar=${actionBar != null}")
             if (isPaused) return@observe
             if (clanId == 0L && channelType == CHANNEL_TYPE_GROUP) {
                 refreshPermissionGates()
@@ -1598,7 +1571,52 @@ open class ChatFragment : BaseFragment() {
     }
 
     override fun createView(context: Context): View {
-        sizeNotifierRoot = SizeNotifierFrameLayout(context, parentLayout)
+        sizeNotifierRoot = object : SizeNotifierFrameLayout(context, parentLayout) {
+            private val touchBounds = Rect()
+            private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
+            private var dismissKeyboardOnTap = false
+            private var touchDownX = 0f
+            private var touchDownY = 0f
+
+            override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        touchDownX = event.rawX
+                        touchDownY = event.rawY
+                        dismissKeyboardOnTap = ::inputBar.isInitialized &&
+                            !isTouchInside(inputBar, event) &&
+                            !isTouchInside(suggestionsPopup, event) &&
+                            !isTouchInside(emojiView, event) &&
+                            !isTouchInside(advancedMenuView, event)
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        val dx = event.rawX - touchDownX
+                        val dy = event.rawY - touchDownY
+                        if (dx * dx + dy * dy > touchSlop * touchSlop) {
+                            dismissKeyboardOnTap = false
+                        }
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        if (dismissKeyboardOnTap) dismissKeyboardForMessageInteraction()
+                        dismissKeyboardOnTap = false
+                    }
+                    MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_POINTER_DOWN -> {
+                        dismissKeyboardOnTap = false
+                    }
+                }
+                // Observe the touch without consuming message clicks, long presses or swipes.
+                return super.dispatchTouchEvent(event)
+            }
+
+            private fun isTouchInside(view: View?, event: MotionEvent): Boolean {
+                return view != null && view.isShown && view.getGlobalVisibleRect(touchBounds) &&
+                    touchBounds.contains(event.rawX.toInt(), event.rawY.toInt())
+            }
+        }.apply {
+            isFocusableInTouchMode = true
+            // Keep receiving the release event when tapping empty conversation space.
+            isClickable = true
+        }
         sizeNotifierRoot.setBackgroundColor(themeColors.chatBackground)
         rootView = sizeNotifierRoot
 
@@ -1831,6 +1849,42 @@ open class ChatFragment : BaseFragment() {
         ).also { it.gravity = android.view.Gravity.CENTER_VERTICAL })
 
         innerLayout.addView(replyBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+
+        ephemeralBar = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setBackgroundColor(themeColors.surface)
+            setPadding(LayoutHelper.dp(12f), LayoutHelper.dp(8f), LayoutHelper.dp(8f), LayoutHelper.dp(4f))
+            visibility = View.GONE
+        }
+        ephemeralBar!!.addView(View(context).apply {
+            setBackgroundColor(0xFFA78BFA.toInt())
+        }, LinearLayout.LayoutParams(
+            LayoutHelper.dp(3f), LayoutHelper.dp(28f)
+        ).apply { rightMargin = LayoutHelper.dp(8f) })
+        ephemeralNameView = TextView(context).apply {
+            setTextColor(themeColors.onSurface)
+            textSize = 13f
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        ephemeralBar!!.addView(ephemeralNameView, LinearLayout.LayoutParams(
+            0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+        ))
+        ephemeralCloseButton = ImageButton(context).apply {
+            val drawable = MezonIcon.closeSmallBold.getDrawable(context)
+            drawable.colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
+            setImageDrawable(drawable)
+            setBackgroundColor(android.graphics.Color.TRANSPARENT)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            val pad = LayoutHelper.dp(8f)
+            setPadding(pad, pad, pad, pad)
+            setOnClickListener { clearEphemeralTarget() }
+        }
+        ephemeralBar!!.addView(ephemeralCloseButton, LinearLayout.LayoutParams(
+            LayoutHelper.dp(32f), LayoutHelper.dp(32f)
+        ).also { it.gravity = android.view.Gravity.CENTER_VERTICAL })
+        innerLayout.addView(ephemeralBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
         val blurple = 0xFF5865F2.toInt()
 
@@ -2246,40 +2300,47 @@ open class ChatFragment : BaseFragment() {
             override fun didClickFile(cell: ChatMessageCell, msg: MessageEntity) {
                 val url = msg.attachmentUrl
                 if (url.isEmpty()) return
-                try {
-                    val mime = when {
-                        msg.attachmentFiletype.isNotEmpty() -> msg.attachmentFiletype
-                        else -> "*/*"
-                    }
-                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW)
-                    intent.setDataAndType(android.net.Uri.parse(url), mime)
-                    intent.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    context.startActivity(intent)
-                } catch (_: Exception) {
+                CdnSigner.requestUrlOnMain(url) { signed ->
+                    if (isFinished) return@requestUrlOnMain
                     try {
-                        val filename = msg.attachmentFilename.ifEmpty { url.substringAfterLast('/') }
-                        val request = android.app.DownloadManager.Request(android.net.Uri.parse(url))
-                            .setTitle(filename)
-                            .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                            .setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, filename)
-                        val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
-                        dm.enqueue(request)
-                        MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.INFO, "Downloading $filename")
+                        val mime = when {
+                            msg.attachmentFiletype.isNotEmpty() -> msg.attachmentFiletype
+                            else -> "*/*"
+                        }
+                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW)
+                        intent.setDataAndType(android.net.Uri.parse(signed.url), mime)
+                        intent.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        context.startActivity(intent)
                     } catch (_: Exception) {
-                        runCatching {
-                            context.startActivity(
-                                android.content.Intent(
-                                    android.content.Intent.ACTION_VIEW,
-                                    android.net.Uri.parse(url)
+                        try {
+                            val filename = msg.attachmentFilename.ifEmpty { url.substringAfterLast('/') }
+                            val request = android.app.DownloadManager.Request(android.net.Uri.parse(signed.url))
+                                .setTitle(filename)
+                                .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                                .setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, filename)
+                            val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
+                            dm.enqueue(request)
+                            MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.INFO, "Downloading $filename")
+                        } catch (_: Exception) {
+                            runCatching {
+                                context.startActivity(
+                                    android.content.Intent(
+                                        android.content.Intent.ACTION_VIEW,
+                                        android.net.Uri.parse(signed.url)
+                                    )
                                 )
-                            )
+                            }
                         }
                     }
                 }
             }
             override fun didLongPress(cell: ChatMessageCell, msg: MessageEntity) {
                 if (msg.isCallLogMessage()) return
+                if (botCommandTracker.isCommandRow(msg.id)) return
                 showMessageActionSheet(msg)
+            }
+            override fun didTapBotCommandAction(cell: ChatMessageCell, msg: MessageEntity, action: BotCommandUserAction) {
+                handleBotCommandAction(msg.id, action)
             }
             override fun didClickAvatar(cell: ChatMessageCell, msg: MessageEntity) {
                 if (msg.senderId == ANONYMOUS_USER_ID) return
@@ -2333,13 +2394,7 @@ open class ChatFragment : BaseFragment() {
                 return friendController.isUserBlocked(other.userId)
             }
             override fun didTapCallLogCallBack(cell: ChatMessageCell, msg: MessageEntity) {
-                val parsed = parseCallLogMessage(msg.content)
-                Log.d(
-                    TAG,
-                    "callLogCallback tap msgId=${msg.id} channelId=$channelId clanId=$clanId " +
-                        "senderId=${msg.senderId} isMe=${msg.isMe} parsedType=${parsed?.callLogType}"
-                )
-                val peer = resolveDmCallPeerForCallback(msg) ?: run {
+                val peer =resolveDmCallPeerForCallback(msg) ?: run {
                     if (channelType == CHANNEL_TYPE_DM && clanId == 0L) {
                         dialogsController.loadDmParticipants(channelId)
                         MezonToast.show(
@@ -2356,9 +2411,7 @@ open class ChatFragment : BaseFragment() {
                     }
                     return
                 }
-                Log.d(TAG, "callLogCallback resolved peerId=${peer.userId} msgId=${msg.id}")
                 requestCallPermissions(needsCamera = false, reason = "callLogCallback") {
-                    Log.d(TAG, "callLogCallback permissions ok startCall peerId=${peer.userId} msgId=${msg.id}")
                     runOutgoingCallAfterFullScreenIntentPrompt(
                         {
                             callController.startCall(
@@ -2413,12 +2466,6 @@ open class ChatFragment : BaseFragment() {
             override fun onOpenThread(threadChannelId: Long, threadTitle: String) {
                 val entity = channelController.findChannelById(threadChannelId, 0L)
                     ?: searchController.findChannelById(threadChannelId)
-                if (BuildConfig.DEBUG) {
-                    Log.d(
-                        TAG,
-                        "system_msg_open_thread id=$threadChannelId entity=${entity != null} clanId=$clanId"
-                    )
-                }
                 if (entity != null) {
                     openChannelEntity(entity)
                 } else {
@@ -2433,9 +2480,6 @@ open class ChatFragment : BaseFragment() {
             }
 
             override fun onSeeAllThreads() {
-                if (BuildConfig.DEBUG) {
-                    Log.d(TAG, "system_msg_see_all_threads channelId=$channelId clanId=$clanId")
-                }
                 presentFragment(ThreadListFragment.newInstance(channelId, channelName, clanId))
             }
 
@@ -2506,6 +2550,7 @@ open class ChatFragment : BaseFragment() {
                 ?: 0L
         }
         adapter.topicBadgeResolver = { tid -> topicBadgeTracker.getTopicBadge(tid) }
+        adapter.botCommandResolver = { id -> botCommandTracker.display(id) }
         adapter.systemMessageCreatorResolver = { creatorId ->
             memberResolver.resolveMember(creatorId, clanId, channelId, channelType)?.let { member ->
                 member.clanNick.ifBlank { member.displayName.ifBlank { member.username } }
@@ -2516,6 +2561,7 @@ open class ChatFragment : BaseFragment() {
         }
         refreshWelcomeFromDialog()
         refreshChatDisplayRoleCache()
+        prefetchQuickMenus()
         adapter.pollBridge = object : ChatPollBridge {
             override fun getLocalState(messageId: Long): PollLocalState {
                 val base = pollStates[messageId] ?: PollLocalState()
@@ -2542,6 +2588,9 @@ open class ChatFragment : BaseFragment() {
 
         recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrollStateChanged(rv: RecyclerView, newState: Int) {
+                if (newState == RecyclerView.SCROLL_STATE_DRAGGING) {
+                    dismissKeyboardForMessageInteraction()
+                }
                 when (newState) {
                     RecyclerView.SCROLL_STATE_DRAGGING, RecyclerView.SCROLL_STATE_SETTLING -> {
                         scrollingManually = true
@@ -2603,7 +2652,9 @@ open class ChatFragment : BaseFragment() {
             }
         })
 
-        chatAdjustPanHelper = object : com.mezon.mobile.core.AdjustPanLayoutHelper(rootView) {
+        chatAdjustPanHelper = object : com.mezon.mobile.core.AdjustPanLayoutHelper(
+            rootView, useInsetsAnimator = true
+        ) {
             override fun heightAnimationEnabled(): Boolean {
                 val layout = parentLayout
                 if (layout == null) return false
@@ -2612,14 +2663,11 @@ open class ChatFragment : BaseFragment() {
                 return true
             }
             override fun onTransitionStart(keyboardVisible: Boolean, contentHeight: Int) {
-                if (!keyboardVisible) recyclerView.stopScroll()
+                if (!keyboardVisible && !scrollingManually) recyclerView.stopScroll()
             }
             override fun onPanTranslationUpdate(y: Float, progress: Float, keyboardVisible: Boolean) {
                 actionBar?.translationY = y
-                inputBar.translationY = y
-                if (keyboardVisible && progress > 0f && !recyclerView.canScrollVertically(1)) {
-                    recyclerView.scrollBy(0, -y.toInt())
-                }
+                // The composer follows the root's IME animation; only the header stays fixed.
             }
         }
 
@@ -2834,6 +2882,17 @@ open class ChatFragment : BaseFragment() {
         return super.onBackPressed()
     }
 
+    private fun dismissKeyboardForMessageInteraction() {
+        if (!::inputField.isInitialized) return
+        waitingForKeyboardOpen = false
+        AndroidUtilities.cancelRunOnUIThread(openKeyboardRunnable)
+        AndroidUtilities.cancelRunOnUIThread(showKeyboardFromEmojiRunnable)
+        if (!inputField.hasFocus()) return
+        AndroidUtilities.hideKeyboard(inputField)
+        rootView.requestFocus()
+        hideSuggestionsPopup()
+    }
+
     private fun showEmojiView() {
         dismissPasteImagePopup()
         if (emojiView == null) createEmojiView()
@@ -2868,12 +2927,17 @@ open class ChatFragment : BaseFragment() {
         updateEmojiButtonIcon(showingEmoji = true)
     }
 
-    private val showKeyboardFromEmojiRunnable = Runnable {
+    private fun focusInputAndOpenKeyboard() {
+        if (isPaused || !inputField.isAttachedToWindow) return
         inputField.requestFocus()
         waitingForKeyboardOpen = true
+        keyboardOpenAttemptsRemaining = 10
         AndroidUtilities.cancelRunOnUIThread(openKeyboardRunnable)
-        AndroidUtilities.showKeyboard(inputField)
-        AndroidUtilities.runOnUIThread(openKeyboardRunnable, 100)
+        openKeyboardRunnable.run()
+    }
+
+    private val showKeyboardFromEmojiRunnable = Runnable {
+        focusInputAndOpenKeyboard()
     }
 
     private fun openKeyboardFromEmoji() {
@@ -3492,11 +3556,9 @@ open class ChatFragment : BaseFragment() {
         unreadDecoration.clear()
         recyclerView.invalidateItemDecorations()
         cancelPendingScroll()
-        Log.d(TAG, "forceScrollToBottom: itemCount=${adapter.itemCount} recyclerVisibility=${recyclerView.visibility}")
         val r = Runnable {
             val lm = recyclerView.layoutManager as? LinearLayoutManager ?: return@Runnable
             val position = adapter.messagesStartRow
-            Log.d(TAG, "forceScrollToBottom: scrollToPositionWithOffset($position, 0) executed")
             lm.scrollToPositionWithOffset(position, 0)
         }
         pendingBottomScroll = r
@@ -3577,7 +3639,6 @@ open class ChatFragment : BaseFragment() {
         val latestId = lastSentMessageId
         val alreadyLoaded = latestId != 0L && messagesDict.get(latestId) != null
         if (alreadyLoaded) {
-            Log.d(TAG, "jumpToPresent: latest msg $latestId already in list, scrollToBottom")
             adapter.showLoadingDown = false
             adapter.updateRowsSafe()
             forceScrollToBottom()
@@ -3585,7 +3646,6 @@ open class ChatFragment : BaseFragment() {
         } else {
             jumpingToPresent = true
             firstLoad = true
-            Log.d(TAG, "jumpToPresent: keeping current list until reload completes, loadMessages forceRefresh=true")
             chatController.loadMessages(channelId, clanId, forceRefresh = true, refreshWhenBackOnline = true, topicId = topicId)
         }
     }
@@ -4313,9 +4373,6 @@ open class ChatFragment : BaseFragment() {
             existing.extraAttachmentsJson == entity.extraAttachmentsJson &&
             existing.isError == entity.isError
         ) {
-            if (BuildConfig.DEBUG) {
-                Log.d(TAG, "didReceiveNewMessages exact duplicate id=${entity.id} code=${entity.code}")
-            }
             return true
         }
         val merged = if (entity.isMe) {
@@ -4345,14 +4402,6 @@ open class ChatFragment : BaseFragment() {
             if (mask == 0) mask = NotificationCenter.UPDATE_MASK_MESSAGE_TEXT
             updateVisibleRows(mask)
         }
-        if (BuildConfig.DEBUG) {
-            Log.d(
-                TAG,
-                "didReceiveNewMessages merged duplicate id=${entity.id} idx=$idx oldCode=${existing.code} " +
-                    "newCode=${entity.code} oldContent=${debugMessagePreview(existing.content)} " +
-                    "newContent=${debugMessagePreview(entity.content)}"
-            )
-        }
         return true
     }
 
@@ -4362,8 +4411,6 @@ open class ChatFragment : BaseFragment() {
     }
 
     private fun referencedMessageId(content: String): Long = firstReferenceMessageId(content)
-
-    private fun debugReferencedMessageId(content: String): Long = referencedMessageId(content)
 
     private fun referencedEmbedResponseInsertIndex(entity: MessageEntity): Int {
         val refId = referencedMessageId(entity.content)
@@ -4489,11 +4536,9 @@ open class ChatFragment : BaseFragment() {
         val o = parts.firstOrNull { it.userId != myId }
         if (o != null) {
             val name = o.displayName.ifBlank { o.username.ifBlank { "User" } }
-            Log.d(TAG, "resolveDmCallPeerForCallback peer=participants userId=${o.userId} msgId=${msg.id}")
             return CallPeer(o.userId, name, o.username, o.avatarUrl.ifBlank { null })
         }
         if (msg.senderId != myId) {
-            Log.d(TAG, "resolveDmCallPeerForCallback peer=senderId userId=${msg.senderId} msgId=${msg.id}")
             return CallPeer(
                 msg.senderId,
                 msg.senderName.ifBlank { "User" },
@@ -4504,10 +4549,6 @@ open class ChatFragment : BaseFragment() {
         val dm = dialogsController.getDialog(channelId)
         if (dm != null && dm.otherUserId != 0L && dm.otherUserId != myId) {
             val name = dm.displayName.ifBlank { dm.label.ifBlank { "User" } }
-            Log.d(
-                TAG,
-                "resolveDmCallPeerForCallback peer=dialog otherUserId=${dm.otherUserId} msgId=${msg.id}"
-            )
             return CallPeer(dm.otherUserId, name, dm.username, dm.avatarUrl.ifBlank { null })
         }
         Log.w(
@@ -4779,19 +4820,10 @@ open class ChatFragment : BaseFragment() {
 
     private fun setupDmHeaderCallMenu(chatActionBar: ActionBarView) {
         val participants = dialogsController.getParticipants(channelId)
-        val dmCached = dialogsController.getDialog(channelId)
-        Log.d(
-            "DmCallMenu",
-            "enter channelId=$channelId clanId=$clanId channelType=$channelType " +
-                "participants=${participants.size} dmCached=${dmCached != null} " +
-                "dmOtherUserId=${dmCached?.otherUserId} myId=${chatController.getCurrentUserId()}"
-        )
         if (clanId != 0L || channelType != CHANNEL_TYPE_DM) {
-            Log.d("DmCallMenu", "skip not-DM clanId=$clanId channelType=$channelType")
             return
         }
         if (isDmSelfOnlyChat()) {
-            Log.d("DmCallMenu", "skip self-only-chat channelId=$channelId")
             return
         }
         if (participants.isEmpty()) {
@@ -4799,10 +4831,8 @@ open class ChatFragment : BaseFragment() {
         }
         val otherId = dmHeaderCallOtherUserId()
         if (otherId != null && friendController.isUserBlocked(otherId)) {
-            Log.d("DmCallMenu", "skip peer-blocked otherId=$otherId")
             return
         }
-        Log.d("DmCallMenu", "proceed otherId=$otherId")
         chatActionBar.setMenuOnItemClick(object : ActionBarView.ActionBarMenuOnItemClick() {
             override fun onItemClick(id: Int) {
                 when (id) {
@@ -4845,11 +4875,9 @@ open class ChatFragment : BaseFragment() {
         })
         val menu = chatActionBar.createMenu()
         if (menu.getItem(MENU_DM_VOICE_CALL) != null) {
-            Log.d("DmCallMenu", "menu item already exists — only refresh color")
             chatActionBar.setItemsColor(themeColors.onSurface)
             return
         }
-        Log.d("DmCallMenu", "adding new MENU_DM_VOICE_CALL item iconRes=${MezonIcon.phoneCallIcon.resId}")
         val callMenuItem = menu.addItem(MENU_DM_VOICE_CALL, MezonIcon.phoneCallIcon.resId)
         callMenuItem.contentDescription = getString(R.string.user_profile_voice_call)
         val callItemLp = callMenuItem.layoutParams as LinearLayout.LayoutParams
@@ -4860,13 +4888,6 @@ open class ChatFragment : BaseFragment() {
         callMenuItem.iconView.scaleType = ImageView.ScaleType.FIT_CENTER
         callMenuItem.iconView.layoutParams = FrameLayout.LayoutParams(callIconPx, callIconPx, Gravity.CENTER)
         chatActionBar.setItemsColor(themeColors.onSurface)
-        Log.d(
-            "DmCallMenu",
-            "DONE menuChildCount=${menu.childCount} menuVis=${menu.visibility} " +
-                "callItemVis=${callMenuItem.visibility} actionBarParent=${chatActionBar.parent != null} " +
-                "actionBarW=${chatActionBar.width} actionBarH=${chatActionBar.height} " +
-                "themeOnSurface=${themeColors.onSurface}"
-        )
     }
 
     private fun resolveChannelPrivate(): Boolean {
@@ -5097,7 +5118,46 @@ open class ChatFragment : BaseFragment() {
             return
         }
 
-        Log.d(TAG, "sendMessage channelId=$channelId clanId=$clanId channelType=$channelType isPrivate=$isPrivate textLen=${cleanedText.length} attachments=${outgoingAttachments.size} hasReply=${references != null} mdMarkers=${filteredMdMarkers?.size ?: 0} ogp=${ogpMarker != null} hashtags=${hashtags?.size ?: 0}")
+        val target = ephemeralTarget
+        val command = flashCommand?.takeIf { outgoingAttachments.isEmpty() && it.stillPrefixes(text) }
+        if (target != null || command != null) {
+            val emojiMarkers = buildEmojiMarkers(cleanedText)
+            if (target != null && outgoingAttachments.isNotEmpty()) {
+                discardUnusedOverride()
+                MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.ephemeral_attachments_not_supported))
+                return
+            }
+            if (exceedsMessageContentLimit(
+                    outgoingContentFor(cleanedText, emojiMarkers, filteredMdMarkers, hashtags, ogpMarker)
+                )
+            ) {
+                MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.common_something_went_wrong))
+                return
+            }
+            val request = chatController.buildEphemeralMessage(
+                channelId, clanId, channelType, isPrivate, cleanedText,
+                references, mentions, emojiMarkers, filteredMdMarkers, ogpMarker, hashtags,
+                topicId = topicId,
+                assignClientId = target != null
+            )
+            if (target != null) {
+                sendEphemeralMessage(request, target.userId)
+                clearEphemeralTarget()
+            } else if (command != null) {
+                botCommandTracker.dispatch(
+                    BotCommandDispatch(
+                        botId = command.botId,
+                        botName = botDisplayName(command.botId),
+                        menuName = command.menuName,
+                        arguments = command.arguments(text),
+                        resendable = true,
+                        prepare = { request }
+                    )
+                )
+            }
+            resetComposerAfterSend()
+            return
+        }
 
         if (exceedsMessageContentLimit(
                 outgoingContentFor(cleanedText, buildEmojiMarkers(cleanedText), filteredMdMarkers, hashtags, ogpMarker)
@@ -5135,6 +5195,11 @@ open class ChatFragment : BaseFragment() {
                 topicId = topicId
             )
         }
+        resetComposerAfterSend()
+    }
+
+    private fun resetComposerAfterSend() {
+        flashCommand = null
         inputField.text?.clear()
         emojiObjPicked.clear()
         mentionTrackers.clear()
@@ -5143,6 +5208,88 @@ open class ChatFragment : BaseFragment() {
         failedInputOgpUrl = null
         clearInputOgpPreview()
         clearReplyState()
+    }
+
+    private fun sendEphemeralMessage(request: com.mezon.mezon.rtapi.ChannelMessageSend, receiverId: Long) {
+        fragmentScope.launch(mainDispatcher) {
+            val result = runCatching { chatController.sendEphemeralMessage(request, receiverId) }
+            val error = result.exceptionOrNull() ?: return@launch
+            if (error is kotlinx.coroutines.CancellationException) throw error
+            MezonToast.show(
+                this@ChatFragment,
+                ToastOverlay.ToastType.ERROR,
+                error.message?.takeIf { it.isNotBlank() } ?: getString(R.string.common_something_went_wrong)
+            )
+        }
+    }
+
+    private fun handleBotCommandAction(rowId: Long, action: BotCommandUserAction) {
+        when (action) {
+            is BotCommandUserAction.ViewReply -> scrollToReplyMessage(action.messageId)
+            BotCommandUserAction.Resend -> botCommandTracker.resend(rowId)
+            BotCommandUserAction.Dismiss -> botCommandTracker.dismiss(rowId)
+        }
+    }
+
+    private fun botCommandRow(entry: BotCommandTracker.Entry): MessageEntity {
+        val uc = userController
+        val name = uc.displayName.ifBlank { uc.username }
+        return MessageEntity(
+            id = entry.rowId,
+            channelId = messageListKey,
+            senderId = chatController.getCurrentUserId(),
+            senderName = name,
+            senderUsername = uc.username,
+            senderAvatar = uc.avatarUrl,
+            content = com.mezon.mobile.util.buildTextContent(entry.commandText),
+            timestampSeconds = entry.createdAtMs / 1000L,
+            code = MessageEntity.CODE_EPHEMERAL,
+            isMe = true,
+            topicId = topicId
+        )
+    }
+
+    private fun injectBotCommandRows() {
+        if (botCommandRowIds.isEmpty()) return
+        for (entry in botCommandTracker.entries) {
+            if (messagesDict.get(entry.rowId) == null) messagesDict.put(entry.rowId, botCommandRow(entry))
+        }
+    }
+
+    private fun syncBotCommandRows() {
+        botCommandTracker.resolveReplies(messages)
+        val entries = botCommandTracker.entries
+        val liveIds = entries.mapTo(HashSet()) { it.rowId }
+        val hasView = fragmentView != null && ::adapter.isInitialized
+        for (i in messages.indices.reversed()) {
+            val id = messages[i].id
+            if (id in botCommandRowIds && id !in liveIds) {
+                messages.removeAt(i)
+                messagesDict.delete(id)
+                if (hasView) adapter.notifyMessageRemovedAt(i)
+            }
+        }
+        botCommandRowIds.retainAll(liveIds)
+        var inserted = false
+        for (entry in entries) {
+            val existingIndex = messages.indexOfFirst { it.id == entry.rowId }
+            if (existingIndex >= 0) {
+                if (hasView) adapter.notifyMessageChangedAt(existingIndex)
+                continue
+            }
+            botCommandRowIds.add(entry.rowId)
+            if (isViewingOlder || hasMoreBottom) continue
+            val row = botCommandRow(entry)
+            messagesDict.put(row.id, row)
+            val insertIndex = insertIndexForMessage(row)
+            messages.add(insertIndex, row)
+            inserted = true
+            if (hasView) adapter.notifyMessageInsertedAt(insertIndex)
+        }
+        if (inserted && hasView) {
+            if (messages.size == 1) refreshUI()
+            forceScrollToBottom()
+        }
     }
 
     private fun setupPasteImageLongPress(ctx: Context) {
@@ -5561,6 +5708,10 @@ open class ChatFragment : BaseFragment() {
                     }
                     override fun onCreatePollRequested() {
                         openCreatePollScreen()
+                    }
+                    override fun onEphemeralSelected() {
+                        if (!ensureCanSendMessageOrNotify()) return
+                        beginEphemeralTargetSelectionFromMenu()
                     }
                     override fun onShareContactSelected() {
                         if (!ensureCanSendMessageOrNotify()) return
@@ -6915,6 +7066,7 @@ open class ChatFragment : BaseFragment() {
         val ctx = getContext() ?: return
         val activity = getParentActivity() ?: return
         if (activity.isFinishing || activity.isDestroyed) return
+        dismissKeyboardForMessageInteraction()
         val userId = chatController.getCurrentUserId()
         val isMyMessage = msg.senderId == userId
         val showEditMessage = msg.canEditMessage(userId)
@@ -6941,6 +7093,7 @@ open class ChatFragment : BaseFragment() {
             showTopicDiscussion = canShowTopicDiscussionInMessageMenu(msg),
             showPinActions = !isTopicMode,
             showResend = msg.sendState == MessageEntity.SEND_STATE_ERROR && isMyMessage,
+            showQuickMenu = canShowQuickMenu(msg),
             listener = object : MessageActionBottomSheet.MessageActionListener {
                 override fun onActionSelected(action: MessageActionBottomSheet.ActionType, message: MessageEntity) {
                     handleMessageAction(action, message)
@@ -7427,6 +7580,97 @@ open class ChatFragment : BaseFragment() {
             MessageActionBottomSheet.ActionType.GiveACoffee -> {
                 handleGiveCoffee(msg)
             }
+            MessageActionBottomSheet.ActionType.QuickMenu -> {
+                presentQuickMenuPicker(msg)
+            }
+        }
+    }
+
+    private val supportsQuickMenus: Boolean
+        get() = clanId != 0L && channelId != 0L &&
+            channelType != CHANNEL_TYPE_DM && channelType != CHANNEL_TYPE_GROUP
+
+    private fun prefetchQuickMenus() {
+        if (!supportsQuickMenus) return
+        if (SlashCommandCatalog.isFresh(channelId, SlashCommandCatalog.MENU_TYPE_QUICK_MENU)) return
+        if (quickMenuLoadJob?.isActive == true) return
+        val targetChannelId = channelId
+        quickMenuLoadJob = fragmentScope.launch(mainDispatcher) {
+            SlashCommandCatalog.load(
+                targetChannelId, mezonApi, sessionManager, ioDispatcher,
+                SlashCommandCatalog.MENU_TYPE_QUICK_MENU
+            )
+        }
+    }
+
+    private fun canShowQuickMenu(msg: MessageEntity): Boolean {
+        if (!supportsQuickMenus) return false
+        if (msg.id <= 0L || msg.sendState != MessageEntity.SEND_STATE_SENT || msg.isError) return false
+        prefetchQuickMenus()
+        val cached = SlashCommandCatalog.cachedOrNull(channelId, SlashCommandCatalog.MENU_TYPE_QUICK_MENU)
+            ?: return true
+        return cached.isNotEmpty()
+    }
+
+    private fun presentQuickMenuPicker(msg: MessageEntity) {
+        val targetChannelId = channelId
+        val cached = SlashCommandCatalog.cached(targetChannelId, SlashCommandCatalog.MENU_TYPE_QUICK_MENU)
+        if (cached.isNotEmpty()) {
+            showQuickMenuSheet(cached, msg)
+            return
+        }
+        fragmentScope.launch(mainDispatcher) {
+            val items = SlashCommandCatalog.load(
+                targetChannelId, mezonApi, sessionManager, ioDispatcher,
+                SlashCommandCatalog.MENU_TYPE_QUICK_MENU
+            )
+            if (isFinished || channelId != targetChannelId) return@launch
+            when {
+                items.isNotEmpty() -> showQuickMenuSheet(items, msg)
+                SlashCommandCatalog.cachedOrNull(targetChannelId, SlashCommandCatalog.MENU_TYPE_QUICK_MENU) == null ->
+                    MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.ERROR, getString(R.string.common_something_went_wrong))
+                else ->
+                    MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.INFO, getString(R.string.channel_quick_action_empty_menu_title))
+            }
+        }
+    }
+
+    private fun showQuickMenuSheet(items: List<SlashCommand>, msg: MessageEntity) {
+        val ctx = getContext() ?: return
+        val activity = getParentActivity() ?: return
+        if (activity.isFinishing || activity.isDestroyed) return
+        val sheet = QuickMenuPickerBottomSheet(ctx, items.map { it.name }) { menuName ->
+            executeQuickMenu(menuName, msg)
+        }
+        sheet.setDrawNavigationBar(true)
+        sheet.show()
+    }
+
+    private fun executeQuickMenu(menuName: String, msg: MessageEntity) {
+        val isPrivate = resolveChannelPrivate()
+        val targetClanId = clanId
+        val targetChannelId = channelId
+        val targetChannelType = channelType
+        val targetTopicId = topicId
+        fragmentScope.launch(mainDispatcher) {
+            val result = runCatching {
+                chatController.executeQuickMenu(
+                    menuName = menuName,
+                    message = msg,
+                    clanId = targetClanId,
+                    channelId = targetChannelId,
+                    channelType = targetChannelType,
+                    isChannelPrivate = isPrivate,
+                    topicId = targetTopicId,
+                )
+            }
+            val error = result.exceptionOrNull() ?: return@launch
+            if (error is kotlinx.coroutines.CancellationException) throw error
+            MezonToast.show(
+                this@ChatFragment,
+                ToastOverlay.ToastType.ERROR,
+                error.message?.takeIf { it.isNotBlank() } ?: getString(R.string.common_something_went_wrong)
+            )
         }
     }
 
@@ -7625,7 +7869,6 @@ open class ChatFragment : BaseFragment() {
                     put("t", messageTextForDm)
                     put("mk", org.json.JSONArray())
                 }.toString()
-                Log.d(TAG, "handleGiveCoffee: sending DM to channelId=$dmChannelId code=${MessageEntity.CODE_SEND_TOKEN} content=$content")
                 val request = com.mezon.mezon.rtapi.channelMessageSend {
                     this.clanId = 0L
                     this.channelId = dmChannelId
@@ -7667,8 +7910,7 @@ open class ChatFragment : BaseFragment() {
         val label = "${getString(R.string.message_chatbox_replying_to)} ${msg.senderName}"
         replyNameView?.text = label
         replyBar?.visibility = View.VISIBLE
-        inputField.requestFocus()
-        AndroidUtilities.showKeyboard(inputField)
+        focusInputAndOpenKeyboard()
     }
 
     private fun clearReplyState() {
@@ -7679,6 +7921,8 @@ open class ChatFragment : BaseFragment() {
 
     private fun setEditState(msg: MessageEntity) {
         clearReplyState()
+        clearEphemeralTarget()
+        flashCommand = null
         mentionTrackers.clear()
         hashtagTrackers.clear()
         emojiObjPicked.clear()
@@ -7697,8 +7941,7 @@ open class ChatFragment : BaseFragment() {
             suppressInputTrackerMutation = false
         }
         inputField.setSelection(inputField.text?.length ?: 0)
-        inputField.requestFocus()
-        AndroidUtilities.showKeyboard(inputField)
+        focusInputAndOpenKeyboard()
     }
 
     private fun applyEditHighlightSpans(restored: com.mezon.mobile.util.RestoredInputContent) {
@@ -7776,12 +8019,10 @@ open class ChatFragment : BaseFragment() {
         if (idx < 0) {
             pendingEchoTempIds.remove(tempId)
             if (messagesDict.get(realId) != null) return
-            Log.d(TAG, "applyRealId tempId=$tempId not found")
             return
         }
 
         if (messagesDict.get(realId) != null) {
-            Log.d(TAG, "applyRealId tempId=$tempId realId=$realId already present, dropping optimistic")
             if (::adapter.isInitialized) {
                 adapter.preserveOptimisticStableId(tempId, realId)
             }
@@ -7822,7 +8063,6 @@ open class ChatFragment : BaseFragment() {
         if (::adapter.isInitialized) {
             adapter.preserveOptimisticStableId(tempId, realId)
         }
-        Log.d(TAG, "applyRealId tempId=$tempId → realId=$realId")
         if (fragmentView == null) return
         val cellMask = when {
             pendingEntity != null || echoEntity != null ->
@@ -7944,7 +8184,6 @@ open class ChatFragment : BaseFragment() {
         if (idx >= 0) {
             scrollToAndHighlight(idx)
         } else {
-            Log.d(TAG, "Reply message $messageId not in list, calling loadMessagesAround")
             pendingHighlightMessageId = messageId
             chatController.loadMessagesAround(
                 channelId,
@@ -7976,11 +8215,13 @@ open class ChatFragment : BaseFragment() {
         val text = inputField.text?.toString() ?: ""
         val cursor = inputField.selectionStart
         if (cursor <= 0 || text.isEmpty()) {
+            isSelectingEphemeralTarget = false
             hideSuggestionsPopup()
             return
         }
 
         val trigger = InputSuggestionsController.detect(text, cursor)
+        if (trigger.mode != InputSuggestionsController.Mode.MENTION) isSelectingEphemeralTarget = false
         if (trigger.mode == InputSuggestionsController.Mode.NONE) {
             hideSuggestionsPopup()
             return
@@ -8037,7 +8278,9 @@ open class ChatFragment : BaseFragment() {
         if (trigger.mode != InputSuggestionsController.Mode.SLASH) return
         val items = InputSuggestionsController.buildSlashCommandItems(
             trigger.keyword,
-            SlashCommandCatalog.cached(channelId)
+            SlashCommandCatalog.cached(channelId),
+            includeEphemeral = supportsEphemeralCommand && editingMessage == null,
+            botNameFor = ::botDisplayName
         )
         if (items.isEmpty()) {
             hideSuggestionsPopup()
@@ -8062,9 +8305,72 @@ open class ChatFragment : BaseFragment() {
         }
     }
 
+    private val supportsEphemeralCommand: Boolean
+        get() = clanId != 0L && channelType != CHANNEL_TYPE_DM && channelType != CHANNEL_TYPE_GROUP
+
+    private fun botDisplayName(botId: Long): String {
+        if (botId == 0L) return ""
+        val member = memberResolver.resolveMember(botId, clanId, channelId, channelType) ?: return ""
+        return InputSuggestionsController.mentionDisplayName(member)
+    }
+
+    private fun beginEphemeralTargetSelection(editable: android.text.Editable, start: Int, end: Int) {
+        isSelectingEphemeralTarget = true
+        editable.replace(start, end, "@")
+        inputField.setSelection((start + 1).coerceAtMost(editable.length))
+        if (!isSelectingEphemeralTarget) {
+            isSelectingEphemeralTarget = true
+            checkSuggestionTrigger()
+        }
+    }
+
+    private fun beginEphemeralTargetSelectionFromMenu() {
+        if (!supportsEphemeralCommand || editingMessage != null) return
+        val editable = inputField.text ?: return
+        val cursor = inputField.selectionStart.coerceIn(0, editable.length)
+        val needsSpace = cursor > 0 && !editable[cursor - 1].isWhitespace()
+        val insert = if (needsSpace) " " else ""
+        editable.insert(cursor, insert)
+        val at = cursor + insert.length
+        inputField.requestFocus()
+        AndroidUtilities.showKeyboard(inputField)
+        beginEphemeralTargetSelection(editable, at, at)
+    }
+
+    private fun selectEphemeralTarget(member: com.mezon.mobile.home.ClanMember, editable: android.text.Editable, start: Int, end: Int) {
+        isSelectingEphemeralTarget = false
+        ephemeralTarget = EphemeralTarget(member.userId, InputSuggestionsController.mentionDisplayName(member))
+        refreshEphemeralBar()
+        editable.replace(start, end, "")
+        inputField.setSelection(start.coerceAtMost(editable.length))
+    }
+
+    private fun clearEphemeralTarget() {
+        isSelectingEphemeralTarget = false
+        if (ephemeralTarget == null) return
+        ephemeralTarget = null
+        refreshEphemeralBar()
+    }
+
+    private fun refreshEphemeralBar() {
+        val target = ephemeralTarget
+        if (target == null) {
+            ephemeralBar?.visibility = View.GONE
+            ephemeralNameView?.text = ""
+            return
+        }
+        ephemeralNameView?.text = getString(R.string.slash_command_ephemeral_banner, target.displayName)
+        ephemeralBar?.visibility = View.VISIBLE
+    }
+
     private fun applySlashCommand(command: SlashCommand) {
         val message = command.actionMsg.trim()
         if (message.isEmpty()) return
+        flashCommand = if (command.botId != 0L && editingMessage == null) {
+            BotFlashCommand(botId = command.botId, menuName = command.name, actionMsg = command.actionMsg)
+        } else {
+            null
+        }
         mentionTrackers.clear()
         hashtagTrackers.clear()
         emojiObjPicked.clear()
@@ -8095,6 +8401,18 @@ open class ChatFragment : BaseFragment() {
             mentionSearchController.search(clanId, channelId, trigger.keyword)
         } else {
             MentionSearchResult.NONE
+        }
+        if (isSelectingEphemeralTarget) {
+            val selfId = chatController.getCurrentUserId()
+            val ctx = InputSuggestionsController.MentionContext(
+                members = members.filter { it.userId != selfId },
+                roles = emptyList(),
+                includeHere = false,
+                includeRoles = false,
+                membersPending = membersPending || remote.pending,
+                remoteMembers = remote.members.filter { it.userId != selfId }
+            )
+            return InputSuggestionsController.buildMentionItems(trigger.keyword, ctx)
         }
         val ctx = InputSuggestionsController.MentionContext(
             members = members,
@@ -8176,6 +8494,11 @@ open class ChatFragment : BaseFragment() {
             }
             is InputSuggestionItem.Member -> {
                 val member = item.member
+                if (isSelectingEphemeralTarget && trigger.mode == InputSuggestionsController.Mode.MENTION) {
+                    selectEphemeralTarget(member, editable, triggerPos, replaceEnd)
+                    hideSuggestionsPopup()
+                    return
+                }
                 val displayName = InputSuggestionsController.mentionDisplayName(member)
                 insertMentionToken(editable, triggerPos, replaceEnd, "@$displayName", member.userId.toString(), "", themeColors.textLink)
             }
@@ -8192,6 +8515,10 @@ open class ChatFragment : BaseFragment() {
             }
             is InputSuggestionItem.SlashCommand -> {
                 applySlashCommand(item.command)
+            }
+            is InputSuggestionItem.EphemeralCommand -> {
+                beginEphemeralTargetSelection(editable, triggerPos, replaceEnd)
+                return
             }
         }
         hideSuggestionsPopup()
@@ -8559,11 +8886,9 @@ open class ChatFragment : BaseFragment() {
             needed.add(android.Manifest.permission.CAMERA)
         }
         if (needed.isEmpty()) {
-            Log.d(TAG, "requestCallPermissions already granted reason=$reason")
             pendingCallPermissionRequestIncludedCamera = false
             runOutgoingCallAfterFullScreenIntentPrompt(onGranted)
         } else {
-            Log.d(TAG, "requestCallPermissions prompting reason=$reason perms=$needed")
             pendingCallPermissionRequestIncludedCamera =
                 needed.contains(android.Manifest.permission.CAMERA)
             pendingCallPermissionCallback = { runOutgoingCallAfterFullScreenIntentPrompt(onGranted) }

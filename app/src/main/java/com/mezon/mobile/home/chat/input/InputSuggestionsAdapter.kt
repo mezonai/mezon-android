@@ -87,4 +87,5 @@ private fun suggestionStableId(item: InputSuggestionItem): Long = when (item) {
     is InputSuggestionItem.Emoji -> item.item.id.hashCode().toLong() or (1L shl 62)
     is InputSuggestionItem.SlashCommand ->
         (item.command.id.takeIf { it != 0L } ?: item.command.name.hashCode().toLong()) or (1L shl 59)
+    is InputSuggestionItem.EphemeralCommand -> Long.MIN_VALUE + 3
 }

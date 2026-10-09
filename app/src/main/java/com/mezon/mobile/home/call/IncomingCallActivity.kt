@@ -51,6 +51,7 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
     private var dismissed = false
     private var connecting = false
     private var observersAttached = false
+    private var localCallId: String? = null
 
     private var rootView: FrameLayout? = null
     private var contentLayout: LinearLayout? = null
@@ -84,9 +85,14 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
     }
 
     private val acceptTimeoutRunnable = Runnable {
-        if (!dismissed && connecting && CallController.instance?.isCallEstablished() != true) {
+        val controller = CallController.instance
+        if (controller?.currentCallInfo()?.localCallId != localCallId) {
+            finishCallActivity()
+            return@Runnable
+        }
+        if (!dismissed && connecting && controller?.isCallEstablished() != true) {
             Log.w(TAG, "acceptTimeoutRunnable: connecting timed out, ending")
-            CallController.instance?.endCall(CallEndReason.TIMEOUT)
+            controller?.timeoutConnectingCall()
             finishCallActivity()
         }
     }
@@ -102,6 +108,12 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
         val controller = ensureCallController()
         val callInfo = controller?.currentCallInfo()
         val state = controller?.callState
+        val requestedId = intent.getStringExtra(CallManager.EXTRA_LOCAL_CALL_ID)
+        if (requestedId != null && requestedId != callInfo?.localCallId) {
+            finish()
+            return
+        }
+        localCallId = callInfo?.localCallId
 
         val hasRealCall = callInfo != null ||
             state is CallState.Incoming ||
@@ -110,7 +122,6 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
             offerJson != null
 
         if (!hasRealCall) {
-            Log.d(TAG, "onCreate: no real incoming call, finishing (stale TelecomManager connection)")
             CallTelecomBridge.from(this)?.endWithCause(DisconnectCause.CANCELED)
             finish()
             return
@@ -187,6 +198,9 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
         if (intent == null) return
+        val requestedId = intent.getStringExtra(CallManager.EXTRA_LOCAL_CALL_ID)
+        if (requestedId != null && requestedId != CallController.instance?.currentCallInfo()?.localCallId) return
+        localCallId = CallController.instance?.currentCallInfo()?.localCallId
         loadIncomingData(intent)
         bindUiData()
         refreshFullScreenIntentHint()
@@ -292,14 +306,23 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
         when (id) {
             NotificationCenter.callStateChanged -> handleStateChanged()
             NotificationCenter.callMediaChanged -> updateConnectedMediaUi()
-            NotificationCenter.callEnded -> finishCallActivity()
+            NotificationCenter.callEnded -> {
+                if (connecting && args.firstOrNull() == CallEndReason.TIMEOUT) {
+                    Toast.makeText(this, getString(R.string.call_connection_timeout), Toast.LENGTH_LONG).show()
+                }
+                finishCallActivity()
+            }
         }
     }
 
     private fun handleStateChanged() {
         val controller = CallController.instance ?: return
+        if (localCallId != null && controller.currentCallInfo()?.localCallId != localCallId) {
+            finishCallActivity()
+            return
+        }
+        if (localCallId == null) localCallId = controller.currentCallInfo()?.localCallId
         val state = controller.callState
-        Log.d(TAG, "handleStateChanged: state=${state::class.simpleName}")
         when (state) {
             is CallState.Idle -> finishCallActivity()
             is CallState.Incoming -> {
@@ -513,12 +536,23 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
             addView(ProgressBar(this@IncomingCallActivity).apply {
                 indeterminateTintList = android.content.res.ColorStateList.valueOf(headlineColor)
             }, LinearLayout.LayoutParams(dp(36), dp(36)))
+            addView(VoiceStyleCircleButton(
+                this@IncomingCallActivity,
+                MezonIcon.callCancelIcon,
+                VoiceChrome.RED_STRONG,
+                0,
+                0xFFFFFFFF.toInt(),
+                VoiceStyleCircleButton.endCallIconSizePx(this@IncomingCallActivity)
+            ).apply {
+                contentDescription = getString(R.string.call_end_action)
+                setOnClickListener { endConnectingCall() }
+            }, LinearLayout.LayoutParams(dp(64), dp(64)).apply { topMargin = dp(24) })
         }
         root.addView(connectingContainer, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.WRAP_CONTENT,
             FrameLayout.LayoutParams.WRAP_CONTENT,
             Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-        ).apply { bottomMargin = dp(110) })
+        ).apply { bottomMargin = dp(70) })
 
         setContentView(root)
     }
@@ -650,6 +684,12 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
 
     private fun acceptCall() {
         if (dismissed || connecting) return
+        val controller = ensureCallController()
+        val currentInfo = controller?.currentCallInfo()
+        if ((localCallId != null || currentInfo != null) && currentInfo?.localCallId != localCallId) {
+            finishCallActivity()
+            return
+        }
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED
@@ -670,26 +710,18 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
         callAudioManager?.stop()
         callAudioManager = null
         handler.removeCallbacks(autoDeclineRunnable)
-        handler.postDelayed(acceptTimeoutRunnable, 60_000)
 
         showConnectingUi()
 
-        val controller = ensureCallController()
         val currentState = controller?.callState
         val json = offerJson
 
-        Log.d(TAG, "acceptCall: instance=${controller != null}, state=${currentState?.let { it::class.simpleName }}, offerJson=${json != null}")
-
         when {
             currentState is CallState.Incoming -> {
-                Log.d(TAG, "acceptCall: using WebSocket path (state=Incoming)")
                 controller?.acceptCall()
             }
-            currentState is CallState.Connecting || currentState is CallState.Connected -> {
-                Log.d(TAG, "acceptCall: already connecting/connected, no-op")
-            }
-            json != null && controller != null -> {
-                Log.d(TAG, "acceptCall: using FCM path (offerJson from SharedPreferences)")
+            currentState is CallState.Connecting || currentState is CallState.Connected -> Unit
+            currentState is CallState.Idle && json != null && controller != null -> {
                 controller.acceptCallFromFcm(json)
             }
             else -> {
@@ -703,9 +735,25 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
         lastConnectedMainVideoMode = null
         actionsContainer?.visibility = View.GONE
         connectingContainer?.visibility = View.VISIBLE
+        titleView?.text = getString(R.string.common_error_connecting)
         statusView?.visibility = View.INVISIBLE
         connectedRoot?.visibility = View.GONE
         fullScreenIntentHint?.visibility = View.GONE
+        handler.removeCallbacks(acceptTimeoutRunnable)
+        val remaining = CallController.instance?.connectingTimeoutRemainingMs() ?: CONNECT_TIMEOUT_MS
+        handler.postDelayed(acceptTimeoutRunnable, remaining)
+    }
+
+    private fun endConnectingCall() {
+        if (dismissed) return
+        handler.removeCallbacks(acceptTimeoutRunnable)
+        val controller = ensureCallController()
+        if (controller != null && controller.currentCallInfo()?.localCallId == localCallId) {
+            controller.hangup()
+        } else if (controller?.currentCallInfo() == null) {
+            CallTelecomBridge.from(this)?.endOrphanedConnection(DisconnectCause.LOCAL)
+        }
+        finishCallActivity()
     }
 
     private fun showConnectedUi(connectedTime: Long) {
@@ -794,8 +842,7 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
                     controller?.toggleSpeaker()
                 }
                 override fun onEndCallClicked() {
-                    controller?.hangup()
-                    finishCallActivity()
+                    endConnectingCall()
                 }
                 override fun onMicClicked() {
                     val ctl = controller ?: return
@@ -1006,6 +1053,12 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
 
     private fun declineCall(automatic: Boolean = false) {
         if (dismissed) return
+        val controller = ensureCallController()
+        val currentInfo = controller?.currentCallInfo()
+        if ((localCallId != null || currentInfo != null) && currentInfo?.localCallId != localCallId) {
+            finishCallActivity()
+            return
+        }
         dismissed = true
 
         statusView?.text = "Call ended"
@@ -1014,7 +1067,7 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
         handler.removeCallbacks(autoDeclineRunnable)
         handler.removeCallbacks(acceptTimeoutRunnable)
 
-        ensureCallController()?.rejectCallFromIncomingCallUi(offerJson, automatic)
+        controller?.rejectCallFromIncomingCallUi(offerJson, automatic)
 
         CallNotificationManager(this).dismissIncomingNotification()
         finishCallActivity()
@@ -1042,7 +1095,10 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
         dismissed = true
         cancelDeferredIncomingRingtone()
         try {
-            CallNotificationManager(this).dismissIncomingNotification()
+            val currentId = CallController.instance?.currentCallInfo()?.localCallId
+            if (currentId == null || currentId == localCallId) {
+                CallNotificationManager(this).dismissIncomingNotification()
+            }
         } catch (_: Exception) {}
         finish()
     }

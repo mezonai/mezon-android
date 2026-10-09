@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.chat.channelinfo
 
+import com.mezon.mobile.network.CdnSigner
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
@@ -29,6 +30,7 @@ import com.mezon.mobile.ui.cells.AvatarView
 import com.mezon.mobile.ui.cells.BackupImageView
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.util.createImgproxyUrl
+import com.mezon.mobile.util.isConfiguredMediaUrl
 import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -380,7 +382,7 @@ internal class ChannelMediaGalleryAdapter(
                 val ctx = hostContext() ?: return null
                 retriever.setDataSource(ctx, android.net.Uri.parse(url))
             } else {
-                retriever.setDataSource(url, HashMap())
+                retriever.setDataSource(CdnSigner.requestUrlBlocking(url).url, HashMap())
             }
             val frame = retriever.getFrameAtTime(
                 1_000_000L,
@@ -530,7 +532,7 @@ private fun galleryThumbLoadUrl(item: ChannelGalleryMediaItem, cellPx: Int): Str
     if (isGif) {
         return u
     }
-    val isCdn = u.startsWith("https://cdn.mezon") || u.startsWith("https://cdn.komu") || u.startsWith("https://profile.mezon")
+    val isCdn = u.startsWith("https://cdn.mezon") || u.startsWith("https://cdn.komu") || u.startsWith("https://profile.mezon") || isConfiguredMediaUrl(u)
     if (!isCdn) {
         return u
     }

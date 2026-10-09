@@ -64,7 +64,7 @@ class InputSuggestionCell(
 
     fun bind(newItem: InputSuggestionItem) {
         item = newItem
-        stacked = newItem is InputSuggestionItem.SlashCommand
+        stacked = newItem is InputSuggestionItem.SlashCommand || newItem is InputSuggestionItem.EphemeralCommand
         when (newItem) {
             is InputSuggestionItem.Here -> configureHere()
             is InputSuggestionItem.Loading -> configureLoading()
@@ -73,6 +73,7 @@ class InputSuggestionCell(
             is InputSuggestionItem.Channel -> configureChannel(newItem.entity)
             is InputSuggestionItem.Emoji -> configureEmoji(newItem.item)
             is InputSuggestionItem.SlashCommand -> configureSlashCommand()
+            is InputSuggestionItem.EphemeralCommand -> configureSlashCommand()
         }
         requestLayout()
         invalidate()
@@ -251,6 +252,7 @@ class InputSuggestionCell(
         is InputSuggestionItem.Channel -> it.entity.channelLabel
         is InputSuggestionItem.Emoji -> ":${it.item.shortname.replace(":", "")}:"
         is InputSuggestionItem.SlashCommand -> "/${it.command.name}"
+        is InputSuggestionItem.EphemeralCommand -> "/${InputSuggestionsController.EPHEMERAL_COMMAND_NAME}"
     }
 
     private fun subTextFor(it: InputSuggestionItem): String = when (it) {
@@ -261,7 +263,9 @@ class InputSuggestionCell(
         is InputSuggestionItem.Role -> ""
         is InputSuggestionItem.Channel -> it.subText.uppercase()
         is InputSuggestionItem.Emoji -> ""
-        is InputSuggestionItem.SlashCommand -> it.command.actionMsg.lineSequence().joinToString(" ").trim()
+        is InputSuggestionItem.SlashCommand ->
+            it.botName.ifBlank { it.command.actionMsg.lineSequence().joinToString(" ").trim() }
+        is InputSuggestionItem.EphemeralCommand -> context.getString(R.string.slash_command_ephemeral_description)
     }
 
     private fun configureHere() {

@@ -59,8 +59,8 @@ android {
                 arguments += "-DONNXRUNTIME_ROOT=${layout.buildDirectory.get().asFile}/onnxruntime-native"
             }
         }
-        versionCode = 1205
-        versionName = "1.2.14"
+        versionCode = 1210
+        versionName = "1.2.15"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -117,7 +117,7 @@ android {
         buildIntOpt("MEZON_TCP_PORT", 443)
         buildBoolOpt("MEZON_ABRIDGED_FALLBACK", true)
         buildBoolOpt("MEZON_ENDPOINT_FAILOVER", true)
-        buildBoolOpt("MEZON_ENDPOINT_FAILOVER_SLOW", false)
+        buildBoolOpt("MEZON_ENDPOINT_FAILOVER_SLOW", true)
         buildStr("MEZON_API_KEY")
         buildStr("MEZON_API_CLIENT_KEY_CUSTOM")
         buildStr("MEZON_DOMAIN_URL")
@@ -146,6 +146,7 @@ android {
         buildStr("MEZON_WEBRTC_ICESERVERS_USERNAME")
         buildStr("MEZON_WEBRTC_ICESERVERS_CREDENTIAL")
         buildStr("MEZON_BASE_IMG_URL")
+        buildStr("MEZON_BASE_MEZON_IMG_URL")
         buildStr("MEZON_LOGO_URL")
         buildStr("MEZON_IMGPROXY_BASE_URL")
         buildStr("MEZON_IMGPROXY_KEY")

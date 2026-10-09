@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.net.Uri
 import android.os.Build
 import android.os.SystemClock
 import android.util.Log
@@ -104,7 +105,8 @@ class CallNotificationManager(private val context: Context) {
     fun warmAvatarThenRepost(
         callerAvatar: String?,
         notificationId: Int,
-        rebuild: () -> Notification
+        rebuild: () -> Notification,
+        isCurrent: () -> Boolean = { true }
     ) {
         val url = callerAvatar?.trim()?.takeIf { it.isNotEmpty() } ?: return
         if (avatarCache.containsKey(url)) return
@@ -114,6 +116,7 @@ class CallNotificationManager(private val context: Context) {
                 avatarImgproxyUrl(url, sizePx), sizePx, sizePx,
                 onSuccess = { bitmap ->
                     avatarCache[url] = bitmap
+                    if (!isCurrent()) return@load
                     try {
                         notificationManager.notify(notificationId, rebuild())
                     } catch (e: Exception) {
@@ -129,6 +132,10 @@ class CallNotificationManager(private val context: Context) {
 
     private fun baseIncomingCallActivityIntent(extra: Intent.() -> Unit = {}): Intent {
         return Intent(context, IncomingCallActivity::class.java).apply {
+            CallController.instance?.currentCallInfo()?.localCallId?.let {
+                putExtra(CallManager.EXTRA_LOCAL_CALL_ID, it)
+                data = Uri.parse("mezon-call:$it")
+            }
             var flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
                 flags = flags or INTENT_FLAG_ACTIVITY_SHOW_WHEN_LOCKED or INTENT_FLAG_ACTIVITY_TURN_SCREEN_ON
@@ -149,15 +156,23 @@ class CallNotificationManager(private val context: Context) {
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
     )
 
+    private fun callActionIntent(action: String): Intent = Intent(context, CallActionReceiver::class.java).apply {
+        this.action = action
+        CallController.instance?.currentCallInfo()?.localCallId?.let {
+            putExtra(CallManager.EXTRA_LOCAL_CALL_ID, it)
+            data = Uri.parse("mezon-call:$it")
+        }
+    }
+
     private fun hangUpIntent(): PendingIntent = PendingIntent.getBroadcast(
         context, REQ_END,
-        Intent(context, CallActionReceiver::class.java).setAction(CallActionReceiver.ACTION_END),
+        callActionIntent(CallActionReceiver.ACTION_END),
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
     )
 
     private fun declineIntent(): PendingIntent = PendingIntent.getBroadcast(
         context, REQ_DECLINE,
-        Intent(context, CallActionReceiver::class.java).setAction(CallActionReceiver.ACTION_DECLINE),
+        callActionIntent(CallActionReceiver.ACTION_DECLINE),
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
     )
 
@@ -233,13 +248,15 @@ class CallNotificationManager(private val context: Context) {
         offerJson: String? = null,
         useFullScreenIntent: Boolean = true
     ) {
+        val owner = CallController.instance?.currentCallInfo()?.localCallId
         val build = {
             buildIncomingCallNotification(
                 callerName, callerAvatar, callerId, channelId, offerJson, useFullScreenIntent
             )
         }
         notificationManager.notify(INCOMING_CALL_NOTIFICATION_ID, build())
-        warmAvatarThenRepost(callerAvatar, INCOMING_CALL_NOTIFICATION_ID, build)
+        warmAvatarThenRepost(callerAvatar, INCOMING_CALL_NOTIFICATION_ID, build,
+            isCurrent = { owner != null && CallController.instance?.currentCallInfo()?.localCallId == owner && CallController.instance?.callState is CallState.Incoming })
     }
 
     fun buildInCallNotification(

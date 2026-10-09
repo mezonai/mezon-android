@@ -9,8 +9,10 @@ import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.session.StoredSession
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -32,12 +34,14 @@ class EndpointFailover @Inject constructor(
     private val sessionManager: SessionManager,
     private val networkMonitor: NetworkMonitor,
     private val mezonSocketLazy: dagger.Lazy<MezonSocket>,
+    private val serverStore: RealtimeServerStore,
     @ApplicationScope private val scope: CoroutineScope
 ) {
     companion object {
         private const val TAG = "EndpointFailover"
         private const val RETRY_BASE_MS = 5_000L
         private const val RETRY_CAP_MS = 60_000L
+        private const val ASK_PACING_SETTLE_MS = 60_000L
     }
 
     private val enabled = BuildConfig.MEZON_ENDPOINT_FAILOVER
@@ -54,6 +58,12 @@ class EndpointFailover @Inject constructor(
     @Volatile
     private var routeMissing = false
 
+    @Volatile
+    private var automaticChoiceJob: Job? = null
+
+    val serverChoice: RealtimeServerChoice
+        get() = serverStore.choice
+
     init {
         if (enabled) scope.launch { runLoop() }
     }
@@ -62,9 +72,12 @@ class EndpointFailover @Inject constructor(
         if (!enabled) return
         health.setEndpoint(endpoint)
         if (endpoint == null) return
-        health.recordConnected(SystemClock.elapsedRealtime())
-        retryMs = RETRY_BASE_MS
-        lastAskAtMs = 0L
+        val now = SystemClock.elapsedRealtime()
+        health.recordConnected(now)
+        if (lastAskAtMs == 0L || now - lastAskAtMs >= ASK_PACING_SETTLE_MS) {
+            retryMs = RETRY_BASE_MS
+            lastAskAtMs = 0L
+        }
     }
 
     fun onDisconnected() {
@@ -76,10 +89,26 @@ class EndpointFailover @Inject constructor(
         if (!enabled || !slowSwitchEnabled) return
         val endpoint = health.connectedEndpoint() ?: return
         if (!health.recordActiveProbe(rttMs, SystemClock.elapsedRealtime())) return
-        Log.i(
-            TAG,
-            "${endpoint.label()} has been slow for ${EndpointHealth.SLOW_STREAK_REQUIRED} heartbeats, asking the gateway"
-        )
+        reportWeak(endpoint, "slow_ping")
+    }
+
+    fun onApiTimeout() {
+        if (!enabled || !slowSwitchEnabled) return
+        val endpoint = health.connectedEndpoint() ?: return
+        if (!health.recordApiTimeout(SystemClock.elapsedRealtime())) return
+        reportWeak(endpoint, "api_timeout")
+    }
+
+    fun onHeartbeat(sinceLastPongMs: Long) {
+        if (!enabled || !slowSwitchEnabled) return
+        val endpoint = health.connectedEndpoint() ?: return
+        if (!health.recordHeartbeat(sinceLastPongMs, SystemClock.elapsedRealtime())) return
+        reportWeak(endpoint, "pong_overdue")
+    }
+
+    private fun reportWeak(endpoint: RealtimeEndpoint, signal: String) {
+        if (serverStore.choice != RealtimeServerChoice.AUTO) return
+        Log.i(TAG, "${endpoint.label()} looks weak ($signal), asking the gateway")
         requests.trySend(EndpointRefreshRequest(endpoint, HealthyEndpointReason.HIGH_LATENCY))
     }
 
@@ -87,6 +116,7 @@ class EndpointFailover @Inject constructor(
         if (!enabled) return
         val target = endpoint ?: health.connectedEndpoint() ?: return
         health.recordDisconnected()
+        if (serverStore.choice != RealtimeServerChoice.AUTO) return
         Log.w(TAG, "${target.label()} is not answering, asking the gateway for a node")
         requests.trySend(EndpointRefreshRequest(target, HealthyEndpointReason.UNREACHABLE))
     }
@@ -99,10 +129,73 @@ class EndpointFailover @Inject constructor(
         lastAskAtMs = 0L
     }
 
+    fun select(choice: RealtimeServerChoice) {
+        if (choice == RealtimeServerChoice.AUTO && automaticChoiceJob?.isActive == true) return
+        serverStore.save(choice)
+        while (requests.tryReceive().isSuccess) Unit
+        automaticChoiceJob?.cancel()
+        automaticChoiceJob = null
+        if (choice != RealtimeServerChoice.AUTO) {
+            reconnectIfMoved(realtimeEndpointOf(choice.host, null))
+            return
+        }
+        automaticChoiceJob = scope.launch {
+            val next = automaticNode()
+            ensureActive()
+            reconnectIfMoved(next)
+        }
+    }
+
+    private fun reconnectIfMoved(next: RealtimeEndpoint?) {
+        if (next == null || socket().targetEndpoint()?.isSameNode(next) == true) return
+        socket().reconnectForEndpointChange("server choice moved us to ${next.label()}")
+    }
+
+    private suspend fun automaticNode(): RealtimeEndpoint? {
+        val session = try {
+            sessionManager.requireValidSession()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not read the session before choosing a node", e)
+            return null
+        }
+        val sessionNode = realtimeEndpointOf(session.tcpUrl, session.wsUrl)
+        if (!enabled || routeMissing) return sessionNode
+        return try {
+            val response = try {
+                fetchDefaultNode(session.token)
+            } catch (e: HealthyEndpointStatusException) {
+                if ((e.code != 401 && e.code != 403) || !sessionManager.mayRefresh()) throw e
+                fetchDefaultNode(sessionManager.refresh().token)
+            }
+            applyDefaultNode(session, response) ?: sessionNode
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not get the default node from the gateway", e)
+            sessionNode
+        }
+    }
+
+    private suspend fun fetchDefaultNode(token: String): HealthyEndpoint =
+        api.getHealthyEndpoint(token, currentEndpointId = 0, reasonCode = HealthyEndpointReason.HIGH_LATENCY.code)
+
+    private suspend fun applyDefaultNode(current: StoredSession, response: HealthyEndpoint): RealtimeEndpoint? {
+        if (serverStore.choice != RealtimeServerChoice.AUTO) return null
+        val nextApiUrl = response.apiUrl.ifBlank { current.apiUrl }
+        val nextWsUrl = response.wsUrl.ifBlank { current.wsUrl }
+        val nextTcpUrl = response.tcpUrl.ifBlank { current.tcpUrl }
+        val next = realtimeEndpointOf(nextTcpUrl, nextWsUrl) ?: return null
+        if (!sessionManager.updateEndpoints(nextApiUrl, nextWsUrl, nextTcpUrl)) return null
+        return next
+    }
+
     private fun socket(): MezonSocket = mezonSocketLazy.get()
 
     private fun stillAimedAt(endpoint: RealtimeEndpoint): Boolean =
-        socket().targetEndpoint()?.isSameNode(endpoint) == true
+        serverStore.choice == RealtimeServerChoice.AUTO &&
+            socket().targetEndpoint()?.isSameNode(endpoint) == true
 
     private fun recoveredOnItsOwn(request: EndpointRefreshRequest): Boolean =
         request.reason == HealthyEndpointReason.UNREACHABLE &&
@@ -133,7 +226,7 @@ class EndpointFailover @Inject constructor(
         }
 
         val waitMs = if (lastAskAtMs == 0L) {
-            RETRY_BASE_MS
+            if (request.reason == HealthyEndpointReason.HIGH_LATENCY) 0L else RETRY_BASE_MS
         } else {
             retryMs - (SystemClock.elapsedRealtime() - lastAskAtMs)
         }

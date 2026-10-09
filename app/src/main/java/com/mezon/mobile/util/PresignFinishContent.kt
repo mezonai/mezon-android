@@ -46,7 +46,7 @@ object PresignFinishContent {
             if (!isMezonCdnUrl(url)) return false
             val keys = finishedKeys ?: return false
             val key = presignKey(url)
-            return key.isNotEmpty() && !keys.contains(key)
+            return key.isNotEmpty() && keys.none { presignKeysMatch(it, key) }
         }
 
         fun isExpired(url: String): Boolean {
@@ -116,7 +116,8 @@ object PresignFinishContent {
         return trimmed.startsWith("https://cdn.mezon") ||
             trimmed.startsWith("https://cdn.komu") ||
             trimmed.startsWith("http://cdn.mezon") ||
-            trimmed.startsWith("http://cdn.komu")
+            trimmed.startsWith("http://cdn.komu") ||
+            isConfiguredMediaUrl(trimmed)
     }
 
     fun presignKey(cdnUrl: String): String {
@@ -128,6 +129,17 @@ object PresignFinishContent {
         val dot = last.lastIndexOf('.')
         val withoutExt = if (dot > 0) last.substring(0, dot) else last
         return withoutExt.ifEmpty { last }
+    }
+
+    fun presignKeysMatch(finishedKey: String, key: String): Boolean {
+        if (finishedKey == key) return true
+        val snowflake = uploadSnowflake(finishedKey) ?: return false
+        return uploadSnowflake(key) == snowflake
+    }
+
+    private fun uploadSnowflake(key: String): String? {
+        val head = key.substringBefore('_', missingDelimiterValue = "")
+        return head.takeIf { it.isNotEmpty() && it.all { c -> c in '0'..'9' } }
     }
 
     fun isAttachmentReady(url: String, presignFinish: List<String>?): Boolean {

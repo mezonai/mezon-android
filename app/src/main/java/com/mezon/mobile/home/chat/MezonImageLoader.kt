@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.chat
 
+import com.mezon.mobile.network.CdnSigner
 import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.res.Configuration
@@ -56,7 +57,7 @@ class MezonImageLoader private constructor(context: Context) {
         } catch (_: Throwable) {
             null
         }
-        (shared?.newBuilder() ?: OkHttpClient.Builder())
+        (shared?.newBuilder() ?: OkHttpClient.Builder().addInterceptor(CdnSigner.interceptor))
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)
             .addInterceptor { chain ->

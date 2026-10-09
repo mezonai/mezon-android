@@ -143,7 +143,6 @@ class ConnectionController @Inject constructor(
     }
 
     private fun doFullReconnectRefresh() {
-        Log.d(TAG, "refreshOnReconnect: invalidating cache + refreshing all lists")
 
         badgeCoordinator.get().onReconnect()
         topicBadgeTracker.get().onReconnect()
@@ -180,13 +179,10 @@ class ConnectionController @Inject constructor(
         sessionManager.sessionFlow.collect { session ->
             if (session != null) {
                 if (StartupCache.needsUsernameSetup) {
-                    Log.d(TAG, "Username setup pending, deferring socket connect")
                     return@collect
                 }
                 val s = sessionManager.ensureFreshSession() ?: return@collect
-                Log.d(TAG, "Ensuring WebSocket connection... wsUrl=${s.wsUrl}")
                 if (mezonSocket.isSocketTokenStale(s.token)) {
-                    Log.d(TAG, "Session token changed, reconnecting socket with the new token")
                     mezonSocket.forceReconnect("session token changed")
                 }
                 mezonSocket.connect(s.wsUrl, s.token, s.tcpUrl)
@@ -223,7 +219,6 @@ class ConnectionController @Inject constructor(
 
     private suspend fun observeSocketReconnect() {
         mezonSocket.reconnected.collect {
-            Log.d(TAG, "Socket reconnected — triggering full refresh")
             refreshOnReconnect()
         }
     }
@@ -233,7 +228,6 @@ class ConnectionController @Inject constructor(
             val token = FirebaseMessaging.getInstance().token.await()
             val deviceId = Settings.Secure.getString(appContext.contentResolver, Settings.Secure.ANDROID_ID)
             fcmRepository.registerToken(token, deviceId)
-                .onSuccess { Log.d(TAG, "FCM token registered") }
                 .onFailure { Log.e(TAG, "FCM token registration failed", it) }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to get FCM token", e)

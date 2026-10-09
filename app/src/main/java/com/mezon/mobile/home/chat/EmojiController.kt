@@ -252,7 +252,6 @@ class EmojiController @Inject constructor(
             for (item in items) emojisDict[item.id] = item
             emojisLoaded = true
         }
-        Log.d(TAG, "Loaded ${items.size} emojis ($source)")
         notificationCenter.postNotificationOnMainThread(NotificationCenter.emojisNeedReload)
         return true
     }
@@ -279,7 +278,6 @@ class EmojiController @Inject constructor(
             for (item in items) stickersDict[item.id] = item
             stickersLoaded = true
         }
-        Log.d(TAG, "Loaded ${items.size} stickers ($source)")
         notificationCenter.postNotificationOnMainThread(NotificationCenter.stickersNeedReload)
     }
 
@@ -401,7 +399,6 @@ class EmojiController @Inject constructor(
 
     private suspend fun observeEmojiEvents() {
         dispatcher.emojiEvents.collect { event ->
-            Log.d(TAG, "EmojiEvent: id=${event.id} action=${event.action}")
             loadEmojis()
         }
     }
@@ -424,21 +421,18 @@ class EmojiController @Inject constructor(
 
     private suspend fun observeStickerEvents() {
         dispatcher.stickerCreateEvents.collect {
-            Log.d(TAG, "StickerCreateEvent: ${it.clanId}")
             loadStickers()
         }
     }
 
     private suspend fun observeStickerUpdateEvents() {
         dispatcher.stickerUpdateEvents.collect {
-            Log.d(TAG, "StickerUpdateEvent: ${it.stickerId}")
             loadStickers()
         }
     }
 
     private suspend fun observeStickerDeleteEvents() {
         dispatcher.stickerDeleteEvents.collect {
-            Log.d(TAG, "StickerDeleteEvent: ${it.stickerId}")
             loadStickers()
         }
     }

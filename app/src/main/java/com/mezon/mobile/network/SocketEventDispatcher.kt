@@ -62,6 +62,7 @@ import com.mezon.mezon.rtapi.VoiceReactionSend
 import com.mezon.mezon.rtapi.VoiceStartedEvent
 import com.mezon.mezon.rtapi.WebrtcSignalingFwd
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -255,7 +256,7 @@ class SocketEventDispatcher @Inject constructor(
     val emojiEvents: SharedFlow<EventEmoji> = _emojiEvents.asSharedFlow()
 
     init {
-        scope.launch {
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
             mezonSocket.events.collect { envelope ->
                 dispatch(envelope)
             }

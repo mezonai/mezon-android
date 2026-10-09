@@ -1005,7 +1005,7 @@ class RoleController @Inject constructor(
                     Log.w(TAG, "getRoleOfUserInTheClan failed for clan $clanId", e)
                 }
             }
-            val loggedUserMax = synchronized(lock) {
+            synchronized(lock) {
                 rolesByClan[clanId] = ArrayList(mapped)
                 listRolesSelfMaxLevelByClan[clanId] = roleList.maxLevelPermission
                 if (userMax != null) {
@@ -1014,7 +1014,6 @@ class RoleController @Inject constructor(
                         maxPermissionUser = userMax
                     }
                 }
-                userMaxFromGetRoleByClan[clanId] ?: 0
             }
             invalidateDisplayRoleCache(clanId)
             try {
@@ -1025,11 +1024,6 @@ class RoleController @Inject constructor(
             } catch (e: Exception) {
                 Log.e(TAG, "persist clan roles cache failed clanId=$clanId", e)
             }
-            Log.d(
-                TAG,
-                "clanId=$clanId rolesCount=${mapped.size} getRoleOfUserMax=$loggedUserMax listRolesPayloadMax=${roleList.maxLevelPermission} effective=${effectiveUserMaxPermissionLevel(clanId)}",
-            )
-            Log.d(TAG, "Loaded ${mapped.size} roles for clan $clanId")
             notificationCenter.postNotificationOnMainThread(NotificationCenter.clanRolesDidLoad, clanId)
         } catch (e: Exception) {
             Log.e(TAG, "loadRolesForClan failed for clan $clanId", e)

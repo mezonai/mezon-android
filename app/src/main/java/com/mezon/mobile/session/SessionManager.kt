@@ -5,6 +5,7 @@ import com.mezon.mobile.home.chat.poll.PollVotePersistence
 import com.mezon.mobile.util.EmbedFormUtil
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.network.MezonApi
+import com.mezon.mobile.network.CdnSigner
 import com.mezon.mobile.network.NetworkMonitor
 import com.mezon.mobile.network.ThrottledException
 import com.mezon.mobile.network.doubledBackoffMs
@@ -64,6 +65,14 @@ class SessionManager @Inject constructor(
         private const val ENCRYPTED_PREFIX = "enc:v1:"
         private const val REFRESH_THROTTLED_BASE_MS = 60_000L
         private const val REFRESH_THROTTLED_CAP_MS = 300_000L
+    }
+
+    init {
+        CdnSigner.install { channelId ->
+            withAutoRefresh { session ->
+                api.generateCDNSignature(session.apiUrl, session.token, channelId).signature
+            }
+        }
     }
 
     @Volatile
@@ -241,7 +250,7 @@ class SessionManager @Inject constructor(
                 userId = current.userId,
                 idToken = protoSession.getIdToken().ifEmpty { current.idToken },
                 isRemember = current.isRemember,
-                tcpUrl = current.tcpUrl,
+                tcpUrl = protoSession.getTcpUrl().ifEmpty { current.tcpUrl },
             )
 
             if (!persistSession(newSession, requiredEpoch = epochAtStart)) {
@@ -251,7 +260,6 @@ class SessionManager @Inject constructor(
             lastRefreshToken = newSession.refreshToken
             failCount = 0
             releaseRefreshThrottle()
-            Log.d(TAG, "Session refreshed successfully")
             return newSession
         } catch (e: SessionExpiredException) {
             throw e
@@ -346,7 +354,6 @@ class SessionManager @Inject constructor(
             block(session)
         } catch (_: com.mezon.mobile.network.UnauthorizedException) {
             if (!networkMonitor.isOnline.value) throw IOException("Offline, cannot refresh")
-            Log.d(TAG, "Got 401, refreshing and retrying...")
             val refreshed = refresh()
             block(refreshed)
         }
@@ -368,6 +375,7 @@ class SessionManager @Inject constructor(
             StartupCache.clearAccountProfileScratch()
             PollVotePersistence.clearAll()
             EmbedFormUtil.clearAll()
+            CdnSigner.reset()
             lastRefreshToken = ""
             failCount = 0
             dataStore.edit { prefs -> prefs.removeAllSessionData() }

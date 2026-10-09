@@ -8,6 +8,7 @@ import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.LayerDrawable
 import android.graphics.Canvas
 import android.graphics.ColorFilter
 import android.graphics.Paint
@@ -24,16 +25,22 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.core.graphics.ColorUtils
 import com.mezon.mobile.R
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
+import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.di.FragmentEntryPoint
+import com.mezon.mobile.home.ConnectionController
 import com.mezon.mobile.home.friends.FriendController
 import com.mezon.mobile.home.friends.FriendsHomeFragment
 import com.mezon.mobile.home.friends.createFriendRequestBadgeView
 import com.mezon.mobile.home.friends.updateFriendRequestBadge
 import com.mezon.mobile.home.wallet.SendTokenFragment
+import com.mezon.mobile.network.ConnectionState
+import com.mezon.mobile.network.EndpointFailover
+import com.mezon.mobile.network.RealtimeServerChoice
 import com.mezon.mobile.ui.cells.AvatarView
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.ToastOverlay
@@ -89,6 +96,9 @@ class ProfileFragment : BaseFragment() {
     private lateinit var friendController: FriendController
     private lateinit var walletController: WalletController
 
+    private lateinit var connectionController: ConnectionController
+    private lateinit var endpointFailover: EndpointFailover
+
     var onLogout: (() -> Unit)? = null
 
     private lateinit var avatarView: AvatarView
@@ -107,12 +117,20 @@ class ProfileFragment : BaseFragment() {
     private lateinit var friendsRequestBadgeText: TextView
     private lateinit var settingGeneralIconView: ImageView
     private lateinit var scrollView: ScrollView
+    private lateinit var serverChip: LinearLayout
+    private lateinit var serverStatusHalo: GradientDrawable
+    private lateinit var serverStatusDot: GradientDrawable
+    private lateinit var serverLabel: TextView
+    private lateinit var serverBadge: TextView
+    private lateinit var serverChevron: ImageView
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
         userController = entryPoint.userController()
         accountController = entryPoint.accountController()
         friendController = entryPoint.friendController()
         walletController = entryPoint.walletController()
+        connectionController = entryPoint.connectionController()
+        endpointFailover = entryPoint.endpointFailover()
     }
 
     override fun onFragmentCreate(): Boolean {
@@ -123,6 +141,15 @@ class ProfileFragment : BaseFragment() {
                 if (fragmentView == null || isPaused) return@collect
                 withContext(Dispatchers.Main) {
                     updateUI()
+                }
+            }
+        }
+
+        fragmentScope.launch {
+            connectionController.mezonSocket.connectionState.collect {
+                if (fragmentView == null) return@collect
+                withContext(Dispatchers.Main) {
+                    updateServerChip()
                 }
             }
         }
@@ -183,6 +210,7 @@ class ProfileFragment : BaseFragment() {
         val infoCol = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             clipChildren = false
+            clipToPadding = false
             setPadding(LayoutHelper.dp(18), LayoutHelper.dp(83), LayoutHelper.dp(18), 0)
         }
         headerContainer.addView(infoCol, FrameLayout.LayoutParams(
@@ -256,7 +284,7 @@ class ProfileFragment : BaseFragment() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             background = object : Drawable() {
-                private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = themeColors.surfaceVariant }
+                private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = themeColors.getColor(ThemeColors.key_sheetItemBackground) }
                 private val path = Path()
                 private var lastWidth = 0f
                 private var lastHeight = 0f
@@ -376,6 +404,11 @@ class ProfileFragment : BaseFragment() {
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
         ).apply { topMargin = 0 })
 
+        serverChip = createServerChip(context)
+        infoCol.addView(serverChip, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LayoutHelper.dp(30)
+        ).apply { topMargin = LayoutHelper.dp(6) })
+
         scrollView = ScrollView(context).apply {
             isVerticalScrollBarEnabled = false
             overScrollMode = View.OVER_SCROLL_NEVER
@@ -393,8 +426,10 @@ class ProfileFragment : BaseFragment() {
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT
         ))
 
-        walletSection = createCardSection(context)
-        contentColumn.addView(walletSection, createCardMarginParams().apply { topMargin = LayoutHelper.dp(24) })
+        walletSection = createCardSection(context).apply {
+            setPadding(paddingLeft, LayoutHelper.dp(8), paddingRight, paddingBottom)
+        }
+        contentColumn.addView(walletSection, createCardMarginParams())
 
         val balanceRow = createIconTextRow(context, MezonIcon.balanceIcon, "", null) {
         }
@@ -411,8 +446,8 @@ class ProfileFragment : BaseFragment() {
 
         val editProfileBtn = createEditProfileButton(context)
         walletSection.addView(editProfileBtn, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LayoutHelper.dp(48)
-        ).apply { topMargin = LayoutHelper.dp(10) })
+            LinearLayout.LayoutParams.MATCH_PARENT, LayoutHelper.dp(44)
+        ).apply { topMargin = LayoutHelper.dp(8) })
 
         val aboutSection = createCardSection(context)
         contentColumn.addView(aboutSection, createCardMarginParams())
@@ -499,7 +534,7 @@ class ProfileFragment : BaseFragment() {
                 .apply { leftMargin = LayoutHelper.dp(12) }
         )
 
-        val friendAvatarBgColor = themeColors.surfaceVariant
+        val friendAvatarBgColor = themeColors.getColor(ThemeColors.key_sheetItemBackground)
         val friendSlotSize = LayoutHelper.dp(32)
         val friendAvatarSize = LayoutHelper.dp(28)
         val friendSlotOverlap = -LayoutHelper.dp(10)
@@ -568,7 +603,7 @@ class ProfileFragment : BaseFragment() {
     private fun createCircleIconButton(context: Context, icon: MezonIcon, onClick: () -> Unit): FrameLayout {
         val size = LayoutHelper.dp(36)
         val container = FrameLayout(context).apply {
-            val bg = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(themeColors.surfaceVariant) }
+            val bg = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(themeColors.getColor(ThemeColors.key_sheetItemBackground)) }
             background = bg
             isClickable = true; isFocusable = true; setOnClickListener { onClick() }
         }
@@ -584,10 +619,10 @@ class ProfileFragment : BaseFragment() {
     private fun createCardSection(context: Context): LinearLayout {
         return LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            val pad = LayoutHelper.dp(20)
-            setPadding(pad, LayoutHelper.dp(16), pad, LayoutHelper.dp(16))
+            val pad = LayoutHelper.dp(16)
+            setPadding(pad, LayoutHelper.dp(14), pad, LayoutHelper.dp(14))
             val bg = GradientDrawable().apply {
-                cornerRadius = LayoutHelper.dp(20f).toFloat(); setColor(themeColors.surfaceVariant)
+                cornerRadius = LayoutHelper.dp(20f).toFloat(); setColor(themeColors.getColor(ThemeColors.key_sheetItemBackground))
             }
             background = bg
         }
@@ -612,7 +647,7 @@ class ProfileFragment : BaseFragment() {
         row.addView(iconView, LinearLayout.LayoutParams(LayoutHelper.dp(24), LayoutHelper.dp(24)))
         val label = TextView(context).apply {
             this.text = text; setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f); setTextColor(themeColors.onSurfaceVariant)
-            setPadding(LayoutHelper.dp(16), LayoutHelper.dp(10), 0, LayoutHelper.dp(10))
+            setPadding(LayoutHelper.dp(16), LayoutHelper.dp(8), 0, LayoutHelper.dp(8))
         }
         row.addView(label, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         row.setOnClickListener { onClick?.invoke(row) }
@@ -641,6 +676,7 @@ class ProfileFragment : BaseFragment() {
 
     private fun updateUI() {
         if (!::avatarView.isInitialized) return
+        updateServerChip()
         val info = accountController.accountInfo.value
 
         val name = info.displayName.ifEmpty { info.username.ifEmpty { userController.displayName.ifEmpty { userController.username } } }
@@ -695,7 +731,7 @@ class ProfileFragment : BaseFragment() {
             aboutMeContainer.visibility = View.GONE
         }
         val memberLp = memberSinceContainer.layoutParams as LinearLayout.LayoutParams
-        val memberTop = if (hasAboutMe) LayoutHelper.dp(18) else 0
+        val memberTop = if (hasAboutMe) LayoutHelper.dp(12) else 0
         if (memberLp.topMargin != memberTop) {
             memberLp.topMargin = memberTop
             memberSinceContainer.layoutParams = memberLp
@@ -749,6 +785,100 @@ class ProfileFragment : BaseFragment() {
             ToastOverlay.ToastType.SUCCESS,
             getString(R.string.profile_copy_success)
         )
+    }
+
+    private fun createServerChip(context: Context): LinearLayout {
+        val chip = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(LayoutHelper.dp(13), 0, LayoutHelper.dp(10), 0)
+            background = GradientDrawable().apply { cornerRadius = LayoutHelper.dp(10f).toFloat() }
+            foreground = androidx.core.content.ContextCompat.getDrawable(context, selectableItemBgResId(context))
+            clipToOutline = true
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { showServerSheet() }
+        }
+
+        serverStatusHalo = GradientDrawable().apply { shape = GradientDrawable.OVAL }
+        serverStatusDot = GradientDrawable().apply { shape = GradientDrawable.OVAL }
+        val dotInset = LayoutHelper.dp(3)
+        val statusView = View(context).apply {
+            background = LayerDrawable(arrayOf(serverStatusHalo, serverStatusDot)).apply {
+                setLayerInset(1, dotInset, dotInset, dotInset, dotInset)
+            }
+        }
+        chip.addView(statusView, LinearLayout.LayoutParams(LayoutHelper.dp(14), LayoutHelper.dp(14)))
+
+        serverLabel = TextView(context).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        }
+        chip.addView(serverLabel, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { leftMargin = LayoutHelper.dp(6) })
+
+        serverBadge = TextView(context).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            minWidth = LayoutHelper.dp(18)
+            setPadding(LayoutHelper.dp(7), 0, LayoutHelper.dp(7), 0)
+            background = GradientDrawable().apply { cornerRadius = LayoutHelper.dp(4f).toFloat() }
+        }
+        chip.addView(serverBadge, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LayoutHelper.dp(18)
+        ).apply { leftMargin = LayoutHelper.dp(6) })
+
+        serverChevron = ImageView(context).apply {
+            setImageResource(MezonIcon.chevronDownSmallIcon.resId)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+        }
+        chip.addView(serverChevron, LinearLayout.LayoutParams(
+            LayoutHelper.dp(16), LayoutHelper.dp(16)
+        ).apply { leftMargin = LayoutHelper.dp(3) })
+        return chip
+    }
+
+    private fun updateServerChip() {
+        if (!::serverChip.isInitialized) return
+        if (!RealtimeServerChoice.isAvailable) {
+            serverChip.visibility = View.GONE
+            return
+        }
+        serverChip.visibility = View.VISIBLE
+        val connected = connectionController.mezonSocket.connectionState.value == ConnectionState.CONNECTED
+        val statusColor = if (connected) themeColors.connectedColor else themeColors.connectingColor
+        (serverChip.background as? GradientDrawable)?.setColor(themeColors.getColor(ThemeColors.key_sheetItemBackground))
+        serverStatusHalo.setColor(ColorUtils.setAlphaComponent(statusColor, 77))
+        serverStatusDot.setColor(statusColor)
+        serverLabel.setTextColor(themeColors.onSurface)
+        serverBadge.setTextColor(themeColors.onPrimary)
+        (serverBadge.background as? GradientDrawable)?.setColor(themeColors.primary)
+        serverChevron.colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
+
+        val choice = endpointFailover.serverChoice
+        val region = choice.regionName ?: serverRegionInUse()
+        serverLabel.text = if (choice == RealtimeServerChoice.AUTO) {
+            "${getString(R.string.profile_server)} · ${getString(R.string.profile_server_auto)}"
+        } else {
+            getString(R.string.profile_server)
+        }
+        serverBadge.text = region
+        serverBadge.visibility = if (region == null) View.GONE else View.VISIBLE
+        serverChip.contentDescription = listOfNotNull(serverLabel.text, region).joinToString(", ")
+    }
+
+    private fun serverRegionInUse(): String? =
+        connectionController.mezonSocket.targetEndpoint()?.let { RealtimeServerChoice.regionNameOfHost(it.host) }
+
+    private fun showServerSheet() {
+        ServerChoiceBottomSheet(requireContext(), endpointFailover.serverChoice, serverRegionInUse()) { choice ->
+            endpointFailover.select(choice)
+            updateServerChip()
+        }.show()
     }
 
     private fun navigateToProfileSetting() = presentFragment(EditProfileFragment())

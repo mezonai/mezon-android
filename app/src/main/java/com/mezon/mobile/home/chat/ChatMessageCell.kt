@@ -55,6 +55,10 @@ import com.mezon.mobile.util.isLocationMessage
 import com.mezon.mobile.util.parseLocationMessageData
 import com.mezon.mobile.util.parseShareContactData
 import com.mezon.mobile.util.parseContentToSpannable
+import com.mezon.mobile.home.chat.botcommand.BotCommandDisplay
+import com.mezon.mobile.home.chat.botcommand.BotCommandStatus
+import com.mezon.mobile.home.chat.botcommand.BotCommandStatusLayout
+import com.mezon.mobile.home.chat.botcommand.BotCommandUserAction
 import com.mezon.mobile.home.chat.poll.ChatPollBridge
 import com.mezon.mobile.home.chat.poll.ParsedPoll
 import com.mezon.mobile.home.chat.poll.PollLocalState
@@ -70,6 +74,7 @@ import com.mezon.mobile.home.messages.EmbedInteractiveGeometry
 import com.mezon.mobile.home.messages.EmbedMessageRenderer
 import com.mezon.mobile.home.messages.EmbedSelectOptionSheet
 import com.mezon.mobile.home.messages.EphemeralMessageUi
+import com.mezon.mobile.network.CdnSigner
 import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
@@ -171,6 +176,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     var topicCreatorResolver: ((Long) -> Pair<String, String>?)? = null
     var topicLastMessageIdResolver: ((Long) -> Long)? = null
     var topicBadgeResolver: ((Long) -> Int)? = null
+    var botCommandResolver: ((Long) -> BotCommandDisplay?)? = null
+    private var botCommand: BotCommandDisplay? = null
+    private val botCommandLayout = BotCommandStatusLayout(context)
+    private var pressedBotCommandHit = BotCommandStatusLayout.Hit.None
     var onTopicClick: ((topicId: Long, rootMessageId: Long) -> Unit)? = null
     var topicButtonEnabled = true
     private var shareContactParsed: ShareContactData? = null
@@ -519,6 +528,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         ephemeralDecorRect.setEmpty()
         hasEphemeralDecor = false
         ephemeralIconDrawable = null
+        botCommand = null
+        botCommandLayout.clear()
+        pressedBotCommandHit = BotCommandStatusLayout.Hit.None
         errorLayout = null
         ogpTitleLayout = null
         ogpDescLayout = null
@@ -655,7 +667,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 msg.updateTimeSeconds.hashCode() xor (if (msg.hideEditted) 2 else 0) xor
                 msg.rplCount xor msg.topicId.hashCode() xor presignHash xor
                 msg.attachmentUrl.hashCode() xor msg.extraAttachmentsJson.hashCode() xor
-                (pollBridge?.stateFingerprint(msg.id) ?: 0)
+                (pollBridge?.stateFingerprint(msg.id) ?: 0) xor
+                (botCommandResolver?.invoke(msg.id)?.hashCode() ?: 0)
             if (msg.id == lastBoundId && contentHash == lastBoundContentHash && isCombined == lastBoundCombined) {
                 return false
             }
@@ -679,6 +692,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             drawForwardHeader = msg.isForwarded
             drawEdited = msg.isEdited && !msg.hideEditted && !msg.isPollMessage
             drawEphemeral = msg.isEphemeral
+            botCommand = botCommandResolver?.invoke(msg.id)
             drawError = msg.isError && !msg.hasPartialAttachmentUploadFailure
             drawSending = msg.isSending
             hasReply = if (isInPinMode) false else parseReply(msg)
@@ -686,6 +700,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 drawForwardHeader = false
                 drawEdited = false
                 drawEphemeral = false
+                botCommand = null
                 drawError = false
                 drawSending = false
                 hasPendingMediaUploads = false
@@ -703,13 +718,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             }
             if (drawPhotoImage) loadPhotoImage(msg) else clearPhotoReceivers()
             buildTopicButton(msg, width)
-            if (BuildConfig.DEBUG && drawPhotoImage) {
-                Log.d(
-                    TAG,
-                    "update mask=0 id=${msg.id} sendState=${msg.sendState} drawSending=$drawSending " +
-                        "drawPhotoImage=$drawPhotoImage mediaGridCount=$mediaGridCount"
-                )
-            }
             requestLayout()
             invalidate()
             schedulePresignExpireTick(msg)
@@ -740,12 +748,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             val snapshot = msg.displayAttachmentSnapshot()
             applyDisplaySnapshot(msg, snapshot)
             syncSendingVisualTimer(msg)
-            if (BuildConfig.DEBUG) {
-                Log.d(
-                    TAG,
-                    "update SEND_STATE id=${msg.id} sendState=${msg.sendState} drawSending=$drawSending drawPhotoImage=$drawPhotoImage"
-                )
-            }
             if (drawError && !prevError) {
                 rebuildLayout = true
             } else {
@@ -851,6 +853,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             drawForwardHeader = m.isForwarded
             drawEdited = m.isEdited && !m.hideEditted && !m.isPollMessage
             drawEphemeral = m.isEphemeral
+            if (!isInPinMode) botCommand = botCommandResolver?.invoke(m.id)
             drawError = m.isError && !m.hasPartialAttachmentUploadFailure
             drawSending = m.isSending
             syncSendingVisualTimer(m)
@@ -1684,6 +1687,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         buildFileLayouts(msg, textWidth)
         buildAudioLayouts(msg)
         buildEphemeralLayout(msg, textWidth)
+        botCommandLayout.prepare(botCommand, theme, textWidth)
         buildErrorLayout(msg, textWidth)
 
         ogpData = if (!hasCallLogCard && msg.content.contains("\"mk\"") && msg.content.contains("lk_ogp")) {
@@ -1819,6 +1823,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             val allW = maxOf(
                 cachedSenderW, cachedContentW, cachedTimeW, replyW, ogpW, cachedForwardW,
                 fileW, audioW, cachedEphW, embedW, inviteW, shareContactW, locationW, reactionRowContentWidth,
+                botCommandLayout.width.toFloat(),
             )
             var w = allW.toInt().coerceAtMost(bubbleMaxW)
             if (msg.isPollMessage && pollParsed != null) {
@@ -1990,7 +1995,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         (messageEntity?.isPollMessage == true && pollParsed != null) ||
             hasShareContactCard || hasLocationCard || hasCallLogCard ||
             drawPhotoImage || drawFileAttachment || drawAudioAttachment ||
-            hasEmbedContent || drawEphemeral ||
+            hasEmbedContent || drawEphemeral || botCommandLayout.isVisible ||
             reactionGroups.isNotEmpty() || topicButtonLayout.visible || drawError
 
     private fun textBottomSpacing(): Int = when {
@@ -2036,6 +2041,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
         if (hasEmbedContent) {
             h += embedMessage.computeHeight()
+        }
+        if (botCommandLayout.isVisible) {
+            h += botCommandLayout.height + GAP_V_INNER
         }
         if (drawEphemeral) {
             ephemeralLayout?.let { h += it.height + GAP_V_INNER }
@@ -2668,6 +2676,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         fun didTapShareContactMessage(cell: ChatMessageCell, msg: MessageEntity, data: ShareContactData) {}
         fun didTapShareContactCall(cell: ChatMessageCell, msg: MessageEntity, data: ShareContactData) {}
         fun didTapLocationCard(cell: ChatMessageCell, msg: MessageEntity, data: LocationMessageData) {}
+        fun didTapBotCommandAction(cell: ChatMessageCell, msg: MessageEntity, action: BotCommandUserAction) {}
     }
 
     private var pressedLink: ClickableSpan? = null
@@ -2745,11 +2754,20 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 pressedOnInviteJoin = false
                 pressedReactionIndex = -1
                 pressedEmbedButtonHit = null
+                pressedBotCommandHit = BotCommandStatusLayout.Hit.None
                 embedMessage.setPressedButton(null)
                 clearShareContactActionPress()
                 longPressHandled = false
                 startX = x
                 startY = y
+
+                if (botCommandLayout.isVisible) {
+                    val hit = botCommandLayout.hitTest(x, y)
+                    if (hit != BotCommandStatusLayout.Hit.None) {
+                        pressedBotCommandHit = hit
+                        return true
+                    }
+                }
 
                 if (pollParsed != null && messageEntity?.isPollMessage == true) {
                     syncPollHitRect()
@@ -2930,6 +2948,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     }
                     if (drawAudioAttachment) reacBaseY += AUDIO_PILL_HEIGHT + GAP_V_INNER
                     if (hasEmbedContent) reacBaseY += embedMessage.computeHeight()
+                    if (botCommandLayout.isVisible) reacBaseY += botCommandLayout.height + GAP_V_INNER
                     if (drawEphemeral) ephemeralLayout?.let { reacBaseY += it.height + GAP_V_INNER }
                     reacBaseY += reactionTopSpacing()
 
@@ -3037,6 +3056,22 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                             return true
                         }
                     }
+                }
+                if (pressedBotCommandHit != BotCommandStatusLayout.Hit.None) {
+                    val hit = pressedBotCommandHit
+                    pressedBotCommandHit = BotCommandStatusLayout.Hit.None
+                    val msg = messageEntity
+                    val display = botCommand
+                    if (msg != null && display != null && botCommandLayout.hitTest(x, y) == hit) {
+                        val answered = display.status as? BotCommandStatus.Answered
+                        val action = when {
+                            hit == BotCommandStatusLayout.Hit.Dismiss -> BotCommandUserAction.Dismiss
+                            answered != null -> BotCommandUserAction.ViewReply(answered.replyMessageId)
+                            else -> BotCommandUserAction.Resend
+                        }
+                        delegate?.didTapBotCommandAction(this, msg, action)
+                    }
+                    return true
                 }
                 if (topicButtonLayout.hitTest(x, y)) {
                     val tid = topicButtonLayout.topicId
@@ -3166,6 +3201,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             MotionEvent.ACTION_CANCEL -> {
                 cancelScheduledLongPress()
                 longPressHandled = false
+                pressedBotCommandHit = BotCommandStatusLayout.Hit.None
                 pressedLink = null
                 pressedOnMedia = false
                 pressedOnOgp = false
@@ -3210,10 +3246,12 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     }
 
     fun onLinkClicked(url: String) {
-        try {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url).normalizeScheme())
-            context.startActivity(intent)
-        } catch (_: Exception) {}
+        CdnSigner.requestUrlOnMain(url) { signed ->
+            try {
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(signed.url).normalizeScheme())
+                context.startActivity(intent)
+            } catch (_: Exception) {}
+        }
     }
 
     var visibleOnScreen = true
@@ -3628,6 +3666,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
         if (hasEmbedContent) {
             yOff = embedMessage.draw(canvas, contentLeft.toFloat(), yOff, maxBubbleWidth(), shimmerEffect)
+        }
+
+        if (botCommandLayout.isVisible) {
+            yOff = botCommandLayout.draw(canvas, contentLeft.toFloat(), yOff) + GAP_V_INNER
         }
 
         if (drawEphemeral) {
@@ -4514,17 +4556,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
         val w = (rgt - l).coerceAtLeast(1)
         val h = (btm - t).coerceAtLeast(1)
-        if (BuildConfig.DEBUG && v is EditTextBoldCursor) {
-            val geomH = (r.bottom - r.top).toInt()
-            if (geomH != h) {
-                Log.d(
-                    EMBED_INPUT_TAG,
-                    "layoutEmbeddedChild geomH=$geomH fixedH=$h fixedSize=${v.getFixedSize()} " +
-                        "component=${v.tag}",
-                )
-            }
-        }
-        val ws = View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY)
+        val ws =View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY)
         val hs = View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY)
         v.measure(ws, hs)
         v.layout(l, t, rgt, btm)
@@ -5013,13 +5045,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
             val targetHeight = if (spec.textarea) EMBED_TEXTAREA_HEIGHT else EMBED_INPUT_HEIGHT
             edit.setFixedSize(targetHeight)
-            if (BuildConfig.DEBUG) {
-                Log.d(
-                    EMBED_INPUT_TAG,
-                    "bind component=$componentId textarea=${spec.textarea} targetH=$targetHeight " +
-                        "identityChanged=$identityChanged",
-                )
-            }
             if (spec.textarea) {
                 edit.gravity = Gravity.TOP or Gravity.START
                 edit.inputType = InputType.TYPE_CLASS_TEXT or
@@ -5064,18 +5089,11 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 if (spec.dateInput && !spec.disabled) {
                     edit.setOnClickListener { showDatePicker() }
                     edit.onFocusChangeListener = View.OnFocusChangeListener { _, hasFocus ->
-                        if (BuildConfig.DEBUG) {
-                            logEmbedInputFocus(componentId, hasFocus, targetHeight)
-                        }
                         if (hasFocus) showDatePicker()
                     }
                 } else {
                     edit.setOnClickListener(null)
-                    edit.onFocusChangeListener = View.OnFocusChangeListener { _, hasFocus ->
-                        if (BuildConfig.DEBUG) {
-                            logEmbedInputFocus(componentId, hasFocus, targetHeight)
-                        }
-                    }
+                    edit.onFocusChangeListener = null
                 }
             }
 
@@ -5131,14 +5149,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
     }
 
-    private fun logEmbedInputFocus(componentId: String, hasFocus: Boolean, targetHeight: Int) {
-        Log.d(
-            EMBED_INPUT_TAG,
-            "focus component=$componentId hasFocus=$hasFocus targetH=$targetHeight " +
-                "measuredH=${focusedEmbedInputHeight()} layoutH=${focusedEmbedInputLayoutHeight()}",
-        )
-    }
-
     private fun focusedEmbedInputHeight(): Int {
         for (slot in embedInputSlots) {
             if (slot.edit.isFocused) return slot.edit.measuredHeight
@@ -5156,7 +5166,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     companion object {
         const val COMBINE_TIME_THRESHOLD = 2 * 60L
         private const val TAG = "ChatMessageCell"
-        private const val EMBED_INPUT_TAG = "EmbedFormInput"
         private const val SENDING_BRIGHT_GRACE_MS = 2_000L
         private val ANONYMOUS_USER_ID = BuildConfig.MEZON_ANONYMOUS_USER_ID.toLongOrNull() ?: 0L
         private val anonymousAvatarBitmaps = HashMap<Int, Bitmap>(2)

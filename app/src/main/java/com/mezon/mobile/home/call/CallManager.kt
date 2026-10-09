@@ -62,7 +62,8 @@ class CallManager @Inject constructor(
         callerName: String,
         peerId: String,
         channelId: String,
-        isVideoCall: Boolean
+        isVideoCall: Boolean,
+        localCallId: String
     ): Boolean {
         val manager = telecomManager ?: return false
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -79,6 +80,7 @@ class CallManager @Inject constructor(
             putString(EXTRA_CALLER_NAME, callerName)
             putString(EXTRA_CALLER_ID, peerId)
             putString(EXTRA_CHANNEL_ID, channelId)
+            putString(EXTRA_LOCAL_CALL_ID, localCallId)
             putBoolean(EXTRA_IS_VIDEO_CALL, isVideoCall)
         }
         val extras = Bundle().apply {
@@ -105,7 +107,8 @@ class CallManager @Inject constructor(
         callerId: String,
         channelId: String,
         offerJson: String,
-        isVideoCall: Boolean
+        isVideoCall: Boolean,
+        localCallId: String
     ): Boolean {
         val offerForBundle = if (offerJson.length <= TELECOM_OFFER_JSON_MAX_CHARS) offerJson else ""
         if (offerJson.length > TELECOM_OFFER_JSON_MAX_CHARS) {
@@ -115,6 +118,7 @@ class CallManager @Inject constructor(
             putString(EXTRA_CALLER_NAME, callerName)
             putString(EXTRA_CALLER_ID, callerId)
             putString(EXTRA_CHANNEL_ID, channelId)
+            putString(EXTRA_LOCAL_CALL_ID, localCallId)
             putString(EXTRA_OFFER_JSON, offerForBundle)
             putBoolean(EXTRA_IS_VIDEO_CALL, isVideoCall)
             putInt(
@@ -204,6 +208,7 @@ class CallManager @Inject constructor(
 
     companion object {
         const val EXTRA_CALLER_NAME = "caller_name"
+        const val EXTRA_LOCAL_CALL_ID = "local_call_id"
         const val EXTRA_CALLER_ID = "caller_id"
         const val EXTRA_CHANNEL_ID = "channel_id"
         const val EXTRA_CALLER_AVATAR = "caller_avatar"

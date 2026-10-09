@@ -224,7 +224,8 @@ object MezonApiNameRegistry {
         "MarkAsRead",
         "UploadBatchAttachmentFile",
         "SearchCtrlK",
-        "SearchMentionUsers"
+        "SearchMentionUsers",
+        "GenerateCDNSignature"
     )
 
     private val nameToIndex: Map<String, Int> = orderedNames

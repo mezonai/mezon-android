@@ -1788,6 +1788,7 @@ class CreateThreadFragment : BaseFragment() {
         when (item) {
             is InputSuggestionItem.Loading -> return
             is InputSuggestionItem.SlashCommand -> return
+            is InputSuggestionItem.EphemeralCommand -> return
             is InputSuggestionItem.Here ->
                 insertMentionToken(editable, triggerPos, replaceEnd, "@here", ChatController.ID_MENTION_HERE, "", themeColors.textLink)
             is InputSuggestionItem.Member -> {
@@ -2352,7 +2353,6 @@ class CreateThreadFragment : BaseFragment() {
                     if (main == null) {
                         Log.w(LOG_TAG, "nav: MainActivity null after create channelId=$newChannelId")
                     } else {
-                        Log.d(LOG_TAG, "nav: openChat replaceLast channelId=$newChannelId")
                         main.openChat(
                             newChannelId,
                             newLabel,
@@ -2360,7 +2360,6 @@ class CreateThreadFragment : BaseFragment() {
                             CHANNEL_TYPE_THREAD,
                             replaceLastFragment = true
                         )
-                        Log.d(LOG_TAG, "nav: openChat executed channelId=$newChannelId")
                     }
                 }
             } catch (_: Exception) {

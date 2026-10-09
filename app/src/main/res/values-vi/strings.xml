@@ -307,6 +307,8 @@
     <string name="action_unpin">Bỏ ghim tin nhắn</string>
     <string name="action_mark_unread">Đánh dấu chưa đọc</string>
     <string name="action_add_to_inbox">Thêm vào hộp thư</string>
+    <string name="action_quick_menu">Menu nhanh</string>
+    <string name="quick_menu_picker_subtitle">Kích hoạt sự kiện bot</string>
     <string name="message_toast_add_to_inbox_success">Đã thêm vào hộp thư</string>
     <string name="message_toast_add_to_inbox_failed">Không thể thêm tin nhắn vào hộp thư</string>
     <string name="action_delete">Xóa tin nhắn</string>
@@ -801,6 +803,13 @@
     <string name="profile_add_friend">Thêm bạn</string>
     <string name="profile_copy_user_id">Sao chép ID người dùng</string>
     <string name="profile_copy_success">Đã sao chép ID người dùng</string>
+    <string name="profile_server">Máy chủ</string>
+    <string name="profile_server_auto">Tự động</string>
+    <string name="profile_server_auto_hint">Tự chọn máy chủ phù hợp</string>
+    <string name="profile_server_in_use">Đang dùng %1$s</string>
+    <string name="profile_server_vietnam">Việt Nam</string>
+    <string name="profile_server_united_states">Hoa Kỳ</string>
+    <string name="profile_server_footer">Tự động: Mezon chọn máy chủ và tự chuyển khi kết nối kém. Chọn một máy chủ nếu bạn muốn luôn dùng cố định.</string>
     <string name="profile_sign_out">Đăng xuất</string>
     <string name="profile_enable_wallet">Mở ví</string>
     <string name="profile_balance">Số dư: %1$s đồng</string>
@@ -1472,6 +1481,9 @@
     <string name="channel_quick_action_bot_event_title">Kích hoạt Bot Event</string>
     <string name="channel_quick_action_bot_event_desc">Menu nhanh này sẽ tự động kích hoạt bot event khi được chọn.</string>
     <string name="channel_quick_action_triggers_bot">Kích hoạt Bot Event</string>
+    <string name="channel_quick_action_error_invalid_name">Vui lòng nhập tên lệnh hợp lệ (tối đa 64 ký tự; chữ cái, số, khoảng trắng, _, -, ., +; không được bắt đầu bằng _ hoặc -).</string>
+    <string name="channel_quick_action_error_duplicate_name">Lệnh với tên này đã tồn tại trong kênh này.</string>
+    <string name="channel_quick_action_error_message_too_long">Nội dung tin nhắn phải có tối đa 512 byte.</string>
     <string name="channel_quick_action_delete_message">Xóa %1$s?</string>
     <string name="channel_quick_action_create_title">Thao tác nhanh mới</string>
     <string name="channel_quick_action_edit_title">Sửa thao tác nhanh</string>
@@ -1552,6 +1564,18 @@
     <string name="embed_form_submit_failed">Không thể gửi biểu mẫu</string>
     <string name="advanced_ephemeral">Ephemeral</string>
     <string name="ephemeral_only_visible_to_recipient">Chỉ người nhận mới thấy được</string>
+    <string name="slash_command_ephemeral_description">Gửi tin nhắn tạm thời (chỉ hiển thị cho người dùng được chọn)</string>
+    <string name="slash_command_ephemeral_placeholder">Tin nhắn tạm thời cho %1$s...</string>
+    <string name="slash_command_ephemeral_banner">Tin nhắn tạm thời cho %1$s</string>
+    <string name="ephemeral_attachments_not_supported">Tin nhắn tạm thời chưa hỗ trợ tệp đính kèm</string>
+    <string name="bot_command_waiting">Đang chờ %1$s trả lời…</string>
+    <string name="bot_command_answered">%1$s đã trả lời</string>
+    <string name="bot_command_view_reply">Xem</string>
+    <string name="bot_command_no_response">Chưa thấy %1$s phản hồi</string>
+    <string name="bot_command_resend">Gửi lại</string>
+    <string name="bot_command_failed">Không gửi được lệnh</string>
+    <string name="bot_command_retry">Thử lại</string>
+    <string name="bot_command_the_bot">bot</string>
     <!-- Create poll -->
     <string name="file_selection_upload">Tải tệp lên</string>
     <string name="file_selection_create_poll">Tạo bình chọn</string>

@@ -90,7 +90,6 @@ class ClansController @Inject constructor(
         appScope.launch {
             val cached = withContext(ioDispatcher) { clanDao.getAll() }
             if (cached.isNotEmpty()) {
-                Log.d(TAG, "init Room cache (${cached.size} clans): ${cached.map { "${it.clanName}(order=${it.clanOrder})" }}")
                 _clans.value = cached
                 clansLoaded = true
                 preWarmClanLogos(cached)
@@ -254,7 +253,6 @@ class ClansController @Inject constructor(
         appScope.launch(Dispatchers.Main.immediate) {
             try {
                 if (!force && cacheTracker.shouldCall(cacheKey) == ApiCacheTracker.ShouldCall.SKIP) {
-                    Log.d(TAG, "loadClans: SKIP listClanDescs cache (still may fetch badges)")
                     if (_clans.value.isNotEmpty()) {
                         notificationCenter.postNotificationOnMainThread(NotificationCenter.clansDidLoad)
                         val selectedId = _selectedClanId.value
@@ -278,7 +276,6 @@ class ClansController @Inject constructor(
                         if (entity.clanOrder == 0) entity.copy(clanOrder = index) else entity
                     }
                 }
-                Log.d(TAG, "loadClans API result (${apiEntities.size} clans): ${apiEntities.map { "${it.clanName}(order=${it.clanOrder})" }}")
 
                 val existingOrder = _clans.value.mapIndexed { i, c -> c.clanId to i }.toMap()
                 val cachedById = _clans.value.associateBy { it.clanId }

@@ -86,7 +86,6 @@ class BadgeCoordinator @Inject constructor(
         channelActivityJob?.cancel()
         channelActivityJob = null
         synchronized(channelActivityLock) { channelActivityTicks.clear() }
-        Log.d(TAG, "onReconnect: cleared coordinator state")
     }
 
     fun cleanup() {
@@ -182,7 +181,6 @@ class BadgeCoordinator @Inject constructor(
         retryLastSeenJobs.remove(key)?.cancel()
         retryLastSeenByKey.remove(key)
         if (p.applyLocal && shouldSkipDuplicateFullRead(key, p)) {
-            Log.d(TAG, "flushLastSeen: skip dedup key=$key")
             return
         }
         val socketBadgeCount = if (p.clanId != 0L) {
@@ -232,10 +230,6 @@ class BadgeCoordinator @Inject constructor(
                 )
                 retryLastSeenByKey.remove(key)
                 retryLastSeenJobs.remove(key)
-                Log.d(
-                    TAG,
-                    "writeLastSeen: ch=${p.channelId} clan=${p.clanId} mid=${p.messageId} socketBadge=$socketBadgeCount argBadge=${p.badgeCount}"
-                )
             } catch (e: Exception) {
                 Log.e(TAG, "writeLastSeenMessage failed", e)
                 queueLastSeenRetry(key, p, socketBadgeCount)

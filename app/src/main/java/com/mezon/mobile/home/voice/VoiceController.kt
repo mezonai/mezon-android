@@ -70,6 +70,8 @@ class VoiceController @Inject constructor(
         private set
     @Volatile var meetToken: String? = null
         private set
+    @Volatile var meetSfuUrl: String? = null
+        private set
     var isLocalVideoEnabled: Boolean = false
 
     private val aiAgentEnabled = HashMap<String, Boolean>()
@@ -118,6 +120,7 @@ class VoiceController @Inject constructor(
             isConnecting = false
             isLocalVideoEnabled = false
             meetToken = null
+            meetSfuUrl = null
             aiAgentEnabled.clear()
         }
         VoiceChannelForegroundService.stop(appContext)
@@ -240,6 +243,7 @@ class VoiceController @Inject constructor(
             voiceSessionGeneration++
             currentVoiceInfo = VoiceInfo(channelId, clanId, channelLabel, channelId.toString())
             meetToken = null
+            meetSfuUrl = null
             isConnecting = true
             voiceSessionGeneration
         }
@@ -262,6 +266,7 @@ class VoiceController @Inject constructor(
                         return@withAutoRefresh null
                     }
                     meetToken = token
+                    meetSfuUrl = response.url.takeIf { it.isNotBlank() }
                     isJoined = false
                 }
                 token
@@ -298,7 +303,10 @@ class VoiceController @Inject constructor(
                 synchronized(this) {
                     if (generation != voiceSessionGeneration || currentVoiceInfo?.channelId != channelId ||
                         currentVoiceInfo?.clanId != clanId) return@withAutoRefresh null
-                    if (!token.isNullOrEmpty()) meetToken = token
+                    if (!token.isNullOrEmpty()) {
+                        meetToken = token
+                        meetSfuUrl = response.url.takeIf { it.isNotBlank() }
+                    }
                 }
                 token
             }
@@ -348,6 +356,7 @@ class VoiceController @Inject constructor(
             isJoined = false
             isConnecting = false
             meetToken = null
+            meetSfuUrl = null
             isLocalVideoEnabled = false
         }
         VoiceChannelForegroundService.stop(appContext)
@@ -368,6 +377,7 @@ class VoiceController @Inject constructor(
             voiceSessionGeneration++
             currentVoiceInfo = null
             meetToken = null
+            meetSfuUrl = null
             isJoined = false
             isConnecting = false
             isLocalVideoEnabled = false
@@ -382,6 +392,7 @@ class VoiceController @Inject constructor(
             voiceSessionGeneration++
             currentVoiceInfo = null
             meetToken = null
+            meetSfuUrl = null
             isJoined = false
             isConnecting = false
             isLocalVideoEnabled = false
