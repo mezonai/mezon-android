@@ -184,6 +184,8 @@
     <string name="common_error_network">Network Error</string>
     <string name="common_error_offline">Unable to connect. Please check your internet connection and try again.</string>
     <string name="common_error_connecting">Connecting…</string>
+    <string name="call_end_action">End call</string>
+    <string name="call_connection_timeout">Call could not connect. Please try again.</string>
     <string name="common_error_connection_failed">Connection failed. Please try again.</string>
 
     <!-- common.timeFormat.timeAgo -->

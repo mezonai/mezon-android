@@ -759,10 +759,15 @@ class NotificationHelper @Inject constructor(
                 if (computedChannelName.isNotEmpty()) putExtra(EXTRA_CHANNEL_NAME, computedChannelName)
                 if (channelType != null) putExtra(EXTRA_CHANNEL_TYPE, channelType)
             }
+            val contentIntent = if (topicId != 0L) {
+                Intent(intent).putExtra(EXTRA_TOPIC_ID, topicId).putExtra(EXTRA_MESSAGE_ID, messageId)
+            } else {
+                intent
+            }
             val pendingIntent = PendingIntent.getActivity(
                 context,
                 notificationId,
-                intent,
+                contentIntent,
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             )
             val notifChannel = if (clanId == 0L) CHANNEL_DM else CHANNEL_MESSAGES
@@ -818,7 +823,7 @@ class NotificationHelper @Inject constructor(
                     builder = builder,
                     notificationId = notificationId,
                     title = title,
-                    openChatIntent = intent,
+                    openChatIntent = contentIntent,
                     channelId = channelId,
                     clanId = clanId ?: 0L,
                     channelName = computedChannelName,
@@ -988,7 +993,9 @@ class NotificationHelper @Inject constructor(
         channelId: Long = 0L,
         clanId: Long = 0L,
         dmId: Long = 0L,
-        friendRequest: Boolean = false
+        friendRequest: Boolean = false,
+        topicId: Long = 0L,
+        messageId: Long = 0L
     ) {
         val truncatedBody = truncateBody(body)
         appScope.launch {
@@ -1017,13 +1024,24 @@ class NotificationHelper @Inject constructor(
                                     channelController.findOrFetchChannelLabel(channelId, clanId)
                                 } ?: title).ifEmpty { title }
                                 withContext(Dispatchers.Main) {
-                                    activity.openChat(
-                                        channelId,
-                                        channelName,
-                                        clanId,
-                                        CHANNEL_TYPE_CHANNEL,
-                                        fromNotification = true
-                                    )
+                                    if (topicId != 0L) {
+                                        activity.openTopicFromNotification(
+                                            topicId,
+                                            messageId,
+                                            channelId,
+                                            channelName,
+                                            clanId,
+                                            CHANNEL_TYPE_CHANNEL
+                                        )
+                                    } else {
+                                        activity.openChat(
+                                            channelId,
+                                            channelName,
+                                            clanId,
+                                            CHANNEL_TYPE_CHANNEL,
+                                            fromNotification = true
+                                        )
+                                    }
                                 }
                             }
                         }

@@ -11,18 +11,18 @@ import dagger.hilt.android.EntryPointAccessors
 
 private const val TAG = "MezonCallConnection"
 
-class MezonCallConnection(private val context: Context) : Connection() {
+class MezonCallConnection(private val context: Context, val localCallId: String) : Connection() {
 
     var incomingExtras: Bundle? = null
 
     private fun ensureCallController(): CallController? {
-        CallController.instance?.let { return it }
+        CallController.instance?.let { return it.takeIf { controller -> controller.currentCallInfo()?.localCallId == localCallId } }
         return try {
             val entryPoint = EntryPointAccessors.fromApplication(
                 context.applicationContext,
                 FragmentEntryPoint::class.java
             )
-            entryPoint.callController()
+            entryPoint.callController().takeIf { it.currentCallInfo()?.localCallId == localCallId }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to get CallController from Hilt", e)
             null
@@ -32,7 +32,12 @@ class MezonCallConnection(private val context: Context) : Connection() {
     private fun ensureTelecomBridge(): CallTelecomBridge? = CallTelecomBridge.from(context)
 
     override fun onShowIncomingCallUi() {
-        if (ensureCallController()?.isAppInForegroundForIncomingCall() == true) return
+        val controller = ensureCallController()
+        if (controller == null) {
+            ensureTelecomBridge()?.endOwnedConnection(this, DisconnectCause.CANCELED)
+            return
+        }
+        if (controller.isAppInForegroundForIncomingCall()) return
         launchIncomingCallActivity()
     }
 
@@ -40,6 +45,7 @@ class MezonCallConnection(private val context: Context) : Connection() {
         val intent = Intent(context, IncomingCallActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             incomingExtras?.let { putExtras(it) }
+            putExtra(CallManager.EXTRA_LOCAL_CALL_ID, localCallId)
         }
         try {
             context.startActivity(intent)
@@ -50,24 +56,28 @@ class MezonCallConnection(private val context: Context) : Connection() {
 
     override fun onAnswer() {
         val controller = ensureCallController()
-        setActive()
-        controller?.acceptCall()
+        if (controller == null) {
+            ensureTelecomBridge()?.endOwnedConnection(this, DisconnectCause.CANCELED)
+        } else {
+            controller.acceptCall()
+        }
     }
 
     override fun onReject() {
         val offerEnvelope = incomingExtras?.getString(CallManager.EXTRA_OFFER_JSON)?.trim()?.takeIf { it.isNotEmpty() }
             ?: context.getSharedPreferences("call_data", Context.MODE_PRIVATE).getString("incoming_call", null)
-        ensureTelecomBridge()?.endWithCause(DisconnectCause.REJECTED)
+        ensureTelecomBridge()?.endOwnedConnection(this, DisconnectCause.REJECTED)
         ensureCallController()?.rejectCallFromIncomingCallUi(offerEnvelope)
     }
 
     override fun onDisconnect() {
-        ensureTelecomBridge()?.endWithCause(DisconnectCause.LOCAL)
+        ensureTelecomBridge()?.endOwnedConnection(this, DisconnectCause.LOCAL)
         ensureCallController()?.hangup()
     }
 
     override fun onAbort() {
-        ensureTelecomBridge()?.endWithCause(DisconnectCause.CANCELED)
+        ensureTelecomBridge()?.endOwnedConnection(this, DisconnectCause.CANCELED)
+        ensureCallController()?.hangup()
     }
 
     fun setCallActive() {

@@ -18,6 +18,7 @@ import com.mezon.mobile.network.SocketEventDispatcher
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -34,6 +35,7 @@ import dagger.Lazy
 
 private const val TAG = "CallController"
 private const val CALL_TIMEOUT_MS = 30_000L
+internal const val CONNECT_TIMEOUT_MS = 30_000L
 private const val REMOTE_VIDEO_INITIAL_SUPPRESS_MS = 2000L
 private const val MAX_KNOWN_PEER_SESSIONS = 8
 
@@ -106,7 +108,10 @@ class CallController @Inject constructor(
 
     private var peerConnection: PeerConnectionWrapper? = null
     private var callAudioManager: CallAudioManager? = null
+    private var endingCallAudioManager: CallAudioManager? = null
     private var timeoutJob: Job? = null
+    private var timeoutGeneration = 0L
+    private var connectingDeadlineElapsed = 0L
     private var localOffer: SessionDescription? = null
     private var activeOfferSessionId: String? = null
     private val pendingIceCandidates = mutableListOf<IceCandidate>()
@@ -129,7 +134,7 @@ class CallController @Inject constructor(
 
     init {
         instance = this
-        appScope.launch {
+        appScope.launch(start = CoroutineStart.UNDISPATCHED) {
             dispatcher.webrtcSignalingFwdEvents.collect { event ->
                 withContext(Dispatchers.Main) {
                     handleSignaling(
@@ -195,7 +200,8 @@ class CallController @Inject constructor(
         }
 
         webRtcInfra.prewarm()
-        peerConnection = PeerConnectionWrapper(appContext, this, webRtcInfra)
+        val outgoingPeerConnection = PeerConnectionWrapper(appContext, this, webRtcInfra)
+        peerConnection = outgoingPeerConnection
 
         appScope.launch(ioDispatcher) {
             val usernameLine = userController.username
@@ -210,12 +216,13 @@ class CallController @Inject constructor(
                 0L
             }
             withContext(Dispatchers.Main) {
-                activeCallLogMessageId = msgId
+                if (currentCallInfo() === callInfo) activeCallLogMessageId = msgId
             }
-            val pc = peerConnection
-            if (pc == null) return@launch
+            val pc = outgoingPeerConnection
+            if (currentCallInfo() !== callInfo || peerConnection !== pc) return@launch
             pc.createOffer(isVideo) { offer ->
-                appScope.launch(Dispatchers.Main) {
+                appScope.launch(Dispatchers.Main) offerReady@{
+                    if (currentCallInfo() !== callInfo || peerConnection !== pc) return@offerReady
                     localOffer = offer
                     activeOfferSessionId = sdpSessionId(offer.description)
 
@@ -241,8 +248,9 @@ class CallController @Inject constructor(
                         put("sentAt", System.currentTimeMillis().toString())
                     }.toString()
 
-                    appScope.launch(ioDispatcher) {
+                    appScope.launch(ioDispatcher) sendOffer@{
                         try {
+                            if (currentCallInfo() !== callInfo || peerConnection !== pc) return@sendOffer
                             socket.forwardWebrtcSignaling(
                                 receiverId = peerId,
                                 dataType = WebrtcSignalingType.SDP_OFFER,
@@ -250,6 +258,7 @@ class CallController @Inject constructor(
                                 channelId = channelId,
                                 callerId = userController.userId
                             )
+                            if (currentCallInfo() !== callInfo || peerConnection !== pc) return@sendOffer
                             socket.makeCallPush(
                                 receiverId = peerId,
                                 jsonData = fcmPayload,
@@ -281,6 +290,7 @@ class CallController @Inject constructor(
         telecomBridge.markActive()
 
         val callInfo = state.callInfo
+        val expectedSessionId = activeOfferSessionId
         markInCall(callInfo)
         isLocalAudioEnabled = true
         isLocalVideoEnabled = false
@@ -292,6 +302,7 @@ class CallController @Inject constructor(
         callAudioManager!!.advanceToEstablishedCallRouting(callInfo.isVideo)
 
         callState = CallState.Connecting(callInfo)
+        startTimeout(CONNECT_TIMEOUT_MS)
         notificationCenter.postNotificationOnMainThread(NotificationCenter.callStateChanged, callState)
 
         try {
@@ -310,7 +321,7 @@ class CallController @Inject constructor(
 
         val pc = peerConnection
         if (pc != null) {
-            pc.requestAnswerWhenRemoteReady { answer -> sendAnswer(callInfo, answer) }
+            pc.requestAnswerWhenRemoteReady { answer -> sendAnswer(callInfo, answer, expectedSessionId) }
             return
         }
 
@@ -318,13 +329,16 @@ class CallController @Inject constructor(
         peerConnection = PeerConnectionWrapper(appContext, this, webRtcInfra)
         flushPendingIceCandidates()
 
-        peerConnection!!.handleRemoteOffer(state.offer) { answer -> sendAnswer(callInfo, answer) }
+        peerConnection!!.handleRemoteOffer(state.offer) { answer -> sendAnswer(callInfo, answer, expectedSessionId) }
     }
 
-    private fun sendAnswer(callInfo: CallInfo, answer: SessionDescription) {
-        if (callState !is CallState.Connecting && callState !is CallState.Connected) {
-            callState = CallState.Connecting(callInfo)
-            notificationCenter.postNotificationOnMainThread(NotificationCenter.callStateChanged, callState)
+    private fun isActiveAnswerTarget(callInfo: CallInfo, expectedSessionId: String?): Boolean =
+        (callState is CallState.Connecting || callState is CallState.Connected) &&
+            currentCallInfo() === callInfo && activeOfferSessionId == expectedSessionId
+
+    private fun sendAnswer(callInfo: CallInfo, answer: SessionDescription, expectedSessionId: String?) {
+        if (!isActiveAnswerTarget(callInfo, expectedSessionId)) {
+            return
         }
 
         val answerJson = JSONObject().apply {
@@ -335,6 +349,7 @@ class CallController @Inject constructor(
 
         appScope.launch(ioDispatcher) {
             try {
+                if (!isActiveAnswerTarget(callInfo, expectedSessionId)) return@launch
                 socket.forwardWebrtcSignaling(
                     receiverId = callInfo.peerId,
                     dataType = WebrtcSignalingType.SDP_ANSWER,
@@ -550,7 +565,8 @@ class CallController @Inject constructor(
                 callInfo.channelId.toString(),
                 offerJsonPayload,
                 useFsi,
-                callManager.isDeviceLockedOrScreenOff()
+                callManager.isDeviceLockedOrScreenOff(),
+                callInfo.localCallId
             )
         } catch (e: Exception) {
             Log.e(TAG, "incoming ring FGS failed, fallback notify", e)
@@ -716,12 +732,7 @@ class CallController @Inject constructor(
         } catch (_: Exception) {
         }
 
-        callAudioManager?.stopTone()
-        when (reason) {
-            CallEndReason.BUSY -> callAudioManager?.playBusyTone()
-            CallEndReason.LOCAL_HANGUP, CallEndReason.REMOTE_HANGUP -> callAudioManager?.playEndCallTone()
-            else -> {}
-        }
+        finishCallAudio(reason)
 
         val prevInfo = snapInfo
         connectedCancelCallPushed = false
@@ -767,16 +778,30 @@ class CallController @Inject constructor(
                 .edit().remove("incoming_call").apply()
         } catch (_: Exception) {}
 
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.callEnded, reason, prevInfo)
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.callStateChanged, CallState.Idle)
+    }
+
+    private fun finishCallAudio(reason: CallEndReason) {
+        val endingAudioManager = callAudioManager
+        callAudioManager = null
+        endingCallAudioManager?.stop()
+        endingCallAudioManager = endingAudioManager
+        endingAudioManager?.stopTone()
+        when (reason) {
+            CallEndReason.BUSY -> endingAudioManager?.playBusyTone()
+            CallEndReason.LOCAL_HANGUP, CallEndReason.REMOTE_HANGUP -> endingAudioManager?.playEndCallTone()
+            else -> {}
+        }
         appScope.launch {
             delay(if (reason == CallEndReason.BUSY) 2000L else 500L)
             withContext(Dispatchers.Main) {
-                callAudioManager?.stop()
-                callAudioManager = null
+                if (endingCallAudioManager === endingAudioManager) {
+                    endingAudioManager?.stop()
+                    endingCallAudioManager = null
+                }
             }
         }
-
-        notificationCenter.postNotificationOnMainThread(NotificationCenter.callEnded, reason, prevInfo)
-        notificationCenter.postNotificationOnMainThread(NotificationCenter.callStateChanged, CallState.Idle)
     }
 
     private fun handleSignaling(
@@ -814,7 +839,9 @@ class CallController @Inject constructor(
             }
             return
         }
-        if (isKnownPeerSession(callerId, jsonData)) return
+        if (isKnownPeerSession(callerId, jsonData)) {
+            return
+        }
         if (isDuplicateIncomingOffer(callerId, channelId)) {
             return
         }
@@ -917,6 +944,7 @@ class CallController @Inject constructor(
             peerConnection?.handleRemoteAnswer(sdp)
             if (state is CallState.Outgoing) {
                 callState = CallState.Connecting(state.callInfo)
+                startTimeout(CONNECT_TIMEOUT_MS)
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.callStateChanged, callState)
             }
         } catch (e: Exception) {
@@ -993,6 +1021,8 @@ class CallController @Inject constructor(
     }
 
     private fun markInCall(callInfo: CallInfo) {
+        endingCallAudioManager?.stop()
+        endingCallAudioManager = null
         isInCall = true
         inCallPeerId = callInfo.peerId
         inCallChannelId = callInfo.channelId
@@ -1093,19 +1123,21 @@ class CallController @Inject constructor(
 
     private fun handleClearCall(callerId: Long, channelId: Long, jsonData: String) {
         val state = callState as? CallState.Incoming ?: return
-        if (!isFromCallPeer(state.callInfo, callerId, channelId)) return
+        if (!isFromCallPeer(state.callInfo, callerId, channelId)) {
+            return
+        }
         val sessionId = try {
             JSONObject(jsonData).optString("callSessionId").takeIf { it.isNotEmpty() && it != "null" }
         } catch (_: Exception) { null }
-        if (sessionId != null && sdpSessionId(state.offer.description) != sessionId) return
+        if (sessionId != null && sdpSessionId(state.offer.description) != sessionId) {
+            return
+        }
         endCall(CallEndReason.CLEAR_CALL)
     }
 
     private fun handleSdpInit(callerId: Long, channelId: Long) {
         val state = callState
-        if (state is CallState.Connecting) {
-            transitionToConnected(state.callInfo)
-        } else if (state is CallState.Incoming && isFromCallPeer(state.callInfo, callerId, channelId)) {
+        if (state is CallState.Incoming && isFromCallPeer(state.callInfo, callerId, channelId)) {
             endCall(CallEndReason.CLEAR_CALL)
         }
     }
@@ -1146,6 +1178,7 @@ class CallController @Inject constructor(
         val state = callState
         if (state is CallState.Connecting || state is CallState.Outgoing) {
             val callInfo = currentCallInfo() ?: return
+            callEstablished = true
             transitionToConnected(callInfo)
             sendSignaling(callInfo.peerId, callInfo.channelId, WebrtcSignalingType.SDP_INIT, "")
         }
@@ -1171,12 +1204,10 @@ class CallController @Inject constructor(
     }
 
     override fun onIceDisconnected() {
-        if (isCallEstablished()) return
         endCall(CallEndReason.ICE_FAILED)
     }
 
     override fun onIceFailed() {
-        if (isCallEstablished()) return
         endCall(CallEndReason.ICE_FAILED)
     }
 
@@ -1215,9 +1246,10 @@ class CallController @Inject constructor(
 
     fun getPeerConnection(): PeerConnectionWrapper? = peerConnection
 
-    fun shouldIgnoreCancelCallFcm(): Boolean {
+    fun shouldIgnoreCancelCallFcm(answeredElsewhere: Boolean = true, sessionId: String? = null): Boolean {
         return when (callState) {
-            is CallState.Connecting, is CallState.Connected -> true
+            is CallState.Connected -> true
+            is CallState.Connecting -> answeredElsewhere || sessionId == null || sessionId != activeOfferSessionId
             else -> false
         }
     }
@@ -1227,8 +1259,7 @@ class CallController @Inject constructor(
         if (info.isInitiator) return false
         if (channelId != 0L && channelId != info.channelId) return false
         if (callerId != 0L && callerId != info.peerId) return false
-        val incoming = callState as? CallState.Incoming
-        if (sessionId != null && incoming != null && sdpSessionId(incoming.offer.description) != sessionId) return false
+        if (sessionId != null && sessionId != activeOfferSessionId) return false
         return channelId != 0L || callerId != 0L || callState is CallState.Incoming
     }
 
@@ -1253,18 +1284,43 @@ class CallController @Inject constructor(
         notificationCenter.postNotificationOnMainThread(NotificationCenter.callEnded, CallEndReason.CLEAR_CALL, null)
     }
 
-    private fun startTimeout() {
+    fun connectingTimeoutRemainingMs(): Long? {
+        if (callState !is CallState.Connecting || connectingDeadlineElapsed == 0L) return null
+        return (connectingDeadlineElapsed - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
+    }
+
+    fun timeoutConnectingCall() {
+        if (callState !is CallState.Connecting || isCallEstablished()) return
+        val info = currentCallInfo() ?: return
+        sendSignaling(info.peerId, info.channelId, WebrtcSignalingType.SDP_QUIT, "")
+        endCall(CallEndReason.TIMEOUT)
+    }
+
+    private fun startTimeout(timeoutMs: Long = CALL_TIMEOUT_MS) {
         cancelTimeout()
+        val generation = timeoutGeneration
+        val expectedInfo = currentCallInfo() ?: return
+        if (callState is CallState.Connecting) {
+            connectingDeadlineElapsed = SystemClock.elapsedRealtime() + timeoutMs
+        }
         timeoutJob = appScope.launch(Dispatchers.Main) {
-            delay(CALL_TIMEOUT_MS)
+            delay(timeoutMs)
+            if (generation != timeoutGeneration || currentCallInfo() !== expectedInfo) return@launch
             if (isCallEstablished()) return@launch
+            if (callState is CallState.Connecting) {
+                timeoutConnectingCall()
+                return@launch
+            }
             val callInfo = currentCallInfo() ?: return@launch
-            sendSignaling(callInfo.peerId, callInfo.channelId, WebrtcSignalingType.SDP_TIMEOUT, "")
+            val signal = if (callInfo.isInitiator) WebrtcSignalingType.SDP_QUIT else WebrtcSignalingType.SDP_TIMEOUT
+            sendSignaling(callInfo.peerId, callInfo.channelId, signal, "")
             endCall(CallEndReason.TIMEOUT)
         }
     }
 
     private fun cancelTimeout() {
+        timeoutGeneration++
+        connectingDeadlineElapsed = 0L
         timeoutJob?.cancel()
         timeoutJob = null
     }

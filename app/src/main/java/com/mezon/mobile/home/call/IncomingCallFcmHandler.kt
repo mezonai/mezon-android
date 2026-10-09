@@ -44,6 +44,10 @@ class IncomingCallFcmHandler @Inject constructor(
     }
 
     private fun dispatchOffer(offerJson: String, sentTimeMs: Long) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { dispatchOffer(offerJson, sentTimeMs) }
+            return
+        }
         if (!StartupCache.hasSession) return
         val parsed = try {
             JSONObject(offerJson)
@@ -97,7 +101,7 @@ class IncomingCallFcmHandler @Inject constructor(
             return
         }
         CallNotificationManager(appContext).dismissIncomingNotification()
-        if (ctrl?.shouldIgnoreCancelCallFcm() == true) {
+        if (ctrl?.shouldIgnoreCancelCallFcm(answeredElsewhere, sessionId) == true) {
             return
         }
         telecomBridge.endWithCause(DisconnectCause.CANCELED)
