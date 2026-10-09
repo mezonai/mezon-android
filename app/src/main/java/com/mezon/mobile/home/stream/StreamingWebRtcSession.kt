@@ -83,6 +83,7 @@ class StreamingWebRtcSession @Inject constructor(
     private var webSocket: WebSocket? = null
     private var peerConnection: PeerConnection? = null
     private var activeToken = ""
+    private var activeSfuUrl = ""
     private var tokenProvider: (suspend () -> String)? = null
     private var reconnectJob: Job? = null
     private var iceDisconnectedJob: Job? = null
@@ -96,9 +97,10 @@ class StreamingWebRtcSession @Inject constructor(
     fun join(
         channelId: Long,
         token: String,
+        sfuUrl: String = "",
         tokenProvider: suspend () -> String,
     ) {
-        runOnMain { joinOnMain(channelId, token, tokenProvider) }
+        runOnMain { joinOnMain(channelId, token, sfuUrl, tokenProvider) }
     }
 
     fun disconnect() {
@@ -108,6 +110,7 @@ class StreamingWebRtcSession @Inject constructor(
     private fun joinOnMain(
         channelId: Long,
         token: String,
+        sfuUrl: String,
         provider: suspend () -> String,
     ) {
         checkOnMainThread()
@@ -121,6 +124,7 @@ class StreamingWebRtcSession @Inject constructor(
         disconnectOnMain()
         activeStreamChannelId = channelId
         activeToken = token
+        activeSfuUrl = sfuUrl.trim()
         tokenProvider = provider
         reconnectAttempts = 0
         audioRouting.start()
@@ -140,6 +144,7 @@ class StreamingWebRtcSession @Inject constructor(
         closeTransportOnMain()
         activeStreamChannelId = null
         activeToken = ""
+        activeSfuUrl = ""
         tokenProvider = null
         pendingOffer = null
         negotiating = false
@@ -545,7 +550,7 @@ class StreamingWebRtcSession @Inject constructor(
             activeStreamChannelId != null
 
     private fun buildWebSocketUrl(token: String): String {
-        var base = BuildConfig.MEZON_SFU_WS_URL.trim()
+        var base = activeSfuUrl.ifEmpty { BuildConfig.MEZON_SFU_WS_URL.trim() }
         if (base.isEmpty()) return ""
         if (base.startsWith("https://")) base = "wss://${base.removePrefix("https://")}"
         if (base.startsWith("http://")) base = "ws://${base.removePrefix("http://")}"

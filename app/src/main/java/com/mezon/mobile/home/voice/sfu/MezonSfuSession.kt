@@ -342,6 +342,7 @@ class MezonSfuSession @Inject constructor(
     private var captureStallTicks = 0
     private var audioRecoveryAttempts = 0
     private var token: String = ""
+    private var sfuUrl: String? = null
 
     private var audioSource: AudioSource? = null
     private var localAudioTrack: AudioTrack? = null
@@ -517,12 +518,13 @@ class MezonSfuSession @Inject constructor(
     fun isInRoom(channelId: Long, clanId: Long): Boolean =
         active && callIdentity?.let { it.channelId == channelId && it.clanId == clanId } == true
 
-    fun join(channelId: Long, clanId: Long, userId: String, token: String, role: SfuRole) {
+    fun join(channelId: Long, clanId: Long, userId: String, token: String, role: SfuRole, sfuUrl: String? = null) {
         leave()
         callIdentity = CallIdentity(channelId, clanId, userId)
         audioRecoveryAttempts = 0
         resetAudioFlow()
         this.token = token
+        this.sfuUrl = sfuUrl?.takeIf { it.isNotBlank() }
         this.role = role
         this.micEnabled = false
         this.cameraEnabled = false
@@ -1152,7 +1154,7 @@ class MezonSfuSession @Inject constructor(
     }
 
     private fun buildWsUrl(token: String): String {
-        val base = BuildConfig.MEZON_SFU_WS_URL.trim()
+        val base = (sfuUrl ?: BuildConfig.MEZON_SFU_WS_URL).trim()
         if (base.isEmpty()) return ""
         val encoded = URLEncoder.encode(token, Charsets.UTF_8.name())
         val sep = if (base.contains("?")) "&" else "?"
