@@ -13,6 +13,7 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.mezon.mezon.api.GenerateMeetTokenResponse
 import com.mezon.mobile.MainActivity
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.AvatarDrawable
@@ -210,16 +211,17 @@ class StreamingRoomFragment : BaseFragment() {
 
     private fun joinStreamIfNeeded() {
         roomScope.launch {
-            val token = requestMeetToken() ?: return@launch
+            val meetToken = requestMeetToken() ?: return@launch
             streamingSession.join(
                 channelId = channelId,
-                token = token,
-                tokenProvider = { requestMeetToken() ?: "" },
+                token = meetToken.token.trim(),
+                sfuUrl = meetToken.url,
+                tokenProvider = { requestMeetToken()?.token?.trim().orEmpty() },
             )
         }
     }
 
-    private suspend fun requestMeetToken(): String? = runCatching {
+    private suspend fun requestMeetToken(): GenerateMeetTokenResponse? = runCatching {
         sessionManager.withAutoRefresh { session ->
             mezonApi.generateMeetToken(
                 apiUrl = session.apiUrl,
@@ -227,9 +229,9 @@ class StreamingRoomFragment : BaseFragment() {
                 channelId = channelId,
                 roomName = "",
                 metadata = "",
-            ).token.trim()
+            )
         }
-    }.getOrNull()?.takeIf { it.isNotEmpty() }
+    }.getOrNull()?.takeIf { it.token.isNotBlank() }
 
     private fun imageContext(): Context? = fragmentView?.context
 

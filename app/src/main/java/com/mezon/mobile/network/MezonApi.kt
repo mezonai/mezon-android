@@ -2767,8 +2767,12 @@ class MezonApi @Inject constructor(
             this.metadata = metadata
         }
         val bytes = rpc(apiUrl, token, "GenerateMeetToken", request.toByteArray())
-        // Both transports can return either raw JWT or GenerateMeetTokenResponse protobuf.
-        return decodeMeetTokenResponse(bytes)
+        val response = decodeMeetTokenResponse(bytes)
+        val sfuUrl = normalizedSfuWsUrl(response.url)
+        if (sfuUrl == null && response.url.isNotBlank()) {
+            Log.w("MezonApi", "GenerateMeetToken returned an unusable SFU url=${response.url}; using MEZON_SFU_WS_URL")
+        }
+        return response.toBuilder().setUrl(sfuUrl.orEmpty()).build()
     }
 
     suspend fun listChannelVoiceUsers(

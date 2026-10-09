@@ -982,7 +982,7 @@ class VoiceRoomFragment : BaseFragment() {
             }
 
             voiceController.onRoomConnecting(targetChannelId, targetClanId)
-            sfuSession.join(targetChannelId, targetClanId, targetUserId, token, targetRole)
+            sfuSession.join(targetChannelId, targetClanId, targetUserId, token, targetRole, voiceController.meetSfuUrl)
             if (!sfuSession.isInRoom(targetChannelId, targetClanId)) return@launch
             applyAgentHeaderUi()
             voiceController.isLocalVideoEnabled = false
