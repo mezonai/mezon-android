@@ -416,6 +416,9 @@ class MezonSfuSession @Inject constructor(
     private val peerIdByMid = HashMap<String, String>()
     private val roleByMid = HashMap<String, SfuRole>()
     private val memberByPeerId = HashMap<String, MemberState>()
+    private var fixedPool = false
+    private data class SlotAssignment(val generation: ULong, val peerId: String?, val active: List<Boolean>)
+    private val slotAssignments = HashMap<Int, SlotAssignment>()
     private val remote = LinkedHashMap<String, RemoteEntry>()
     private var lastParticipants: List<SfuParticipant> = emptyList()
     private var lastSpeakingIds: Set<String> = emptySet()
@@ -792,6 +795,8 @@ class MezonSfuSession @Inject constructor(
         negotiating = false
         pendingOffer = null
         localTracksAdded = false
+        fixedPool = false
+        slotAssignments.clear()
         transceiverCache = emptyList()
         localAudioSenderRef = null
         transportStatus = TransportStatus()
@@ -924,6 +929,8 @@ class MezonSfuSession @Inject constructor(
         screenTrack = null; screenSource = null; screenHelper = null; screenCapturer = null
         localAudioTrack = null; audioSource = null
         if (oldScreenTrack != null) onLocalScreenTrack?.invoke(null)
+        fixedPool = false
+        slotAssignments.clear()
         transceiverCache = emptyList()
         localAudioSenderRef = null
         remoteSnapshot = emptyList()
@@ -1284,6 +1291,9 @@ class MezonSfuSession @Inject constructor(
                     armModeratorMuteCheck()
                 }
             }
+            "slot_assigned", "slot_released" -> {
+                if (applySlotMessage(msg)) syncRemoteMedia()
+            }
             "peer_left" -> {
                 handlePeerLeft(msg)
                 emitParticipants()
@@ -1414,7 +1424,8 @@ class MezonSfuSession @Inject constructor(
     }
 
     private fun onOffer(generation: Long, sdp: String, msidOwners: List<MsidOwner>) {
-        applyMsidOwners(msidOwners)
+        if (sdp.lineSequence().any { it.trim().startsWith("a=msid:slot-") }) fixedPool = true
+        if (!fixedPool) applyMsidOwners(msidOwners)
         val gen = connectionGen
         scope?.launch { negotiate(generation, sdp, gen) }
     }
@@ -1642,6 +1653,11 @@ class MezonSfuSession @Inject constructor(
         check(tc.setDirection(RtpTransceiver.RtpTransceiverDirection.SEND_ONLY))
         if (role == SfuRole.SPEAKER) {
             if (!localTracksAdded) prepareVideoSender(pc)
+            if (fixedPool) {
+                findTransceiver(MID_SCREEN, "video")?.let {
+                    check(it.setDirection(RtpTransceiver.RtpTransceiverDirection.SEND_ONLY))
+                }
+            }
             if (screenOn) reattachScreen(pc)
         }
         localTracksAdded = true
@@ -1809,6 +1825,7 @@ class MezonSfuSession @Inject constructor(
 
     private fun stopScreenShare() {
         screenCaptureToken++
+        if (screenTrack != null) findTransceiver(MID_SCREEN, "video")?.sender?.setTrack(null, false)
         runCatching { screenCapturer?.stopCapture() }
         runCatching { screenTrack?.dispose() }
         runCatching { screenSource?.dispose() }
@@ -1838,6 +1855,11 @@ class MezonSfuSession @Inject constructor(
             if (peer.has("screen_active")) {
                 state.screenActive = peer.optBoolean("screen_active") && peer.optBoolean("screen_requested", true)
             }
+            applySlotMessage(peer, membership = true)
+            if (fixedPool) {
+                ownershipChanged = true
+                continue
+            }
             val mids = listOf(
                 peer.opt("mid_audio"), peer.opt("mid_video"), peer.opt("mid_screen")
             ).mapNotNull { it?.toString() }.filter { it.isNotEmpty() && it != "0" }
@@ -1854,6 +1876,49 @@ class MezonSfuSession @Inject constructor(
         }
         scheduleCameraTier()
         return ownershipChanged
+    }
+
+    private fun clearSlotMapping(slot: Int) {
+        val base = 3 + slot * 3
+        for (offset in 0..2) {
+            val mid = (base + offset).toString()
+            peerIdByMid.remove(mid)
+            userIdByMid.remove(mid)
+            roleByMid.remove(mid)
+            (remoteTracks.byMid[mid] as? VideoTrack)?.let { VideoTrackLastFrameStore.observe(it)?.clear() }
+        }
+        remote.remove(remoteParticipantId(base.toString()))
+    }
+
+    private fun applySlotMessage(msg: JSONObject, membership: Boolean = false): Boolean {
+        val slot = (msg.opt("slot") ?: msg.opt("remote_slot"))?.toString()?.toIntOrNull() ?: return false
+        if (slot < 0 || slot > (Int.MAX_VALUE - 5) / 3) return false
+        val generation = msg.opt(if (membership) "assignment_generation" else "generation")
+            ?.toString()?.toULongOrNull()?.takeIf { it > 0uL } ?: return false
+        val previous = slotAssignments[slot]
+        if (previous != null && (previous.generation > generation || (membership && previous.generation == generation))) return false
+        val released = !membership && msg.optString("type") == "slot_released"
+        val peerId = if (released) null else (msg.opt("peer_id")?.toString()?.takeIf { it != "0" && it != "null" && it.isNotBlank() } ?: return false)
+        if (!released && previous?.generation == generation && previous.peerId != peerId) return false
+        val base = 3 + slot * 3
+        if (!released && listOf("mid_audio", "mid_video", "mid_screen").withIndex().any { (index, key) ->
+                msg.has(key) && msg.opt(key)?.toString() != (base + index).toString()
+            }) return false
+        if (!membership) fixedPool = true
+        val active = if (membership) listOf(true, msg.optBoolean("camera_active"), msg.optBoolean("screen_active"))
+            else listOf(msg.optBoolean("audio_active"), msg.optBoolean("video_active"), msg.optBoolean("screen_active"))
+        if (membership && !fixedPool) {
+            slotAssignments[slot] = SlotAssignment(generation, peerId, active)
+            return true
+        }
+        if (previous?.peerId != peerId || released) clearSlotMapping(slot)
+        slotAssignments[slot] = SlotAssignment(generation, peerId, active)
+        if (peerId != null) {
+            val state = memberByPeerId.getOrPut(peerId) { MemberState() }
+            msg.optString("user_id").takeIf { it.isNotEmpty() && it != "null" }?.let { state.userId = it }
+            for (offset in 0..2) claimMid((base + offset).toString(), peerId)
+        }
+        return true
     }
 
     private fun claimMid(mid: String, peerId: String): Boolean {
@@ -1888,6 +1953,18 @@ class MezonSfuSession @Inject constructor(
 
     private fun handlePeerLeft(msg: JSONObject) {
         val peerId = msg.opt("peer_id")?.toString()
+        if (fixedPool) {
+            val generation = msg.opt("assignment_generation")?.toString()?.toULongOrNull()?.takeIf { it > 0uL }
+            if (generation != null && slotAssignments.values.any { it.peerId == peerId && it.generation > generation }) return
+            for ((slot, assignment) in slotAssignments.toMap()) {
+                if (assignment.peerId == null || assignment.peerId != peerId || (generation != null && generation != assignment.generation)) continue
+                clearSlotMapping(slot)
+                slotAssignments[slot] = assignment.copy(peerId = null)
+            }
+            memberByPeerId.remove(peerId)
+            syncRemoteMedia()
+            return
+        }
         val mids = listOf(
             msg.opt("mid_audio"), msg.opt("mid_video"), msg.opt("mid_screen")
         ).mapNotNull { it?.toString() }.filter { it.isNotEmpty() && it != "0" }
@@ -1974,6 +2051,16 @@ class MezonSfuSession @Inject constructor(
             val direction = item.direction
             val id = remoteParticipantId(mid)
             val kind = remoteKind(mid)
+            val midNumber = mid.toIntOrNull()
+            val assignment = midNumber?.takeIf { it >= 3 }?.let { slotAssignments[(it - 3) / 3] }
+            if (fixedPool) {
+                val bound = assignment?.peerId != null && assignment.active[(midNumber - 3) % 3]
+                (item.track as? AudioTrack)?.setEnabled(bound)
+                if (!bound) {
+                    clearRemoteKind(id, kind)
+                    continue
+                }
+            }
             if (direction == RtpTransceiver.RtpTransceiverDirection.INACTIVE ||
                 direction == RtpTransceiver.RtpTransceiverDirection.STOPPED
             ) {
@@ -1991,6 +2078,12 @@ class MezonSfuSession @Inject constructor(
             ownerUserId?.let { entry.userId = it }
             ownerPeerId?.let { applyMemberState(entry, it) }
             roleByMid[mid]?.let { entry.role = it }
+            if (fixedPool && assignment != null) {
+                entry.cameraActive = assignment.active[1]
+                val screenStarted = assignment.active[2] && !entry.screenActive
+                entry.screenActive = assignment.active[2]
+                if (screenStarted) entry.screenActiveSinceMs = SystemClock.elapsedRealtime()
+            }
             when {
                 track is AudioTrack -> entry.audio = track
                 kind == "camera" && track is VideoTrack -> entry.video = track
@@ -2133,6 +2226,8 @@ class MezonSfuSession @Inject constructor(
         val retiring = retiringPeerConnection
         peerConnection = null
         retiringPeerConnection = null
+        fixedPool = false
+        slotAssignments.clear()
         transceiverCache = emptyList()
         localAudioSenderRef = null
         remoteSnapshot = emptyList()
@@ -2204,9 +2299,15 @@ class MezonSfuSession @Inject constructor(
     }
 
     private fun emitParticipants() {
-        val list = remote.values.map {
+        val entries = if (fixedPool) {
+            memberByPeerId.keys.filter { it != selfPeerId }.sorted().map { peerId ->
+                remote.values.firstOrNull { it.peerId == peerId }
+                    ?: RemoteEntry("sfu-peer-$peerId").also { applyMemberState(it, peerId) }
+            }
+        } else remote.values.toList()
+        val list = entries.map {
             SfuParticipant(
-                id = it.id,
+                id = if (fixedPool) "sfu-peer-${it.peerId}" else it.id,
                 userId = it.userId,
                 peerId = it.peerId,
                 role = it.role,
@@ -2214,8 +2315,8 @@ class MezonSfuSession @Inject constructor(
                 audio = it.audio,
                 video = it.video,
                 screen = it.screen,
-                screenActive = it.screenActive,
-                cameraActive = it.cameraActive,
+                screenActive = it.screenActive && (!fixedPool || it.screen != null),
+                cameraActive = it.cameraActive && (!fixedPool || it.video != null),
             )
         }
         if (list == lastParticipants) return

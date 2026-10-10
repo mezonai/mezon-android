@@ -37,6 +37,7 @@ class VoiceParticipantAdapter(
 ) : RecyclerView.Adapter<VoiceParticipantAdapter.ParticipantVH>() {
 
     private var items: List<ParticipantInfo> = ArrayList(getParticipants())
+    private val mutePayload = Any()
 
     init {
         setHasStableIds(true)
@@ -49,6 +50,21 @@ class VoiceParticipantAdapter(
     // the room list again for every insert/remove/move notification.
     fun synchronizeItems() {
         items = ArrayList(getParticipants())
+    }
+
+    fun updateMutedStates(isMuted: (ParticipantInfo) -> Boolean) {
+        val changed = ArrayList<Int>()
+        var updated: MutableList<ParticipantInfo>? = null
+        items.forEachIndexed { index, item ->
+            val muted = isMuted(item)
+            if (item.isMuted != muted) {
+                val target = updated ?: items.toMutableList().also { updated = it }
+                target[index] = item.copy(isMuted = muted)
+                changed.add(index)
+            }
+        }
+        updated?.let { items = it }
+        for (index in changed) notifyItemChanged(index, mutePayload)
     }
 
     override fun getItemCount(): Int = items.size
@@ -79,6 +95,16 @@ class VoiceParticipantAdapter(
             true
         }
         return holder
+    }
+
+    override fun onBindViewHolder(holder: ParticipantVH, position: Int, payloads: MutableList<Any>) {
+        if (payloads.isNotEmpty() && payloads.all { it === mutePayload }) {
+            val participant = items[position]
+            holder.participant = participant
+            holder.cell.updateMuted(participant.isMuted)
+        } else {
+            onBindViewHolder(holder, position)
+        }
     }
 
     override fun onBindViewHolder(holder: ParticipantVH, position: Int) {

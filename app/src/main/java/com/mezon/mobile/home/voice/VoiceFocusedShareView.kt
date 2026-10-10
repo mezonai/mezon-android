@@ -4,7 +4,10 @@ import android.content.Context
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.GradientDrawable
+import android.os.SystemClock
+import android.view.GestureDetector
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.widget.FrameLayout
 import android.widget.ImageView
@@ -14,6 +17,7 @@ import com.otaliastudios.zoom.ZoomApi
 import com.otaliastudios.zoom.ZoomLayout
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.R
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.home.call.EglBaseProvider
 import org.webrtc.RendererCommon
@@ -49,7 +53,19 @@ class VoiceFocusedShareView(
     private var contentAspectRatio = 16f / 9f
     private var pendingVideoTrack: VideoTrack? = null
     private var attachScheduled = false
+    private var pipMode = false
+    private var controlsVisible = true
+    private var trackingSingleTouch = false
+    private val contentTapDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
+        override fun onDown(event: MotionEvent): Boolean = true
 
+        override fun onSingleTapConfirmed(event: MotionEvent): Boolean {
+            if (!isShown || pipMode) return false
+            return performClick()
+        }
+    }).apply { setIsLongpressEnabled(false) }
+
+    var onContentTap: (() -> Unit)? = null
     var onEmojiClick: (() -> Unit)? = null
     var onMinimizeClick: (() -> Unit)? = null
     var onFullScreenClick: (() -> Unit)? = null
@@ -57,7 +73,19 @@ class VoiceFocusedShareView(
     init {
         visibility = View.INVISIBLE
         setBackgroundColor(0xFF000000.toInt())
-        zoomContainer = ZoomLayout(context).apply {
+        setOnClickListener { if (!pipMode) onContentTap?.invoke() }
+        zoomContainer = object : ZoomLayout(context) {
+            override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+                if (event.actionMasked == MotionEvent.ACTION_DOWN) trackingSingleTouch = true
+                if (event.actionMasked == MotionEvent.ACTION_POINTER_DOWN) cancelContentTap()
+                val tapHandled = trackingSingleTouch && contentTapDetector.onTouchEvent(event)
+                val zoomHandled = super.dispatchTouchEvent(event)
+                if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+                    trackingSingleTouch = false
+                }
+                return zoomHandled || tapHandled
+            }
+        }.apply {
             setHasClickableChildren(true)
             setTransformation(ZoomApi.TRANSFORMATION_CENTER_INSIDE, ZoomApi.TRANSFORMATION_GRAVITY_AUTO)
             setAlignment(Alignment.CENTER)
@@ -131,12 +159,31 @@ class VoiceFocusedShareView(
             topMargin = LayoutHelper.dp(20)
             marginEnd = LayoutHelper.dp(12)
         })
+        setControlsVisible(true)
     }
 
     fun setPipMode(enabled: Boolean) {
-        actionRow.visibility = if (enabled) View.GONE else View.VISIBLE
+        pipMode = enabled
+        cancelContentTap()
+        setControlsVisible(controlsVisible)
         emojiButton.visibility = View.VISIBLE
         fullScreenButton.visibility = View.GONE
+    }
+
+    fun setControlsVisible(visible: Boolean) {
+        controlsVisible = visible
+        actionRow.visibility = if (pipMode || !visible) View.INVISIBLE else View.VISIBLE
+        contentDescription = context.getString(
+            if (visible) R.string.voice_room_hide_controls else R.string.voice_room_show_controls
+        )
+    }
+
+    private fun cancelContentTap() {
+        trackingSingleTouch = false
+        val now = SystemClock.uptimeMillis()
+        val cancel = MotionEvent.obtain(now, now, MotionEvent.ACTION_CANCEL, 0f, 0f, 0)
+        contentTapDetector.onTouchEvent(cancel)
+        cancel.recycle()
     }
 
     fun showShare(participant: ParticipantInfo): Boolean {
@@ -167,6 +214,7 @@ class VoiceFocusedShareView(
     }
 
     fun clear() {
+        cancelContentTap()
         frameReplay?.cancel()
         val renderer = textureRenderer
         if (renderer != null) {
@@ -291,6 +339,7 @@ class VoiceFocusedShareView(
     }
 
     override fun onDetachedFromWindow() {
+        cancelContentTap()
         currentVideoTrack?.let { onVideoVisibilityChanged?.invoke(it, false) }
         super.onDetachedFromWindow()
     }

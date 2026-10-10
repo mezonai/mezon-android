@@ -1774,4 +1774,6 @@
     <string name="voice_room_connection_exit">Thoát</string>
     <string name="voice_room_connection_rejoin">Tham gia lại</string>
     <string name="voice_room_network_warning">Kết nối mạng của bạn không ổn định.</string>
+    <string name="voice_room_hide_controls">Ẩn điều khiển chia sẻ màn hình</string>
+    <string name="voice_room_show_controls">Hiện điều khiển chia sẻ màn hình</string>
 </resources>

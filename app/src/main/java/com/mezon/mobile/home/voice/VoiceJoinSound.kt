@@ -22,7 +22,7 @@ class VoiceJoinSound(context: Context) {
     private var loaded = false
     private var playWhenLoaded = false
     private var released = false
-    private var lastPlayAtMs = 0L
+    private var lastPlayAtMs: Long? = null
 
     init {
         soundPool.setOnLoadCompleteListener { _, _, status ->
@@ -39,8 +39,7 @@ class VoiceJoinSound(context: Context) {
     fun play() {
         if (released) return
         val now = SystemClock.elapsedRealtime()
-        if (now - lastPlayAtMs < MIN_INTERVAL_MS) return
-        lastPlayAtMs = now
+        if (lastPlayAtMs?.let { now - it < MIN_INTERVAL_MS } == true) return
         if (loaded) start() else playWhenLoaded = true
     }
 
@@ -52,10 +51,12 @@ class VoiceJoinSound(context: Context) {
     }
 
     private fun start() {
-        soundPool.play(soundId, 1f, 1f, 1, 0, 1f)
+        if (soundPool.play(soundId, 1f, 1f, 1, 0, 1f) != 0) {
+            lastPlayAtMs = SystemClock.elapsedRealtime()
+        }
     }
 
     companion object {
-        private const val MIN_INTERVAL_MS = 1_100L
+        private const val MIN_INTERVAL_MS = 5_000L
     }
 }

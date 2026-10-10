@@ -483,6 +483,8 @@ class VoiceControlBar(
 
     fun isPttMode(): Boolean = pushToTalkMode
 
+    fun isPttHeld(): Boolean = holdTriggered
+
     fun setAudioSending(sending: Boolean) {
         audioSending = sending && (!pushToTalkMode || holdTriggered)
         updatePttFeedback()
