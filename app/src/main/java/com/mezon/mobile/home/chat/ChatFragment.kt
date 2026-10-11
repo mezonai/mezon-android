@@ -2724,12 +2724,19 @@ open class ChatFragment : BaseFragment() {
         return rootView
     }
 
+    private fun isBackSwipePreview(): Boolean {
+        val layout = parentLayout ?: return false
+        return layout.isSwipeInProgress() && layout.getLastFragment() !== this
+    }
+
     override fun onResume() {
         super.onResume()
         lastResumeTime = android.os.SystemClock.elapsedRealtime()
-        dialogsController.setCurrentChannel(channelId, if (isTopicMode) topicId else 0L)
-        if (clanId != 0L) {
-            channelController.setVisibleBadgeChannel(channelId, if (isTopicMode) topicId else 0L)
+        if (!isBackSwipePreview()) {
+            dialogsController.setCurrentChannel(channelId, if (isTopicMode) topicId else 0L)
+            if (clanId != 0L) {
+                channelController.setVisibleBadgeChannel(channelId, if (isTopicMode) topicId else 0L)
+            }
         }
         pendingLocationSettingsReturn?.let { origin ->
             pendingLocationSettingsReturn = null
@@ -2743,7 +2750,6 @@ open class ChatFragment : BaseFragment() {
         }
         if (pausedFromAppBackground) {
             pausedFromAppBackground = false
-            dialogsController.setCurrentChannel(channelId, if (isTopicMode) topicId else 0L)
             rejoinChannelOnSocket()
             chatController.loadMessages(channelId, clanId, forceRefresh = true, refreshWhenBackOnline = true, topicId = topicId)
         }
@@ -2845,10 +2851,12 @@ open class ChatFragment : BaseFragment() {
     override fun onPause() {
         super.onPause()
         pausedFromAppBackground = MainActivity.applicationPaused
-        dialogsController.clearCurrentChannel()
-        if (clanId != 0L) {
-            channelController.clearVisibleBadgeChannel(channelId, if (isTopicMode) topicId else 0L)
-            channelController.clearCurrentTopic()
+        if (!isBackSwipePreview()) {
+            dialogsController.clearCurrentChannel()
+            if (clanId != 0L) {
+                channelController.clearVisibleBadgeChannel(channelId, if (isTopicMode) topicId else 0L)
+                channelController.clearCurrentTopic()
+            }
         }
         waitingForKeyboardOpen = false
         AndroidUtilities.cancelRunOnUIThread(openKeyboardRunnable)

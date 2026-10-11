@@ -6,27 +6,33 @@ internal class BuzzState {
         val shouldPlaySound: Boolean get() = this != DUPLICATE
     }
 
-    private data class Mark(val clanId: Long, val messages: MutableMap<Long, Long> = HashMap())
+    private data class BuzzMessage(val id: Long, val timestampSeconds: Long)
+    private data class Mark(val clanId: Long, val messages: MutableMap<Long, BuzzMessage> = HashMap())
     private val marks = HashMap<Long, Mark>()
     private val processed = LinkedHashSet<Pair<Long, Long>>()
     private val readCursors = HashMap<Long, Long>()
+    private val readTimestampCursors = HashMap<Long, Long>()
 
     @Synchronized
-    fun receive(clanId: Long, channelId: Long, topicId: Long, messageId: Long, isViewing: Boolean): Reception {
+    fun receive(clanId: Long, channelId: Long, topicId: Long, messageId: Long, isViewing: Boolean,
+                timestampSeconds: Long = 0L): Reception {
         val targetId = topicId.takeIf { it != 0L } ?: channelId
         if (messageId != 0L) {
             if (!processed.add(targetId to messageId)) return Reception.DUPLICATE
             if (processed.size > 200) processed.remove(processed.first())
         }
-        val alreadySeen = messageId != 0L && readCursors[targetId]?.let {
+        val seenById = messageId != 0L && readCursors[targetId]?.let {
             (messageId shr 22) <= (it shr 22)
         } == true
-        if (!isViewing && !alreadySeen) {
+        val seenByTimestamp = timestampSeconds > 0L && readTimestampCursors[targetId]?.let {
+            timestampSeconds <= it
+        } == true
+        if (!isViewing && !seenById && !seenByTimestamp) {
             val badgeAdded = !marks.containsKey(channelId)
             val mark = marks.getOrPut(channelId) { Mark(clanId) }
             val previous = mark.messages[targetId]
-            if (previous == null || (messageId shr 22) >= (previous shr 22)) {
-                mark.messages[targetId] = messageId
+            if (previous == null || (messageId shr 22) >= (previous.id shr 22)) {
+                mark.messages[targetId] = BuzzMessage(messageId, timestampSeconds)
             }
             if (badgeAdded) return Reception.BADGE_ADDED
         }
@@ -37,19 +43,28 @@ internal class BuzzState {
     fun hasBuzz(channelId: Long): Boolean = marks.containsKey(channelId)
 
     @Synchronized
-    fun clearTarget(targetId: Long, seenMessageId: Long? = null): Set<Long> {
-        if (seenMessageId != null && seenMessageId > 0L) {
+    fun clearTarget(targetId: Long, seenMessageId: Long? = null, seenTimestampSeconds: Long = 0L): Set<Long> {
+        val idCursor = seenMessageId?.takeIf { it > 0L }
+        if (idCursor != null) {
             val previous = readCursors[targetId]
-            if (previous == null || (seenMessageId shr 22) > (previous shr 22)) {
-                readCursors[targetId] = seenMessageId
+            if (previous == null || (idCursor shr 22) > (previous shr 22)) {
+                readCursors[targetId] = idCursor
             }
+        } else if (seenTimestampSeconds > 0L) {
+            readTimestampCursors[targetId] = maxOf(readTimestampCursors[targetId] ?: 0L, seenTimestampSeconds)
         }
         val changed = LinkedHashSet<Long>()
         val iterator = marks.iterator()
         while (iterator.hasNext()) {
             val (channelId, mark) = iterator.next()
-            val messageId = mark.messages[targetId] ?: continue
-            if (seenMessageId != null && (seenMessageId shr 22) < (messageId shr 22)) continue
+            val message = mark.messages[targetId] ?: continue
+            val covered = when {
+                idCursor != null -> (message.id shr 22) <= (idCursor shr 22)
+                seenTimestampSeconds > 0L -> message.timestampSeconds > 0L &&
+                    message.timestampSeconds <= seenTimestampSeconds
+                else -> seenMessageId == null
+            }
+            if (!covered) continue
             mark.messages.remove(targetId)
             if (mark.messages.isEmpty()) {
                 iterator.remove()
@@ -81,5 +96,6 @@ internal class BuzzState {
         marks.clear()
         processed.clear()
         readCursors.clear()
+        readTimestampCursors.clear()
     }
 }

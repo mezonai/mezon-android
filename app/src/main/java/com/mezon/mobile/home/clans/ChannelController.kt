@@ -1927,7 +1927,9 @@ class ChannelController @Inject constructor(
     }
 
     fun markChannelAsRead(channelId: Long, seenTimestampSeconds: Int = 0, seenMessageId: Long = 0L) {
-        buzzController.clearTarget(channelId)
+        val channel = findChannelById(channelId)
+        val newSeenId = maxOf(channel?.lastSeenMessageId ?: 0L, channel?.lastSentMessageId ?: 0L, seenMessageId)
+        buzzController.clearTarget(channelId, newSeenId)
         applyChannelRead(channelId, seenTimestampSeconds, seenMessageId)
     }
 
@@ -2196,7 +2198,7 @@ class ChannelController @Inject constructor(
 
     private fun markTargetsAsRead(ids: List<Long>) {
         buzzController.removeChannels(ids)
-        ids.forEach { applyChannelRead(it) }
+        ids.forEach { markChannelAsRead(it) }
     }
 
     private fun observeSocketEvents() {

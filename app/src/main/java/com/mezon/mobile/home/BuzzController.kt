@@ -47,7 +47,7 @@ class BuzzController @Inject constructor(
         handler.post { getSound() }
         appScope.launch {
             dispatcher.lastSeenMessageEvents.collect { event ->
-                clearSeen(event.channelId, event.messageId)
+                clearSeen(event.channelId, event.messageId, event.timestampSeconds)
             }
         }
         appScope.launch {
@@ -80,7 +80,8 @@ class BuzzController @Inject constructor(
         if (message.code != MessageEntity.CODE_MESSAGE_BUZZ || message.senderId == currentUserId) return
         runOnMain {
             val reception = state.receive(message.clanId, message.channelId, message.topicId, message.messageId,
-                activeChannelTracker.isViewing(message.channelId, message.topicId))
+                activeChannelTracker.isViewing(message.channelId, message.topicId),
+                message.createTimeSeconds.toLong() and 0xFFFF_FFFFL)
             if (!reception.shouldPlaySound) return@runOnMain
             if (reception == BuzzState.Reception.BADGE_ADDED) notifyChanged(setOf(message.channelId))
             playSound()
@@ -89,12 +90,12 @@ class BuzzController @Inject constructor(
 
     fun hasBuzz(channelId: Long): Boolean = state.hasBuzz(channelId)
 
-    fun clearTarget(targetId: Long) = runOnMain {
-        notifyChanged(state.clearTarget(targetId))
+    fun clearTarget(targetId: Long, seenMessageId: Long = 0L) = runOnMain {
+        notifyChanged(state.clearTarget(targetId, seenMessageId.takeIf { it > 0L }))
     }
 
-    fun clearSeen(targetId: Long, messageId: Long) = runOnMain {
-        notifyChanged(state.clearTarget(targetId, messageId))
+    fun clearSeen(targetId: Long, messageId: Long, timestampSeconds: Int = 0) = runOnMain {
+        notifyChanged(state.clearTarget(targetId, messageId, timestampSeconds.toLong() and 0xFFFF_FFFFL))
     }
 
     fun removeChannel(channelId: Long) = removeChannels(listOf(channelId))

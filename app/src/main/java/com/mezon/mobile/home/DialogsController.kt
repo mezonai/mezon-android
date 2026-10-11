@@ -933,13 +933,13 @@ class DialogsController @Inject constructor(
     }
 
     fun markDialogAsRead(channelId: Long, postEvent: Boolean = true, seenTimestampSeconds: Int = 0, seenMessageId: Long = 0L) {
-        buzzController.clearTarget(channelId)
         var changed = false
         var updated: DirectMessage? = null
         synchronized(this) {
-            val dm = dialogsDict[channelId] ?: return
-            if (dm.unreadCount == 0 && seenMessageId <= dm.lastSeenMessageId) return
-            val newSeenId = maxOf(dm.lastSeenMessageId, dm.lastSentMessageId, seenMessageId)
+            val dm = dialogsDict[channelId]
+            val newSeenId = maxOf(dm?.lastSeenMessageId ?: 0L, dm?.lastSentMessageId ?: 0L, seenMessageId)
+            buzzController.clearTarget(channelId, newSeenId)
+            if (dm == null || (dm.unreadCount == 0 && seenMessageId <= dm.lastSeenMessageId)) return
             val tsLong = seenTimestampSeconds.toLong() and 0xFFFF_FFFFL
             val newSeenTs = maxOf(dm.lastSeenMessageTs, dm.lastSentMessageTs, tsLong)
             val u = dm.copy(
