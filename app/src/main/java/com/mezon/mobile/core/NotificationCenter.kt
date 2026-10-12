@@ -116,7 +116,7 @@ class NotificationCenter(val currentAccount: Int) {
         val clanEmojiCropExportReady = nextId()
         val stickersNeedReload = nextId()
         val gifsNeedReload = nextId()
-        val buzzMessageReceived = nextId()
+        val buzzStateChanged = nextId()
         val anonymousModeChanged = nextId()
         val reactionDidUpdate = nextId()
         val favoriteChannelsChanged = nextId()

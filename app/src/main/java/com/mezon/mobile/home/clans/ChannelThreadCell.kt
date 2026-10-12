@@ -51,8 +51,9 @@ class ChannelThreadCell(
     private var isFirst = false
     private var isLast = false
     private var isActive = false
+    private var hasBuzz = false
     private var truncatedName: String = ""
-    private var truncatedNameWidth = -1
+    private var truncatedNameWidth = -1f
 
     private val cellHeightPx = LayoutHelper.dp(34)
     private val connectorLineX = LayoutHelper.dp(26).toFloat()
@@ -62,11 +63,19 @@ class ChannelThreadCell(
     private val cornerRadius = LayoutHelper.dp(6).toFloat()
     private val paddingRightPx = LayoutHelper.dp(16)
     private val badgeSizePx = LayoutHelper.dp(18)
-    fun bind(thread: ClanChannelEntity, isFirst: Boolean, isLast: Boolean, isActive: Boolean) {
+    fun bind(thread: ClanChannelEntity, isFirst: Boolean, isLast: Boolean, isActive: Boolean, hasBuzz: Boolean = false) {
         this.thread = thread
         this.isFirst = isFirst
         this.isLast = isLast
+        this.hasBuzz = hasBuzz
         this.isActive = isActive
+        truncatedName = ""
+        invalidate()
+    }
+
+    fun applyBuzz(value: Boolean) {
+        if (hasBuzz == value) return
+        hasBuzz = value
         truncatedName = ""
         invalidate()
     }
@@ -152,8 +161,14 @@ class ChannelThreadCell(
         namePaint.color = textColor
         namePaint.typeface = if (showUnreadHighlight) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
 
-        val badgeWidth = if (showMentionBadge) badgeSizePx + BADGE_GAP else 0
-        val availW = width - textStartX - paddingRightPx - badgeWidth
+        val badgeText = if (th.unreadCount > 99) "99+" else th.unreadCount.toString()
+        val mentionWidth = if (showMentionBadge) {
+            (unreadBadgeTextPaint.measureText(badgeText) + BADGE_TEXT_PAD).coerceAtLeast(badgeSizePx.toFloat())
+        } else 0f
+        val buzzWidth = if (hasBuzz) themeColors.buzzBadgeTextPaint.measureText("Buzz!!") + LayoutHelper.dp(8) else 0f
+        val badgeWidth = (if (showMentionBadge) mentionWidth + BADGE_GAP else 0f) +
+            (if (hasBuzz) buzzWidth + BADGE_GAP else 0f)
+        val availW = (width - textStartX - paddingRightPx - badgeWidth).coerceAtLeast(0f)
 
         if (truncatedName.isEmpty() || truncatedNameWidth != availW) {
             truncatedNameWidth = availW
@@ -162,8 +177,17 @@ class ChannelThreadCell(
         val textY = cy - (namePaint.descent() + namePaint.ascent()) / 2
         canvas.drawText(truncatedName, textStartX.toFloat(), textY, namePaint)
 
+        if (hasBuzz) {
+            val right = width - paddingRightPx.toFloat() - if (showMentionBadge) mentionWidth + BADGE_GAP else 0f
+            val left = right - buzzWidth
+            val halfHeight = LayoutHelper.dp(10).toFloat()
+            badgeRectF.set(left, cy - halfHeight, right, cy + halfHeight)
+            canvas.drawRoundRect(badgeRectF, LayoutHelper.dpf(4f), LayoutHelper.dpf(4f), themeColors.buzzBadgePaint)
+            val buzzY = cy - (themeColors.buzzBadgeTextPaint.descent() + themeColors.buzzBadgeTextPaint.ascent()) / 2
+            canvas.drawText("Buzz!!", left + LayoutHelper.dp(4), buzzY, themeColors.buzzBadgeTextPaint)
+        }
+
         if (showMentionBadge) {
-            val badgeText = if (th.unreadCount > 99) "99+" else th.unreadCount.toString()
             val textW = unreadBadgeTextPaint.measureText(badgeText)
             val badgeW = (textW + BADGE_TEXT_PAD).coerceAtLeast(badgeSizePx.toFloat())
             val badgeRight = width - paddingRightPx.toFloat()

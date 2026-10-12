@@ -58,6 +58,7 @@ class ThemeColors @Inject constructor() {
     val buzzBadgePaint = Paint(Paint.ANTI_ALIAS_FLAG)
     val buzzBadgeTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = LayoutHelper.sp(14f)
+        typeface = Typeface.DEFAULT_BOLD
         color = Color.WHITE
     }
     val dialogOnlinePaint = Paint(Paint.ANTI_ALIAS_FLAG)

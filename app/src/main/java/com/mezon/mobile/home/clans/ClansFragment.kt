@@ -217,6 +217,11 @@ class ClansFragment : BaseFragment() {
                 clanEventSheet?.loadClanEvent()
             }
         }
+        observe(NotificationCenter.buzzStateChanged) { _, _, args ->
+            if (fragmentView == null || listFrozen) return@observe
+            val channelIds = args.firstOrNull() as? LongArray ?: return@observe
+            channelListView.refreshBuzz(channelIds)
+        }
         observe(NotificationCenter.dialogsNeedReload) { _, _, _ ->
             if (fragmentView == null || isPaused || listFrozen) return@observe
             updateServerRail()
@@ -382,6 +387,7 @@ class ClansFragment : BaseFragment() {
         }
 
         channelListView = ChannelListView(context, themeColors, channelCategoryExpandStore).apply {
+            buzzChecker = dialogsController::isBuzzActive
             onChannelClick = { channel -> onChannelSelected(channel) }
             onChannelLongClick = channelLongClick@ { channel, _ ->
                 val selClan = clansController.selectedClanId.value

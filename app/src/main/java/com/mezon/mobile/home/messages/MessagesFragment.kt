@@ -110,6 +110,11 @@ class MessagesFragment : BaseFragment() {
                 })
             }
         }
+        observe(NotificationCenter.buzzStateChanged) { _, _, args ->
+            if (fragmentView == null || dialogsListFrozen || isPaused) return@observe
+            val channelIds = args.firstOrNull() as? LongArray ?: return@observe
+            adapter.refreshBuzz(recyclerView, channelIds)
+        }
         observe(NotificationCenter.dialogsNeedReload) { _, _, _ ->
             if (fragmentView == null || dialogsListFrozen || isPaused) return@observe
             updateDialogsList()
@@ -483,6 +488,11 @@ class MessagesFragment : BaseFragment() {
         return voiceController.getUserVoiceActivity(peerId)
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (fragmentView != null) adapter.refreshBuzz(recyclerView)
+    }
+
     override fun onBecomeFullyVisible() {
         super.onBecomeFullyVisible()
         scrollActivityStripToStart()
@@ -576,6 +586,7 @@ class MessagesFragment : BaseFragment() {
         emptyView.visibility = View.GONE
         errorView.visibility = View.GONE
         adapter.setMessages(messages)
+        adapter.refreshBuzz(recyclerView)
     }
 
     private fun showDmMenu(dm: DirectMessage) {
