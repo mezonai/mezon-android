@@ -339,7 +339,6 @@ open class ChatFragment : BaseFragment() {
     private var locationFixDialog: com.mezon.mobile.core.AlertDialog? = null
     private val pendingAttachmentThumbTasks = ArrayList<Runnable?>()
     private var attachmentProgressReloadRunnable: Runnable? = null
-    private var buzzMediaPlayer: android.media.MediaPlayer? = null
 
     private var voiceRecorder: VoiceRecorder? = null
     private var voiceOverlay: VoiceRecordingOverlay? = null
@@ -1418,17 +1417,12 @@ open class ChatFragment : BaseFragment() {
             markAsRead()
         }
 
-        observe(NotificationCenter.buzzMessageReceived) { _, _, args ->
-            val buzzChannelId = args.firstOrNull() as? Long ?: return@observe
-            if (buzzChannelId != channelId) return@observe
-            playBuzzSound()
-        }
-
         observe(NotificationCenter.anonymousModeChanged) { _, _, args ->
             val changedClanId = args.firstOrNull() as? Long ?: return@observe
             if (changedClanId != clanId) return@observe
             val isAnon = anonymousController.isAnonymous(clanId)
             anonymousIndicator?.visibility = if (isAnon) View.VISIBLE else View.GONE
+            advancedMenuView?.updateAnonymousMode(isAnon)
         }
 
         observe(NotificationCenter.channelMembersDidLoad) { _, _, args ->
@@ -2730,11 +2724,19 @@ open class ChatFragment : BaseFragment() {
         return rootView
     }
 
+    private fun isBackSwipePreview(): Boolean {
+        val layout = parentLayout ?: return false
+        return layout.isSwipeInProgress() && layout.getLastFragment() !== this
+    }
+
     override fun onResume() {
         super.onResume()
         lastResumeTime = android.os.SystemClock.elapsedRealtime()
-        if (clanId != 0L) {
-            channelController.setVisibleBadgeChannel(channelId, if (isTopicMode) topicId else 0L)
+        if (!isBackSwipePreview()) {
+            dialogsController.setCurrentChannel(channelId, if (isTopicMode) topicId else 0L)
+            if (clanId != 0L) {
+                channelController.setVisibleBadgeChannel(channelId, if (isTopicMode) topicId else 0L)
+            }
         }
         pendingLocationSettingsReturn?.let { origin ->
             pendingLocationSettingsReturn = null
@@ -2748,7 +2750,6 @@ open class ChatFragment : BaseFragment() {
         }
         if (pausedFromAppBackground) {
             pausedFromAppBackground = false
-            dialogsController.setCurrentChannel(channelId)
             rejoinChannelOnSocket()
             chatController.loadMessages(channelId, clanId, forceRefresh = true, refreshWhenBackOnline = true, topicId = topicId)
         }
@@ -2774,7 +2775,7 @@ open class ChatFragment : BaseFragment() {
         }
         pausedOnLastMessage = false
         if (!initialApiDone) initialApiDone = true
-        dialogsController.setCurrentChannel(channelId)
+        dialogsController.setCurrentChannel(channelId, if (isTopicMode) topicId else 0L)
         if (clanId != 0L) {
             channelController.setCurrentChannel(channelId)
             if (isTopicMode) {
@@ -2850,9 +2851,12 @@ open class ChatFragment : BaseFragment() {
     override fun onPause() {
         super.onPause()
         pausedFromAppBackground = MainActivity.applicationPaused
-        if (clanId != 0L) {
-            channelController.clearVisibleBadgeChannel(channelId, if (isTopicMode) topicId else 0L)
-            channelController.clearCurrentTopic()
+        if (!isBackSwipePreview()) {
+            dialogsController.clearCurrentChannel()
+            if (clanId != 0L) {
+                channelController.clearVisibleBadgeChannel(channelId, if (isTopicMode) topicId else 0L)
+                channelController.clearCurrentTopic()
+            }
         }
         waitingForKeyboardOpen = false
         AndroidUtilities.cancelRunOnUIThread(openKeyboardRunnable)
@@ -3329,8 +3333,6 @@ open class ChatFragment : BaseFragment() {
         emojiView = null
         advancedMenuView = null
         emojiObjPicked.clear()
-        buzzMediaPlayer?.release()
-        buzzMediaPlayer = null
         mainHandler.removeCallbacks(voiceLongPressRunnable)
         voiceRecorder?.cancel()
         voiceRecorder = null
@@ -6159,20 +6161,8 @@ open class ChatFragment : BaseFragment() {
         alertDialog.show()
     }
 
-    private fun playBuzzSound() {
-        try {
-            buzzMediaPlayer?.release()
-            val ctx = getContext() ?: return
-            buzzMediaPlayer = android.media.MediaPlayer.create(ctx, R.raw.buzz)?.apply {
-                setOnCompletionListener { mp -> mp.release(); buzzMediaPlayer = null }
-                start()
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to play buzz sound", e)
-        }
-    }
-
     private fun showBuzzConfirmDialog() {
+        if (anonymousController.isAnonymous(clanId)) return
         val activity = getParentActivity() ?: return
         val inputView = EditText(activity).apply {
             setText(getString(R.string.buzz_default_text))
@@ -6192,7 +6182,8 @@ open class ChatFragment : BaseFragment() {
                 val buzzText = inputView.text?.toString()?.trim().orEmpty()
                 if (buzzText.isNotBlank()) {
                     chatController.sendBuzzMessage(
-                        channelId, clanId, channelType, resolveChannelPrivate(), buzzText
+                        channelId, clanId, channelType, resolveChannelPrivate(), buzzText,
+                        topicId = if (isTopicMode) topicId else 0L
                     )
                 }
             }

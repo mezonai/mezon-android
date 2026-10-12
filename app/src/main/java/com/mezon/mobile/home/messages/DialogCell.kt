@@ -39,6 +39,8 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
     private var timeColor: Int = 0
     private var badgeLayout: StaticLayout? = null
     private var buzzLayout: StaticLayout? = null
+    private var badgeWidth = 0f
+    private var buzzWidth = 0f
     private var previewShowsInVoice = false
     private var inVoiceDrawable: Drawable? = null
 
@@ -90,6 +92,13 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
     fun setData(dm: DirectMessage) {
         directMessage = dm
         update(0)
+    }
+
+    fun applyBuzz(value: Boolean) {
+        if (hasBuzz == value) return
+        hasBuzz = value
+        buildLayouts()
+        invalidate()
     }
 
     fun applyInVoice(value: Boolean) {
@@ -186,6 +195,14 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
             .setEllipsize(TextUtils.TruncateAt.END)
             .build()
 
+        buzzLayout = if (hasBuzz) {
+            val buzzText = "Buzz!!"
+            StaticLayout.Builder.obtain(buzzText, 0, buzzText.length, theme.buzzBadgeTextPaint, contentWidth)
+                .setMaxLines(1).build()
+        } else null
+
+        buzzWidth = buzzLayout?.let { it.getLineWidth(0) + BUZZ_H_PAD * 2 } ?: 0f
+
         val timeWidth = timeLayout?.let { it.getLineWidth(0).toInt() + TIME_GAP } ?: 0
         val nameWidth = contentWidth - timeWidth
         val nameText = dm.displayName.ifEmpty { dm.label }
@@ -203,17 +220,10 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
                 .build()
         }
 
-        buzzLayout = if (hasBuzz) {
-            val buzzText = "Buzz!!"
-            StaticLayout.Builder.obtain(buzzText, 0, buzzText.length, theme.buzzBadgeTextPaint, contentWidth)
-                .setMaxLines(1).build()
-        } else null
-
-        val buzzSpace = if (buzzLayout != null) {
-            (buzzLayout!!.getLineWidth(0) + BUZZ_H_PAD * 2).toInt() + BADGE_GAP
-        } else 0
-        val badgeSpace = if (badgeLayout != null) BADGE_MIN_W + BADGE_GAP else 0
-        val previewWidth = contentWidth - badgeSpace - buzzSpace
+        badgeWidth = badgeLayout?.let { maxOf(BADGE_MIN_W.toFloat(), it.getLineWidth(0) + BADGE_PAD) } ?: 0f
+        val badgeSpace = if (badgeLayout != null) badgeWidth + BADGE_GAP else 0f
+        val buzzSpace = if (buzzLayout != null) buzzWidth + BADGE_GAP else 0f
+        val previewWidth = (contentWidth - badgeSpace - buzzSpace).toInt()
         previewShowsInVoice = isInVoice
         if (previewShowsInVoice) {
             val label = context.getString(R.string.voice_profile_in_voice)
@@ -306,7 +316,7 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         badgeLayout?.let { badge ->
             if (dm.unreadCount > 0) {
                 val btw = badge.getLineWidth(0)
-                val bw = maxOf(BADGE_MIN_W.toFloat(), btw + BADGE_PAD)
+                val bw = badgeWidth
                 val bh = BADGE_H.toFloat()
                 val bx = width - PADDING_H - bw
                 val by = textTop + (previewLayout?.height ?: 0) / 2f - bh / 2f
@@ -321,11 +331,11 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
 
         buzzLayout?.let { buzz ->
             val btw = buzz.getLineWidth(0)
-            val bw = btw + BUZZ_H_PAD * 2
+            val bw = buzzWidth
             val bh = BUZZ_BADGE_H.toFloat()
-            val nameH = nameLayout?.height ?: 0
-            val bx = textLeft + (nameLayout?.getLineWidth(0) ?: 0f) + BADGE_GAP
-            val by = PADDING_V + (nameH - bh) / 2f
+            val countSpace = if (badgeLayout != null) badgeWidth + BADGE_GAP else 0f
+            val bx = width - PADDING_H - countSpace - bw
+            val by = textTop + (previewLayout?.height ?: 0) / 2f - bh / 2f
             tmpRect.set(bx, by, bx + bw, by + bh)
             canvas.drawRoundRect(tmpRect, BUZZ_RADIUS, BUZZ_RADIUS, theme.buzzBadgePaint)
             canvas.save()
