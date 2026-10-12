@@ -7588,8 +7588,20 @@ open class ChatFragment : BaseFragment() {
                 }
             }
             MessageActionBottomSheet.ActionType.ShareImage -> {
-                getContext() ?: return
-                MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(R.string.feature_coming_soon))
+                val ctx = getParentActivity() ?: return
+                val url = imageClipboardCoordinator.resolvePrimaryImageUrlForCopy(msg)
+                if (url.isNullOrBlank()) {
+                    MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.message_toast_save_failed))
+                    return
+                }
+                appScope.launch {
+                    val success = ImageShareHelper.shareImage(ctx, url, ioDispatcher, mainDispatcher)
+                    if (!success) {
+                        withContext(mainDispatcher) {
+                            MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.ERROR, getString(R.string.message_toast_save_failed))
+                        }
+                    }
+                }
             }
             MessageActionBottomSheet.ActionType.Report -> {
                 showReportMessageSheet(msg)

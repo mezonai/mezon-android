@@ -23,7 +23,6 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
-import androidx.core.content.FileProvider
 import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager2.widget.ViewPager2
 import com.github.chrisbanes.photoview.PhotoView
@@ -874,7 +873,7 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
         if (url.isEmpty()) return
         val coordinator = entryPoint.imageClipboardCoordinator()
         entryPoint.applicationScope().launch {
-            val ok = coordinator.copyRemoteUrlToClipboard(context, url, guessMimeHintForCopy(url))
+            val ok = coordinator.copyRemoteUrlToClipboard(context, url, ImageShareHelper.mimeTypeForUrl(url))
             withContext(entryPoint.mainDispatcher()) {
                 if (ok) {
                     showToast(ToastOverlay.ToastType.SUCCESS, R.string.message_toast_copy_image_done)
@@ -882,17 +881,6 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
                     showToast(ToastOverlay.ToastType.ERROR, R.string.message_toast_copy_image_failed)
                 }
             }
-        }
-    }
-
-    private fun guessMimeHintForCopy(url: String): String {
-        val lower = url.lowercase(java.util.Locale.US)
-        return when {
-            lower.endsWith(".png") -> "image/png"
-            lower.endsWith(".webp") -> "image/webp"
-            lower.endsWith(".gif") || lower.contains("tenor.com", ignoreCase = true) -> "image/gif"
-            lower.endsWith(".jpg") || lower.endsWith(".jpeg") -> "image/jpeg"
-            else -> "image/jpeg"
         }
     }
 
@@ -909,55 +897,10 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
         }
     }
 
-    private fun downloadToFile(url: String, destFile: java.io.File) {
-        val conn = java.net.URL(com.mezon.mobile.network.CdnSigner.requestUrlBlocking(url).url).openConnection() as java.net.HttpURLConnection
-        conn.connect()
-        if (conn.responseCode !in 200..299) {
-            throw Exception("HTTP Error: ${conn.responseCode}")
-        }
-        conn.inputStream.use { input ->
-            java.io.FileOutputStream(destFile).use { output ->
-                input.copyTo(output)
-            }
-        }
-    }
-
     private fun shareUrl(url: String) {
-        entryPoint.applicationScope().launch(entryPoint.ioDispatcher()) {
-            try {
-                val mime = guessMimeHintForCopy(url)
-                val ext = when (mime) {
-                    "image/gif" -> "gif"
-                    "image/png" -> "png"
-                    "image/webp" -> "webp"
-                    else -> "jpg"
-                }
-
-                val dir = java.io.File(context.cacheDir, "clipboard_images").apply { mkdirs() }
-                val destFile = java.io.File(dir, "share_${System.currentTimeMillis()}.$ext")
-                downloadToFile(url, destFile)
-
-                val authority = "${context.packageName}.fileprovider"
-                val uri = FileProvider.getUriForFile(context, authority, destFile)
-
-                withContext(entryPoint.mainDispatcher()) {
-                    val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                        type = mime
-                        putExtra(android.content.Intent.EXTRA_STREAM, uri)
-                        clipData = android.content.ClipData.newRawUri("", uri)
-                        addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    }
-
-                    val resInfoList = context.packageManager.queryIntentActivities(intent, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY)
-                    for (resolveInfo in resInfoList) {
-                        context.grantUriPermission(resolveInfo.activityInfo.packageName, uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    }
-
-                    val chooser = android.content.Intent.createChooser(intent, context.getString(R.string.action_share_image))
-                    chooser.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    context.startActivity(chooser)
-                }
-            } catch (e: Exception) {
+        entryPoint.applicationScope().launch {
+            val success = ImageShareHelper.shareImage(context, url, entryPoint.ioDispatcher(), entryPoint.mainDispatcher())
+            if (!success) {
                 withContext(entryPoint.mainDispatcher()) {
                     showToast(ToastOverlay.ToastType.ERROR, R.string.message_toast_save_failed)
                 }
