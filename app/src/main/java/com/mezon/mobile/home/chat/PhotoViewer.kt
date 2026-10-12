@@ -472,7 +472,7 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
         }
 
         avatarView?.let { view ->
-            if (item.uploaderId == ANONYMOUS_USER_ID) {
+            if (item.uploaderId == ANONYMOUS_USER_ID && item.senderAvatarUrl.isNullOrEmpty()) {
                 view.setImageDrawable(com.mezon.mobile.ui.cells.MezonIcon.anonymousAvatar.getDrawable(context))
             } else if (!item.senderAvatarUrl.isNullOrEmpty()) {
                 val proxyUrl = com.mezon.mobile.util.avatarImgproxyUrl(item.senderAvatarUrl, LayoutHelper.dp(40))

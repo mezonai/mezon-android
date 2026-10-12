@@ -767,9 +767,7 @@ class ChannelController @Inject constructor(
                 } else {
                     list.add(item)
                 }
-                categoriesByClan[clanId] = list.sortedWith(
-                    compareBy<ClanCategoryItem> { it.categoryOrder }.thenBy { it.categoryName.lowercase() },
-                )
+                categoriesByClan[clanId] = list.sortedBy { it.categoryOrder }
             }
             notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
             desc
@@ -843,8 +841,7 @@ class ChannelController @Inject constructor(
         }
         fromApi.forEach(::absorb)
         categoriesDerivedFromChannels(clanId).forEach(::absorb)
-        return merged.values
-            .sortedWith(compareBy<ClanCategoryItem> { it.categoryOrder }.thenBy { it.categoryName.lowercase() })
+        return merged.values.sortedBy { it.categoryOrder }
     }
 
     private fun normalizeCategoryItem(item: ClanCategoryItem, clanId: Long): ClanCategoryItem? {

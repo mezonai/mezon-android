@@ -1175,6 +1175,7 @@
     <string name="voice_room_mute_voice">Tắt tiếng</string>
     <string name="voice_room_kick_voice">Xóa khỏi kênh thoại</string>
     <string name="voice_profile_in_voice">Đang trong thoại</string>
+    <string name="voice_profile_sharing_screen">Đang chia sẻ màn hình</string>
     <string name="voice_profile_join_voice">Tham gia thoại</string>
     <string name="voice_room_mute_modal_title">Tắt tiếng thành viên</string>
     <string name="voice_room_mute_modal_content">Xác nhận tắt tiếng \"%1$s\"?</string>

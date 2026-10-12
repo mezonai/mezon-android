@@ -34,6 +34,7 @@ import com.mezon.mobile.home.friends.FriendController
 import com.mezon.mobile.home.friends.createFriendRequestBadgeView
 import com.mezon.mobile.home.friends.updateFriendRequestBadge
 import com.mezon.mobile.home.profile.UserController
+import com.mezon.mobile.home.voice.VoiceActivityBadge
 import com.mezon.mobile.home.voice.VoiceController
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
@@ -210,7 +211,7 @@ class MessagesFragment : BaseFragment() {
 
         adapter = DmListAdapter(
             themeColors,
-            inVoiceChecker = { dm -> isDmPeerInVoice(dm) }
+            voiceActivityResolver = { dm -> dmPeerVoiceActivity(dm) }
         ) { channelId -> controller.isBuzzActive(channelId) }
         adapter.setEntryBuilder { messages ->
             buildSectionedDmEntries(
@@ -475,11 +476,11 @@ class MessagesFragment : BaseFragment() {
         presentFragment(fragment)
     }
 
-    private fun isDmPeerInVoice(dm: DirectMessage): Boolean {
-        if (dm.type != CHANNEL_TYPE_DM) return false
+    private fun dmPeerVoiceActivity(dm: DirectMessage): VoiceActivityBadge? {
+        if (dm.type != CHANNEL_TYPE_DM) return null
         val peerId = dm.otherUserId
-        if (peerId == 0L || peerId == userController.userId) return false
-        return voiceController.isUserInVoice(peerId)
+        if (peerId == 0L || peerId == userController.userId) return null
+        return voiceController.getUserVoiceActivity(peerId)
     }
 
     override fun onBecomeFullyVisible() {

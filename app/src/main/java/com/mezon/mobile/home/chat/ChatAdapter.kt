@@ -470,6 +470,8 @@ class ChatAdapter(
         return value
     }
 
+    private val anonymousUserId = com.mezon.mobile.BuildConfig.MEZON_ANONYMOUS_USER_ID.toLongOrNull() ?: 0L
+
     private fun computeCombined(idx: Int): Boolean {
         if (idx + 1 >= messages.size) return false
         val current = messages[idx]
@@ -478,6 +480,9 @@ class ChatAdapter(
         val prev = messages[idx + 1]
         if (prev.isPollMessage) return false
         if (current.senderId != prev.senderId) return false
+        if (current.senderId == anonymousUserId &&
+            (current.senderName != prev.senderName || current.senderAvatar != prev.senderAvatar)
+        ) return false
         if (prev.isSystemMessage || current.isSystemMessage) return false
         val diff = kotlin.math.abs(current.timestampSeconds - prev.timestampSeconds)
         return diff <= ChatMessageCell.COMBINE_TIME_THRESHOLD

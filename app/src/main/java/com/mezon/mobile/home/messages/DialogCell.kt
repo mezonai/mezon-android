@@ -16,15 +16,16 @@ import com.mezon.mobile.core.BaseCell
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
-import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.home.voice.VoiceActivityBadge
 import com.mezon.mobile.util.formatRelativeTime
+import java.util.EnumMap
 
 class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(context) {
 
     var directMessage: DirectMessage? = null
         private set
     var hasBuzz = false
-    var isInVoice = false
+    var voiceActivity: VoiceActivityBadge? = null
 
     private val avatarDrawable = AvatarDrawable().also { it.attachToView(this) }
     private val avatarLoadState = ChannelAvatarLoadState()
@@ -39,8 +40,8 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
     private var timeColor: Int = 0
     private var badgeLayout: StaticLayout? = null
     private var buzzLayout: StaticLayout? = null
-    private var previewShowsInVoice = false
-    private var inVoiceDrawable: Drawable? = null
+    private var previewVoiceActivity: VoiceActivityBadge? = null
+    private val voiceActivityDrawables = EnumMap<VoiceActivityBadge, Drawable>(VoiceActivityBadge::class.java)
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
@@ -92,9 +93,9 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         update(0)
     }
 
-    fun applyInVoice(value: Boolean) {
-        if (isInVoice == value) return
-        isInVoice = value
+    fun applyVoiceActivity(value: VoiceActivityBadge?) {
+        if (voiceActivity == value) return
+        voiceActivity = value
         buildLayouts()
         invalidate()
     }
@@ -214,9 +215,10 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         } else 0
         val badgeSpace = if (badgeLayout != null) BADGE_MIN_W + BADGE_GAP else 0
         val previewWidth = contentWidth - badgeSpace - buzzSpace
-        previewShowsInVoice = isInVoice
-        if (previewShowsInVoice) {
-            val label = context.getString(R.string.voice_profile_in_voice)
+        previewVoiceActivity = voiceActivity
+        val activity = previewVoiceActivity
+        if (activity != null) {
+            val label = context.getString(activity.labelRes)
             inVoiceTextPaint.color = (theme.onSurface and 0x00FFFFFF) or IN_VOICE_ALPHA
             val labelWidth = previewWidth - IN_VOICE_ICON_SIZE - IN_VOICE_ICON_GAP
             previewLayout = StaticLayout.Builder.obtain(label, 0, label.length, inVoiceTextPaint, labelWidth.coerceAtLeast(0))
@@ -286,11 +288,13 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
 
         previewLayout?.let {
             var previewLeft = textLeft
-            if (previewShowsInVoice) {
-                val drawable = inVoiceDrawable
-                    ?: MezonIcon.channelVoice.getDrawable(context).mutate().apply {
+            val activity = previewVoiceActivity
+            if (activity != null) {
+                val drawable = voiceActivityDrawables.getOrPut(activity) {
+                    activity.icon.getDrawable(context).mutate().apply {
                         colorFilter = PorterDuffColorFilter(theme.voiceActiveGreen, PorterDuff.Mode.SRC_IN)
-                    }.also { inVoiceDrawable = it }
+                    }
+                }
                 val iconLeft = textLeft.toInt()
                 val iconTop = (textTop + (it.height - IN_VOICE_ICON_SIZE) / 2f).toInt()
                 drawable.setBounds(iconLeft, iconTop, iconLeft + IN_VOICE_ICON_SIZE, iconTop + IN_VOICE_ICON_SIZE)

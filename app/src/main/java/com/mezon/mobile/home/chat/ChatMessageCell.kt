@@ -667,6 +667,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 msg.updateTimeSeconds.hashCode() xor (if (msg.hideEditted) 2 else 0) xor
                 msg.rplCount xor msg.topicId.hashCode() xor presignHash xor
                 msg.attachmentUrl.hashCode() xor msg.extraAttachmentsJson.hashCode() xor
+                msg.senderName.hashCode() xor msg.senderAvatar.hashCode() xor
                 (pollBridge?.stateFingerprint(msg.id) ?: 0) xor
                 (botCommandResolver?.invoke(msg.id)?.hashCode() ?: 0)
             if (msg.id == lastBoundId && contentHash == lastBoundContentHash && isCombined == lastBoundCombined) {
@@ -711,10 +712,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             if (drawPhotoImage) computePhotoSize(msg)
             buildLayouts(msg)
             if (!isCombined) {
-                val isAnon = msg.senderId == ANONYMOUS_USER_ID
-                val avatarUsername = if (isAnon) "Anonymous" else msg.senderName.ifBlank { msg.senderUsername }
-                avatarDrawable.setInfo(msg.senderId, avatarUsername)
-                if (isAnon) loadAnonymousAvatar() else loadAvatar(msg.senderAvatar)
+                avatarDrawable.setInfo(msg.senderId, senderAvatarLabel(msg))
+                if (showsAnonymousPlaceholderAvatar(msg)) loadAnonymousAvatar() else loadAvatar(msg.senderAvatar)
             }
             if (drawPhotoImage) loadPhotoImage(msg) else clearPhotoReceivers()
             buildTopicButton(msg, width)
@@ -772,18 +771,14 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     rebuildLayout = true
                 }
             }
-            val isAnon = msg.senderId == ANONYMOUS_USER_ID
-            val avatarUsername = if (isAnon) "Anonymous" else msg.senderName.ifBlank { msg.senderUsername }
-            avatarDrawable.setInfo(msg.senderId, avatarUsername)
+            avatarDrawable.setInfo(msg.senderId, senderAvatarLabel(msg))
             needInvalidate = true
         }
 
         if ((mask and NotificationCenter.UPDATE_MASK_AVATAR) != 0) {
             if (!isCombined && messageEntity?.senderAvatar != msg.senderAvatar) {
-                val isAnon = msg.senderId == ANONYMOUS_USER_ID
-                val avatarUsername = if (isAnon) "Anonymous" else msg.senderName.ifBlank { msg.senderUsername }
-                avatarDrawable.setInfo(msg.senderId, avatarUsername)
-                if (isAnon) loadAnonymousAvatar() else loadAvatar(msg.senderAvatar)
+                avatarDrawable.setInfo(msg.senderId, senderAvatarLabel(msg))
+                if (showsAnonymousPlaceholderAvatar(msg)) loadAnonymousAvatar() else loadAvatar(msg.senderAvatar)
                 needInvalidate = true
             }
         }
@@ -1235,6 +1230,22 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         senderRoleIconDrawable = null
     }
 
+    private fun applyAnonymousSenderBadge() {
+        clearSenderRoleIcon()
+        val icon = MezonIcon.anonymousIconGray.getDrawable(context)
+        icon.callback = this
+        senderRoleIconDrawable = icon
+        reserveSenderRoleIcon = true
+    }
+
+    private fun senderAvatarLabel(msg: MessageEntity): String {
+        val name = msg.senderName.ifBlank { msg.senderUsername }
+        return if (msg.senderId == ANONYMOUS_USER_ID) name.ifBlank { "Anonymous" } else name
+    }
+
+    private fun showsAnonymousPlaceholderAvatar(msg: MessageEntity): Boolean =
+        msg.senderId == ANONYMOUS_USER_ID && msg.senderAvatar.isBlank()
+
     private fun loadSenderRoleIcon(url: String) {
         if (url.isBlank()) {
             clearSenderRoleIcon()
@@ -1645,7 +1656,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             (channelType == CHANNEL_TYPE_CHANNEL || channelType == CHANNEL_TYPE_THREAD)
 
         senderLayout = if (!isCombined) {
-            val s = if (msg.senderId == ANONYMOUS_USER_ID) "Anonymous" else msg.senderName
+            val s = if (msg.senderId == ANONYMOUS_USER_ID) senderAvatarLabel(msg) else msg.senderName
             val senderMaxW = (bubbleMaxW * 0.60f).toInt().coerceAtLeast(1)
             if (showRoleRow) {
                 val appearance = senderDisplayRoleAppearance(msg.senderId)
@@ -1682,6 +1693,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             rememberSenderDisplayRoleAppearance(null)
             null
         }
+        if (!isCombined && msg.senderId == ANONYMOUS_USER_ID) applyAnonymousSenderBadge()
 
         buildReplyLayouts(textWidth)
         buildFileLayouts(msg, textWidth)
@@ -2345,8 +2357,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
             val isAnonymousReply = replySenderId == ANONYMOUS_USER_ID
             if (isAnonymousReply) {
-                replySenderName = "Anonymous"
-                replySenderUsername = "Anonymous"
+                replySenderName = replySenderName.ifBlank { "Anonymous" }
+                replySenderUsername = replySenderUsername.ifBlank { replySenderName }
             } else if (replySenderId != 0L &&
                 (replySenderName.isBlank() || replySenderAvatarUrl.isNullOrBlank())
             ) {
@@ -2361,7 +2373,11 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             replyHasAttachment = content.contains("\"has_attachment\":true")
 
             replyAvatarDrawable.setInfo(replySenderId, replySenderUsername.ifBlank { replySenderName })
-            if (isAnonymousReply) loadReplyAnonymousAvatar() else loadReplyAvatar(replySenderAvatarUrl ?: "")
+            if (isAnonymousReply && replySenderAvatarUrl.isNullOrBlank()) {
+                loadReplyAnonymousAvatar()
+            } else {
+                loadReplyAvatar(replySenderAvatarUrl ?: "")
+            }
             replySenderName.isNotEmpty() || replyContent.isNotEmpty()
         } catch (_: Exception) {
             false

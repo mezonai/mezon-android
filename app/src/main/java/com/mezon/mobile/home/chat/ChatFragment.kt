@@ -421,6 +421,7 @@ open class ChatFragment : BaseFragment() {
 
     private val sentByApiRealIds = HashSet<Long>()
     private val pendingEchoTempIds = HashSet<Long>()
+    private val anonymousEchoKeyByTempId = HashMap<Long, String>()
 
     private var replyingToMessage: MessageEntity? = null
     private var replyBar: LinearLayout? = null
@@ -811,7 +812,7 @@ open class ChatFragment : BaseFragment() {
                         if (!pending.isSending || pending.id in loadedIds) return@filter true
                         val pendingKey = selfMessageEchoKey(pending)
                         val echo = loadedMessages.firstOrNull {
-                            it.isMe && it.senderId == pending.senderId &&
+                            (it.isMe || it.senderId == ANONYMOUS_USER_ID) && it.senderId == pending.senderId &&
                                 it.id !in claimedEchoIds &&
                                 selfMessageEchoKey(it) == pendingKey
                         } ?: return@filter true
@@ -834,6 +835,7 @@ open class ChatFragment : BaseFragment() {
                         if (messagesDict.get(m.id) == null) messagesDict.put(m.id, m)
                     }
                     for (m in chatController.getActivePendingAttachmentMessages(messageListKey)) {
+                        if (m.senderId == ANONYMOUS_USER_ID) continue
                         messagesDict.put(m.id, m)
                     }
                     injectBotCommandRows()
@@ -1017,6 +1019,16 @@ open class ChatFragment : BaseFragment() {
                 syncBotCommandRows()
             }
             if (entity.isSending) {
+                if (entity.senderId == ANONYMOUS_USER_ID) {
+                    if (anonymousEchoKeyByTempId.put(entity.id, selfMessageEchoKey(entity)) == null) {
+                        if (isViewingOlder || hasMoreBottom) {
+                            jumpToPresent()
+                        } else if (fragmentView != null) {
+                            forceScrollToBottom()
+                        }
+                    }
+                    return@observe
+                }
                 val insertIndex = insertSendingOptimisticMessage(entity)
                 if (fragmentView != null) {
                     if (messages.size == 1) {
@@ -1054,11 +1066,18 @@ open class ChatFragment : BaseFragment() {
             }
 
             if (entity.senderId == ANONYMOUS_USER_ID) {
+                val echoKey = selfMessageEchoKey(entity)
                 val pendingIdx = messages.indexOfFirst {
-                    it.isSending && it.senderId == ANONYMOUS_USER_ID && it.content == entity.content
+                    it.senderId == ANONYMOUS_USER_ID &&
+                        (it.isSending || it.id in pendingEchoTempIds) &&
+                        selfMessageEchoKey(it) == echoKey
                 }
                 if (pendingIdx >= 0) {
                     val old = messages[pendingIdx]
+                    pendingEchoTempIds.remove(old.id)
+                    if (::adapter.isInitialized) {
+                        adapter.preserveOptimisticStableId(old.id, entity.id)
+                    }
                     messagesDict.delete(old.id)
                     messages[pendingIdx] = entity
                     messagesDict.put(entity.id, entity)
@@ -1069,8 +1088,14 @@ open class ChatFragment : BaseFragment() {
 
             if (mergeDuplicateIncomingMessage(entity)) return@observe
             if (entity.id > lastSentMessageId) lastSentMessageId = entity.id
+            val ownAnonymousEcho = entity.senderId == ANONYMOUS_USER_ID &&
+                claimAnonymousEchoKey(selfMessageEchoKey(entity))
 
             if (isViewingOlder) {
+                if (ownAnonymousEcho) {
+                    jumpToPresent()
+                    return@observe
+                }
                 newUnreadCount++
                 hasMoreBottom = true
                 if (::pageDownButton.isInitialized) {
@@ -1097,7 +1122,7 @@ open class ChatFragment : BaseFragment() {
                     adapter.notifyMessageInsertedAt(insertIndex)
                     updateUnreadDividerPosition()
                 }
-                if (entity.isMe) forceScrollToBottom() else scrollToBottom()
+                if (entity.isMe || ownAnonymousEcho) forceScrollToBottom() else scrollToBottom()
             }
             if (!isPaused) markAsRead()
         }
@@ -1124,6 +1149,8 @@ open class ChatFragment : BaseFragment() {
                 messages[idx] = updated
                 messagesDict.put(tempId, updated)
                 if (fragmentView != null) updateVisibleRows(NotificationCenter.UPDATE_MASK_SEND_STATE)
+            } else if (anonymousEchoKeyByTempId.remove(tempId) != null) {
+                getContext()?.let { Toast.makeText(it, R.string.sharing_failed, Toast.LENGTH_SHORT).show() }
             }
         }
 
@@ -1628,6 +1655,7 @@ open class ChatFragment : BaseFragment() {
 
         val innerLayout = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
+            clipChildren = false
         }
 
         val chatActionBar = ActionBarView(context, themeColors).apply {
@@ -3291,6 +3319,7 @@ open class ChatFragment : BaseFragment() {
         messagesDict.clear()
         sentByApiRealIds.clear()
         pendingEchoTempIds.clear()
+        anonymousEchoKeyByTempId.clear()
         for (t in pendingAttachmentThumbTasks) ThumbnailCache.cancel(t)
         pendingAttachmentThumbTasks.clear()
         attachmentProgressReloadRunnable?.let { AndroidUtilities.cancelRunOnUIThread(it) }
@@ -3462,6 +3491,12 @@ open class ChatFragment : BaseFragment() {
             (it.isSending || it.id in pendingEchoTempIds) &&
                 it.isMe && it.senderId == entity.senderId && it.code == entity.code
         }
+    }
+
+    private fun claimAnonymousEchoKey(echoKey: String): Boolean {
+        val tempId = anonymousEchoKeyByTempId.entries.firstOrNull { it.value == echoKey }?.key ?: return false
+        anonymousEchoKeyByTempId.remove(tempId)
+        return true
     }
 
     private fun insertSendingOptimisticMessage(entity: MessageEntity): Int {
@@ -4369,7 +4404,10 @@ open class ChatFragment : BaseFragment() {
 
     private fun mergeDuplicateIncomingMessage(entity: MessageEntity): Boolean {
         val existing = messagesDict.get(entity.id) ?: return false
-        if (existing.content == entity.content &&
+        val adoptsAnonymousPersona = existing.senderId == ANONYMOUS_USER_ID &&
+            (existing.senderName != entity.senderName || existing.senderAvatar != entity.senderAvatar)
+        if (!adoptsAnonymousPersona &&
+            existing.content == entity.content &&
             existing.code == entity.code &&
             existing.updateTimeSeconds == entity.updateTimeSeconds &&
             existing.hideEditted == entity.hideEditted &&
@@ -4404,6 +4442,10 @@ open class ChatFragment : BaseFragment() {
             }
             if (merged.sendState != existing.sendState || merged.isError != existing.isError) {
                 mask = mask or NotificationCenter.UPDATE_MASK_SEND_STATE
+            }
+            if (adoptsAnonymousPersona) {
+                mask = mask or NotificationCenter.UPDATE_MASK_NAME or NotificationCenter.UPDATE_MASK_AVATAR
+                if (idx >= 0) adapter.notifyMessageChangedAt(idx)
             }
             if (mask == 0) mask = NotificationCenter.UPDATE_MASK_MESSAGE_TEXT
             updateVisibleRows(mask)
@@ -4581,8 +4623,8 @@ open class ChatFragment : BaseFragment() {
     private fun applyDmVoicePresenceSubtitle(bar: ActionBarView) {
         if (clanId != 0L || channelType != CHANNEL_TYPE_DM || isTopicMode) return
         val peerId = dialogsController.getDialog(channelId)?.otherUserId ?: 0L
-        val inVoice = peerId != 0L && peerId != userController.userId && voiceController.isUserInVoice(peerId)
-        if (!inVoice) {
+        val voiceActivity = if (peerId != 0L && peerId != userController.userId) voiceController.getUserVoiceActivity(peerId) else null
+        if (voiceActivity == null) {
             bar.setSubtitleOnClickListener(null)
             bar.setSubtitle(null)
             return
@@ -4592,11 +4634,11 @@ open class ChatFragment : BaseFragment() {
         bar.setSubtitleOnClickListener { showJoinVoiceSheetForDmPeer() }
         bar.setSubtitleColor((themeColors.onSurface and 0x00FFFFFF) or dimAlpha)
         val iconSize = LayoutHelper.dp(12)
-        val icon = MezonIcon.channelVoice.getDrawable(bar.context).mutate().apply {
+        val icon = voiceActivity.icon.getDrawable(bar.context).mutate().apply {
             colorFilter = PorterDuffColorFilter(themeColors.voiceActiveGreen, PorterDuff.Mode.SRC_IN)
             setBounds(0, 0, iconSize, iconSize)
         }
-        val text = SpannableString("  " + getString(R.string.voice_profile_in_voice))
+        val text = SpannableString("  " + getString(voiceActivity.labelRes))
         text.setSpan(CenteredImageSpan(icon), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         bar.setSubtitle(text)
     }
@@ -4697,7 +4739,10 @@ open class ChatFragment : BaseFragment() {
 
     private fun resolveGallerySender(userId: Long, fallbackName: String?, fallbackAvatar: String?): Pair<String, String?> {
         if (userId == ANONYMOUS_USER_ID) {
-            return Pair(getString(R.string.advanced_anonymous), null)
+            return Pair(
+                fallbackName?.takeIf { it.isNotBlank() } ?: getString(R.string.advanced_anonymous),
+                fallbackAvatar?.takeIf { it.isNotBlank() }
+            )
         }
 
         val member = if (userId != 0L) {
