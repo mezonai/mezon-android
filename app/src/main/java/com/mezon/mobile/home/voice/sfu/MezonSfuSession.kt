@@ -136,7 +136,7 @@ private const val KEYFRAME_GLOBAL_SPACING_MS = 250L
 private const val VISIBLE_VIDEO_GRACE_MS = 350L
 private const val FOREGROUND_VIDEO_GRACE_MS = 1_500L
 private const val KEYFRAME_ERROR_WINDOW_MS = 5_000L
-private val SCREEN_KEYFRAME_RETRY_DELAYS_MS = longArrayOf(3_000, 6_000, 12_000, 24_000)
+private val SCREEN_KEYFRAME_RETRY_DELAYS_MS = longArrayOf(1_500, 3_000, 12_000, 24_000)
 private val KEYFRAME_REQUEST_ERRORS = setOf("must_join_room_first", "session_not_found")
 private val KEYFRAME_REPLY_ERRORS = setOf("publisher_not_found", "recovery_queue_full", "invalid_kind", "invalid_publisher_id")
 private val SESSION_LOST_ERRORS = setOf(
@@ -1468,7 +1468,6 @@ class MezonSfuSession @Inject constructor(
                     message to parseNegotiatedDirections(answer.description)
                 }
                 if (!isCurrentConnection(pc, gen)) return
-                sendText(answerMessage)
                 awaitSetLocal(pc, SessionDescription(SessionDescription.Type.ANSWER, answer.description))
                 if (!isCurrentConnection(pc, gen)) return
                 val untracked = untrackedReceiverMids(directions, tracks)
@@ -1483,7 +1482,9 @@ class MezonSfuSession @Inject constructor(
                 }
                 negotiatedDirections = directions
                 refreshRemoteSnapshot()
-                syncRemoteMedia()
+                syncRemoteMedia(publishParticipants = false)
+                sendText(answerMessage)
+                emitParticipants()
             } catch (e: Exception) {
                 if (!isCurrentConnection(pc, gen)) return
                 recoverTransport(gen)
@@ -2044,7 +2045,7 @@ class MezonSfuSession @Inject constructor(
         return completed
     }
 
-    private fun syncRemoteMedia() {
+    private fun syncRemoteMedia(publishParticipants: Boolean = true) {
         for (item in remoteSnapshot) {
             val mid = item.mid ?: continue
             if (mid == MID_AUDIO || mid == MID_CAMERA || mid == MID_SCREEN) continue
@@ -2068,6 +2069,7 @@ class MezonSfuSession @Inject constructor(
                 continue
             }
             val track = item.track ?: continue
+            if (kind == "screen" && track is VideoTrack) VideoTrackLastFrameStore.observe(track)
             val ownerUserId = userIdByMid[mid]
             val ownerPeerId = peerIdByMid[mid]
             if (ownerUserId == null && ownerPeerId == null) {
@@ -2089,7 +2091,6 @@ class MezonSfuSession @Inject constructor(
                 kind == "camera" && track is VideoTrack -> entry.video = track
                 kind == "screen" && track is VideoTrack -> {
                     entry.screen = track
-                    if (entry.screenActive) VideoTrackLastFrameStore.observe(track)
                 }
             }
             if (entry.audio == null && entry.video == null && entry.screen == null) {
@@ -2097,7 +2098,7 @@ class MezonSfuSession @Inject constructor(
             }
         }
         releaseRetiringPeerConnection()
-        emitParticipants()
+        if (publishParticipants) emitParticipants()
         requestMissingScreenKeyframes()
     }
 
@@ -2473,7 +2474,7 @@ class MezonSfuSession @Inject constructor(
         val key = "$kind|$publisherId"
         if (videoRecoveryChecks[key]?.track?.let { it !== track } == true) videoRecoveryChecks.remove(key)?.detach()
         val now = SystemClock.elapsedRealtime()
-        if (priority == 0 && (videoRecoveryChecks[key]?.startedAtMs ?: since) <= since) {
+        if ((kind == "screen" || priority == 0) && (videoRecoveryChecks[key]?.startedAtMs ?: since) <= since) {
             videoRecoveryChecks.remove(key)?.detach()
             enqueueVideoKeyframe(track, kind, publisherId, now, since)
         } else if (key !in videoRecoveryChecks) {
@@ -2593,7 +2594,8 @@ class MezonSfuSession @Inject constructor(
             }
         }
         val ordered = queuedVideoKeyframes.entries.sortedWith(
-            compareBy<Map.Entry<String, QueuedKeyframe>> { videoPriority(it.value.track) ?: 2 }
+            compareBy<Map.Entry<String, QueuedKeyframe>> { if (it.value.kind == "screen") 0 else 1 }
+                .thenBy { videoPriority(it.value.track) ?: 2 }
                 .thenBy { it.value.readyAtMs }.thenBy { it.key })
         var nextAt: Long? = null
         for ((key, queued) in ordered) {
@@ -2645,12 +2647,12 @@ class MezonSfuSession @Inject constructor(
                 val lastRequest = lastVideoKeyframeRequests["screen|$publisherId"] ?: -KEYFRAME_MIN_INTERVAL_MS
                 val recoveryGrace = videoRecoveryChecks["screen|$publisherId"]?.checkAtMs ?: 0
                 val dueMs = maxOf(if (request.attempts == 0) {
-                    request.firstSeenMs + VISIBLE_VIDEO_GRACE_MS
+                    request.firstSeenMs
                 } else request.lastSentMs + SCREEN_KEYFRAME_RETRY_DELAYS_MS[request.attempts - 1],
                     maxOf(lastRequest + KEYFRAME_MIN_INTERVAL_MS, recoveryGrace))
                 if (dueMs <= now) enqueueVideoKeyframe(track, "screen", publisherId, dueMs, request.activeSinceMs)
                 if (request.attempts <= SCREEN_KEYFRAME_RETRY_DELAYS_MS.size) {
-                    val next = maxOf(if (request.attempts == 0) request.firstSeenMs + VISIBLE_VIDEO_GRACE_MS
+                    val next = maxOf(if (request.attempts == 0) request.firstSeenMs
                         else request.lastSentMs + SCREEN_KEYFRAME_RETRY_DELAYS_MS[request.attempts - 1],
                         maxOf((lastVideoKeyframeRequests["screen|$publisherId"] ?: lastRequest) + KEYFRAME_MIN_INTERVAL_MS, recoveryGrace))
                     if (next > now) nextCheckMs = minOf(nextCheckMs ?: next, next)
