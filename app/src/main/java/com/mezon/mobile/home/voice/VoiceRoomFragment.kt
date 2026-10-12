@@ -120,6 +120,7 @@ class VoiceRoomFragment : BaseFragment() {
     private var roomScope: CoroutineScope? = null
     private var joinRole: SfuRole = SfuRole.SPEAKER
     private var sfuRemote: List<SfuParticipant> = emptyList()
+    private var remoteMutedByDevice: Map<String, Boolean> = emptyMap()
     private val memberResolveCache = HashMap<String, VoiceMemberIdentity>()
     private var clanMemberIndex: Map<Long, ClanMember>? = null
     private var isGridScrolling = false
@@ -133,6 +134,9 @@ class VoiceRoomFragment : BaseFragment() {
     private var sfuConnected = false
     private var localPttActive = false
     private var speakingIds: Set<String> = emptySet()
+    private val speakerOrder = VoiceSpeakerOrder()
+    private var speakerReorderJob: kotlinx.coroutines.Job? = null
+    private var speakerHoldExpiryJob: kotlinx.coroutines.Job? = null
 
     private lateinit var headerView: VoiceHeaderView
     private lateinit var controlBar: VoiceControlBar
@@ -166,6 +170,7 @@ class VoiceRoomFragment : BaseFragment() {
     private var isRaiseHandActive = false
     private var lastSwitchCameraElapsedMs = 0L
     private var focusedShareKey: String? = null
+    private var focusedShareControlsVisible = true
     private var wasMicPermissionRequestedBefore = false
     private var wasCameraPermissionRequestedBefore = false
 
@@ -180,7 +185,7 @@ class VoiceRoomFragment : BaseFragment() {
         isInPipMode = true
         if (::focusedShareView.isInitialized) focusedShareView.setPipMode(true)
         if (::headerView.isInitialized) headerView.visibility = View.GONE
-        if (::controlBar.isInitialized) controlBar.visibility = View.GONE
+        updateFocusedShareControlsVisibility()
         if (::morePopup.isInitialized) morePopup.dismiss()
         statusBarSpacer?.visibility = View.GONE
         reactionOverlay?.visibility = View.GONE
@@ -199,7 +204,7 @@ class VoiceRoomFragment : BaseFragment() {
             val focusedVisible = ::focusedShareView.isInitialized && focusedShareView.visibility == View.VISIBLE
             headerView.visibility = if (focusedVisible) View.GONE else View.VISIBLE
         }
-        if (::controlBar.isInitialized) controlBar.visibility = View.VISIBLE
+        updateFocusedShareControlsVisibility()
         statusBarSpacer?.visibility = View.VISIBLE
         reactionOverlay?.visibility = View.VISIBLE
         raiseHandOverlay?.visibility = View.VISIBLE
@@ -573,6 +578,12 @@ class VoiceRoomFragment : BaseFragment() {
         ))
 
         focusedShareView = VoiceFocusedShareView(context, themeColors).apply {
+            onContentTap = {
+                if (!isInPipMode && focusedShareKey != null && !controlBar.isPttHeld()) {
+                    focusedShareControlsVisible = !focusedShareControlsVisible
+                    updateFocusedShareControlsVisibility()
+                }
+            }
             onVideoVisibilityChanged = { track, visible ->
                 sfuSession.setVideoTrackVisible(track, visible, "focused", focused = true)
             }
@@ -863,13 +874,13 @@ class VoiceRoomFragment : BaseFragment() {
         sfuSession.setMicEnabled(true)
         controlBar.setMicEnabled(true)
         localMicOn = true
-        doUpdateParticipantList()
+        applyParticipantMuteState()
     }
 
     private fun disableMicrophone() {
         sfuSession.setMicEnabled(false)
         localMicOn = false
-        doUpdateParticipantList()
+        applyParticipantMuteState()
     }
 
     private fun onMutedByModerator() {
@@ -904,6 +915,7 @@ class VoiceRoomFragment : BaseFragment() {
     }
 
     private fun connectToRoom() {
+        clearSpeakerOrder()
         connectionFailurePending = false
         sfuConnected = false
         selfJoinSoundPending = true
@@ -941,8 +953,18 @@ class VoiceRoomFragment : BaseFragment() {
             sfuSession.onConnectionState = { state -> onSfuState(state) }
             sfuSession.onNetworkWeak = { weak -> applyNetworkWeak(weak) }
             sfuSession.onParticipants = { list ->
+                val previous = sfuRemote
+                val layoutChanged = previous.size != list.size || list.indices.any { index ->
+                    val old = previous[index]
+                    val new = list[index]
+                    old.id != new.id || old.userId != new.userId || old.peerId != new.peerId ||
+                        old.role != new.role || old.video !== new.video || old.screen !== new.screen ||
+                        old.screenActive != new.screenActive || old.cameraActive != new.cameraActive
+                }
                 sfuRemote = list
-                scheduleUpdateParticipantList()
+                remoteMutedByDevice = list.associate { (it.peerId ?: it.id) to it.muted }
+                applyParticipantMuteState()
+                if (layoutChanged) scheduleUpdateParticipantList()
             }
             sfuSession.onPeerJoined = { userId ->
                 if (!VoiceAgent.isAgent(userId)) joinSound?.play()
@@ -964,12 +986,15 @@ class VoiceRoomFragment : BaseFragment() {
             }
             sfuSession.onSpeaking = { ids ->
                 speakingIds = ids
+                speakerOrder.updateSpeaking(ids, SystemClock.elapsedRealtime())
                 applySpeakingToCells()
+                scheduleSpeakerOrderUpdate()
+                scheduleSpeakerHoldExpiry()
             }
             sfuSession.onPushToTalkActive = { active ->
                 localPttActive = active
                 if (::controlBar.isInitialized) controlBar.setPttActive(active)
-                doUpdateParticipantList()
+                applyParticipantMuteState()
             }
             sfuSession.onAudioSendingChanged = { sending ->
                 if (::controlBar.isInitialized) controlBar.setAudioSending(sending)
@@ -1009,6 +1034,7 @@ class VoiceRoomFragment : BaseFragment() {
                 }
             }
             SfuConnectionState.FAILED -> {
+                clearSpeakerOrder()
                 roomScope?.cancel()
                 voiceController.onRoomConnectionFailed(channelId, clanId)
                 clearFocusedShare()
@@ -1020,6 +1046,7 @@ class VoiceRoomFragment : BaseFragment() {
                 localCameraTrack = null
                 localScreenTrack = null
                 sfuRemote = emptyList()
+                remoteMutedByDevice = emptyMap()
                 speakingIds = emptySet()
                 controlBar.setMicEnabled(false)
                 controlBar.setCameraEnabled(false)
@@ -1215,10 +1242,15 @@ class VoiceRoomFragment : BaseFragment() {
             }
             if (generation != participantListGeneration || fragmentView == null || isInPipMode) return@launch
             participantDiffJob = null
+            if (isGridScrolling) {
+                pendingGridUpdate = true
+                return@launch
+            }
             participants.clear()
             // Reactions/speaking can change while the diff runs; read their
             // current state both here and when recycled cells bind.
             participants.addAll(next.map { it.copy(
+                isMuted = participantMuted(it),
                 isSpeaking = it.identity in speakingIds,
                 reactionBadge = reactionStates[it.identity] ?: ParticipantCell.ReactionBadgeType.NONE
             ) })
@@ -1227,6 +1259,24 @@ class VoiceRoomFragment : BaseFragment() {
             applySpeakingToCells()
             refreshParticipantDependentViews()
         }
+    }
+
+    private fun participantMuted(item: ParticipantInfo): Boolean =
+        if (item.deviceId == LOCAL_DEVICE_ID) !(localMicOn || localPttActive)
+        else remoteMutedByDevice[item.deviceId] ?: item.isMuted
+
+    private fun applyParticipantMuteState() {
+        var changed = false
+        for (index in participants.indices) {
+            val item = participants[index]
+            val muted = participantMuted(item)
+            if (item.isMuted != muted) {
+                participants[index] = item.copy(isMuted = muted)
+                changed = true
+            }
+        }
+        if (::participantAdapter.isInitialized) participantAdapter.updateMutedStates(::participantMuted)
+        if (changed) updateMiniOverlayIfNeeded()
     }
 
     private fun applySpeakingToCells() {
@@ -1244,6 +1294,41 @@ class VoiceRoomFragment : BaseFragment() {
                 child.updateSpeaking(gridParticipants[pos].identity in speakingIds)
             }
         }
+    }
+
+    private fun scheduleSpeakerOrderUpdate() {
+        if (speakerReorderJob?.isActive == true) return
+        speakerReorderJob = roomScope?.launch {
+            delay(speakerOrder.reorderDelayMs(SystemClock.elapsedRealtime()))
+            speakerReorderJob = null
+            if (speakerOrder.reorderDelayMs(SystemClock.elapsedRealtime()) > 0L) {
+                scheduleSpeakerOrderUpdate()
+            } else {
+                doUpdateParticipantList()
+            }
+        }
+    }
+
+    private fun scheduleSpeakerHoldExpiry() {
+        speakerHoldExpiryJob?.cancel()
+        speakerHoldExpiryJob = null
+        val now = SystemClock.elapsedRealtime()
+        val expiry = speakerOrder.nextExpiryMs(now) ?: return
+        speakerHoldExpiryJob = roomScope?.launch {
+            delay((expiry - SystemClock.elapsedRealtime()).coerceAtLeast(1L))
+            speakerHoldExpiryJob = null
+            scheduleSpeakerOrderUpdate()
+            scheduleSpeakerHoldExpiry()
+        }
+    }
+
+    private fun clearSpeakerOrder() {
+        speakerReorderJob?.cancel()
+        speakerReorderJob = null
+        speakerHoldExpiryJob?.cancel()
+        speakerHoldExpiryJob = null
+        speakerOrder.clear()
+        speakingIds = emptySet()
     }
 
     private fun doUpdateParticipantList() {
@@ -1266,13 +1351,13 @@ class VoiceRoomFragment : BaseFragment() {
             }
         }
 
-        val prioritized = ArrayList<ParticipantInfo>(nextParticipants.size)
-        for (p in nextParticipants) {
-            if (p.isScreenShare) prioritized.add(p)
-        }
-        for (p in nextParticipants) {
-            if (!p.isScreenShare) prioritized.add(p)
-        }
+        val now = SystemClock.elapsedRealtime()
+        speakerOrder.updateSpeaking(speakingIds, now)
+        speakerOrder.retainMembers(nextParticipants.mapTo(HashSet()) { it.identity }, now)
+        val prioritized = speakerOrder.order(
+            nextParticipants, now, ::participantKey, { it.identity }, { it.isScreenShare }
+        )
+        scheduleSpeakerHoldExpiry()
         updateParticipants(prioritized)
     }
 
@@ -1306,6 +1391,7 @@ class VoiceRoomFragment : BaseFragment() {
     }
 
     private fun disconnectAndLeave() {
+        clearSpeakerOrder()
         roomScope?.cancel()
         releaseAllRenderers()
         if (::sfuSession.isInitialized && sfuSession.onAudioRecovery === audioRecoveryCallback) sfuSession.leave()
@@ -1355,11 +1441,22 @@ class VoiceRoomFragment : BaseFragment() {
     private fun showFocusedShare(participant: ParticipantInfo) {
         val shown = focusedShareView.showShare(participant)
         if (!shown) return
+        if (focusedShareKey != participantKey(participant)) focusedShareControlsVisible = true
         focusedShareKey = participantKey(participant)
         participantGrid.visibility = View.GONE
         headerView.visibility = View.GONE
         if (::controlBar.isInitialized) controlBar.setPttCompact(true)
+        updateFocusedShareControlsVisibility()
         applyVoiceLayoutForMode()
+    }
+
+    private fun updateFocusedShareControlsVisibility() {
+        val visible = !isInPipMode && (focusedShareKey == null || focusedShareControlsVisible)
+        if (::focusedShareView.isInitialized) focusedShareView.setControlsVisible(visible)
+        if (::controlBar.isInitialized) {
+            controlBar.visibility = if (visible) View.VISIBLE else View.INVISIBLE
+        }
+        refreshNetworkWarningHint()
     }
 
     private fun clearFocusedShare() {
@@ -1368,9 +1465,11 @@ class VoiceRoomFragment : BaseFragment() {
         }
         focusedShareView.clear()
         focusedShareKey = null
+        focusedShareControlsVisible = true
         participantGrid.visibility = View.VISIBLE
         headerView.visibility = if (isInPipMode) View.GONE else View.VISIBLE
         if (::controlBar.isInitialized) controlBar.setPttCompact(false)
+        updateFocusedShareControlsVisibility()
         applyVoiceLayoutForMode()
     }
 
@@ -1632,6 +1731,7 @@ class VoiceRoomFragment : BaseFragment() {
     private enum class VoiceModerationAction { MUTE, KICK }
 
     override fun onFragmentDestroy() {
+        clearSpeakerOrder()
         connectionFailurePending = false
         connectionFailureDialog?.dismiss()
         connectionFailureDialog = null
@@ -1696,7 +1796,8 @@ class VoiceRoomFragment : BaseFragment() {
 
     private fun refreshNetworkWarningHint() {
         val root = fragmentView as? FrameLayout
-        if (root == null || !networkWeak || networkWarningDismissed) {
+        if (root == null || !networkWeak || networkWarningDismissed || isInPipMode
+            || (focusedShareKey != null && !focusedShareControlsVisible)) {
             hideNetworkWarningHint()
             return
         }

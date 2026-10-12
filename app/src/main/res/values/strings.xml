@@ -1879,4 +1879,6 @@
     <string name="voice_room_connection_exit">Exit</string>
     <string name="voice_room_connection_rejoin">Rejoin</string>
     <string name="voice_room_network_warning">Your internet connection is unstable.</string>
+    <string name="voice_room_hide_controls">Hide screen share controls</string>
+    <string name="voice_room_show_controls">Show screen share controls</string>
 </resources>
