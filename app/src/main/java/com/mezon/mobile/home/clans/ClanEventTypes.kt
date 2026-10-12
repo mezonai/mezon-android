@@ -14,6 +14,7 @@ object ClanEventStatus {
 }
 
 object ClanEventAction {
+    const val STATUS_UPDATE = 0
     const val CREATED = 1
     const val UPDATE = 2
     const val DELETE = 3
