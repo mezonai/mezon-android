@@ -1186,16 +1186,15 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         senderNamePaint.flags = src.flags
     }
 
-    private fun showSenderDisplayRoleRow(senderId: Long): Boolean {
+    private fun showSenderDisplayRoleRow(): Boolean {
         return !isCombined && clanId != 0L &&
-            (channelType == CHANNEL_TYPE_CHANNEL || channelType == CHANNEL_TYPE_THREAD) &&
-            senderId != ANONYMOUS_USER_ID
+            (channelType == CHANNEL_TYPE_CHANNEL || channelType == CHANNEL_TYPE_THREAD)
     }
 
     private class SenderRoleAppearance(val color: Int, val iconUrl: String)
 
     private fun senderDisplayRoleAppearance(senderId: Long): SenderRoleAppearance? {
-        if (!showSenderDisplayRoleRow(senderId)) return null
+        if (!showSenderDisplayRoleRow()) return null
         val dr = displayRoleResolver?.invoke(senderId)
         return SenderRoleAppearance(
             color = if (dr != null && dr.color != 0) dr.color else MezonDisplayColors.DEFAULT_ROLE_NAME,
