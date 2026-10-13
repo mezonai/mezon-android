@@ -314,6 +314,7 @@ object AttachmentUploader {
             apiUrl, token, uploadFilename, attachmentTypeForUpload(mimeType), sizeBytes.toInt(), width, height,
             channelId = channelId,
         )
+        require(presign.filename.isNotEmpty()) { "single PUT presign returned an empty filename" }
         val cdnUrl = cdnUrlForView(presign.typeCdn, cdnBaseUrl, presign.filename)
         return PresignedFileResult(
             serverFilename = presign.filename,
@@ -350,6 +351,7 @@ object AttachmentUploader {
             apiUrl, token, uploadFilename, attachmentTypeForUpload(mimeType), fileSize.toInt(), width, height,
             channelId = channelId,
         )
+        require(presign.filename.isNotEmpty()) { "single PUT presign returned an empty filename" }
         val cdnUrl = cdnUrlForView(presign.typeCdn, cdnBaseUrl, presign.filename)
         return PresignedFileResult(
             serverFilename = presign.filename,
