@@ -36,6 +36,7 @@ import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.MemberResolver
 import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.clans.ClanChannelEntity
+import com.mezon.mobile.home.clans.ClansController
 import com.mezon.mobile.home.clans.CHANNEL_TYPE_STREAMING
 import com.mezon.mobile.home.clans.VoiceMemberDisplay
 import com.mezon.mobile.home.voice.JoinVoiceBottomSheet
@@ -102,6 +103,7 @@ class GlobalSearchFragment : BaseFragment() {
     private lateinit var voiceController: VoiceController
     private lateinit var streamingController: StreamingController
     private lateinit var userClanController: UserClanController
+    private lateinit var clansController: ClansController
 
     private lateinit var searchCell: SearchCell
     private lateinit var tabHeader: SearchTabHeader
@@ -150,6 +152,7 @@ class GlobalSearchFragment : BaseFragment() {
         voiceController = entryPoint.voiceController()
         streamingController = entryPoint.streamingController()
         userClanController = entryPoint.userClanController()
+        clansController = entryPoint.clansController()
     }
 
     override fun onFragmentCreate(): Boolean {
@@ -416,7 +419,13 @@ class GlobalSearchFragment : BaseFragment() {
             LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT
         ))
 
-        recyclerView = RecyclerListView(context).apply {
+        recyclerView = object : RecyclerListView(context) {
+            override fun canHighlightChildAt(child: View, x: Float, y: Float): Boolean {
+                val joinHit = child is ChannelSearchCell && child.isJoinButtonHit(x, y)
+                if (joinHit) hideSelector(animated = false)
+                return !joinHit
+            }
+        }.apply {
             layoutManager = LinearLayoutManager(context)
             setHasFixedSize(false)
             itemAnimator = null
@@ -429,18 +438,16 @@ class GlobalSearchFragment : BaseFragment() {
         contentFrame!!.addView(loadingView, LayoutHelper.createFrame(48, 48, Gravity.CENTER))
 
         adapter = GlobalSearchAdapter(themeColors, ::resolveMessageSenderName)
-        adapter.onChannelJoinClick = { d ->
-            showJoinVoiceBottomSheet(d.channel)
-        }
+        adapter.onChannelJoinClick = { display -> showJoinVoiceBottomSheet(display.channel) }
         recyclerView.adapter = adapter
 
-        recyclerView.setOnItemClickListener(RecyclerListView.OnItemClickListener { view, _ ->
+        recyclerView.setOnItemClickListener(RecyclerListView.OnItemClickListenerExtended { view, _, x, y ->
             when (view) {
                 is ProfileSearchCell -> {
-                    val member = view.member ?: return@OnItemClickListener
+                    val member = view.member ?: return@OnItemClickListenerExtended
                     if (isPickingFilterUser) {
                         applyUserFilter(member)
-                        return@OnItemClickListener
+                        return@OnItemClickListenerExtended
                     }
                     if (member.isDm && member.channelId != 0L) {
                         onOpenChat?.invoke(member.channelId, member.displayName, 0L, member.channelType)
@@ -449,14 +456,17 @@ class GlobalSearchFragment : BaseFragment() {
                     }
                 }
                 is ChannelSearchCell -> {
-                    val ch = view.channel ?: return@OnItemClickListener
+                    val ch = view.channel ?: return@OnItemClickListenerExtended
+                    if (view.isJoinTouch || view.isJoinButtonHit(x - view.left, y - view.top)) {
+                        return@OnItemClickListenerExtended
+                    }
                     onOpenChat?.invoke(ch.channelId, ch.channelLabel, ch.clanId, ch.type)
                 }
                 is MessageSearchCell -> {
-                    val doc = view.document ?: return@OnItemClickListener
-                    val channelId = doc.channelId.toLongOrNull() ?: return@OnItemClickListener
+                    val doc = view.document ?: return@OnItemClickListenerExtended
+                    val channelId = doc.channelId.toLongOrNull() ?: return@OnItemClickListenerExtended
                     val clanId = doc.clanId.toLongOrNull() ?: 0L
-                    val messageId = doc.messageId.toLongOrNull() ?: return@OnItemClickListener
+                    val messageId = doc.messageId.toLongOrNull() ?: return@OnItemClickListenerExtended
                     val activity = getParentActivity() as? MainActivity
                     if (activity != null) {
                         activity.openChat(
@@ -1115,6 +1125,7 @@ class GlobalSearchFragment : BaseFragment() {
 
     private fun showJoinVoiceMediaBottomSheet(channel: ClanChannelEntity) {
         val activity = getParentActivity() ?: return
+        if (channel.clanId != 0L) clansController.selectClan(channel.clanId)
         val targetClanId = channel.clanId
         val memberIds = voiceController.getVoiceMembersForChannel(channel.channelId, targetClanId)
         val displays = buildMemberDisplays(memberIds, targetClanId)

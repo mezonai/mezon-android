@@ -15,6 +15,7 @@ import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.network.ApiCacheTracker
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.network.MezonSocket
+import com.mezon.mobile.network.SocketConnectionLostException
 import com.mezon.mobile.network.SocketEventDispatcher
 import com.mezon.mobile.network.apiCacheKey
 import com.mezon.mobile.session.SessionManager
@@ -248,6 +249,20 @@ class VoiceController @Inject constructor(
             voiceSessionGeneration
         }
         return try {
+            if (clanId != 0L) {
+                if (!socket.awaitConnected()) {
+                    throw SocketConnectionLostException("Socket unavailable while joining voice channel $channelId")
+                }
+                channelController.awaitChannelsForClan(clanId)
+                check(channelController.getChannels(clanId).isNotEmpty()) {
+                    "Clan $clanId channels are not ready for voice join"
+                }
+                socket.joinClanChatAwait(clanId)
+                currentCoroutineContext().ensureActive()
+                synchronized(this) {
+                    if (generation != voiceSessionGeneration) return null
+                }
+            }
             sessionManager.withAutoRefresh { session ->
                 val roomName = channelId.toString()
                 val response = withContext(ioDispatcher) {

@@ -378,6 +378,38 @@ class MezonSocket @Inject constructor(
         })
     }
 
+    suspend fun joinClanChatAwait(clanId: Long) {
+        val t = transport ?: throw SocketRequestNotSentException("Socket not connected")
+        val generation = connectGen
+        val cid = nextCid()
+        val request = envelope {
+            this.cid = cid
+            this.clanJoin = clanJoin { this.clanId = clanId }
+        }
+      
+        val deferred = CompletableDeferred<ByteArray>()
+        pendingApiRequests[cid] = deferred
+        try {
+            t.send(encodeEnvelopeCidLast(request)) { error ->
+                if (error != null) deferred.completeExceptionally(
+                    SocketRequestNotSentException("Failed to subscribe to clan $clanId", error)
+                )
+            }
+            val response = withTimeout(SEND_TIMEOUT_MS) { deferred.await() }
+            val responseEnvelope = runCatching { Envelope.parseFrom(response) }.getOrNull()
+            if (responseEnvelope?.messageCase == Envelope.MessageCase.ERROR) {
+                throw SocketRpcServerException(responseEnvelope.error.message, responseEnvelope.error.code)
+            }
+            if (generation != connectGen || t !== transport || _connectionState.value != ConnectionState.CONNECTED) {
+                throw SocketConnectionLostException("Socket changed while subscribing to clan $clanId")
+            }
+        } catch (e: TimeoutCancellationException) {
+            throw SocketRequestTimeoutException("Clan $clanId subscription timed out", e)
+        } finally {
+            pendingApiRequests.remove(cid)
+        }
+    }
+
     fun probeLiveness(reason: String) {
         synchronized(connectLock) {
             if (_connectionState.value != ConnectionState.CONNECTED) return
