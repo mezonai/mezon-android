@@ -67,13 +67,11 @@ class MemberResolver @Inject constructor(
         if (userIds.isEmpty()) return emptyMap()
         val result = HashMap<Long, ClanMember>(userIds.size)
 
-        val selfId = userController.userId
-        if (selfId != 0L && selfId in userIds) {
-            result[selfId] = buildSelfMemberInContext(clanId, channelId, channelType)
-        }
+        val members = if (clanId != 0L) {
+            resolveChannelMemberList(clanId, channelId, channelType)
+        } else emptyList()
 
         if (clanId != 0L) {
-            val members = resolveChannelMemberList(clanId, channelId, channelType)
             for (m in members) {
                 if (m.userId in userIds) result[m.userId] = m
             }
@@ -82,6 +80,11 @@ class MemberResolver @Inject constructor(
             for (p in participants) {
                 if (p.userId in userIds) result[p.userId] = p.toClanMember()
             }
+        }
+
+        val selfId = userController.userId
+        if (selfId != 0L && selfId in userIds) {
+            result[selfId] = buildSelfMemberInContext(clanId, channelId, channelType, members)
         }
 
         for (id in userIds) {
@@ -126,7 +129,12 @@ class MemberResolver @Inject constructor(
         return members.isEmpty() || InputSuggestionsController.hasUnresolvedMembers(members)
     }
 
-    private fun buildSelfMemberInContext(clanId: Long, channelId: Long, channelType: Int): ClanMember {
+    private fun buildSelfMemberInContext(
+        clanId: Long,
+        channelId: Long,
+        channelType: Int,
+        resolvedMembers: List<ClanMember>? = null
+    ): ClanMember {
         val uc = userController
         val selfId = uc.userId
         val globalFallback = ClanMember(
@@ -144,7 +152,8 @@ class MemberResolver @Inject constructor(
         val mode = channelTypeToStreamMode(channelType)
         val useClanPersona = mode == STREAM_MODE_CHANNEL || mode == STREAM_MODE_THREAD
         if (!useClanPersona) return globalFallback
-        val member = resolveChannelMemberList(clanId, channelId, channelType).firstOrNull { it.userId == selfId }
+        val member = (resolvedMembers ?: resolveChannelMemberList(clanId, channelId, channelType))
+            .firstOrNull { it.userId == selfId }
             ?: userClanController.getClanMembers(clanId).firstOrNull { it.userId == selfId }
         return member ?: globalFallback
     }
