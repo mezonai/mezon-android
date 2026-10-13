@@ -369,6 +369,7 @@
     <string name="message_attachment_contact">Contact</string>
     <string name="message_attachment_location">Location</string>
     <string name="message_attachment_poll">Poll</string>
+    <string name="message_attachment_private_media">Media from private channel</string>
     <string name="action_copy_text">Copy Text</string>
     <string name="action_share_text">Share Text</string>
     <string name="tokens_sent_title">Funds Transferred: %1$s₫</string>

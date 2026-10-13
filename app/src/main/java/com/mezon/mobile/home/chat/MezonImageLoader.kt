@@ -120,6 +120,7 @@ class MezonImageLoader private constructor(context: Context) {
     private val inflightUrlCalls = ConcurrentHashMap<String, Call>()
     private val pendingDecodes = ConcurrentHashMap<String, MutableList<PendingDecode>>()
     private val pendingCallbacks = ConcurrentHashMap<String, MutableList<LoadCallback>>()
+    private val forbiddenUntil = ConcurrentHashMap<String, Long>()
 
     private data class LoadCallback(
         val onSuccess: (Any) -> Unit,
@@ -228,6 +229,19 @@ class MezonImageLoader private constructor(context: Context) {
     private fun stableUrlForDiskAndMemory(fetchUrl: String): String =
         stableImageLoadUrl(fetchUrl)
 
+    fun isForbidden(url: String): Boolean {
+        val key = stableImageLoadUrl(url)
+        val until = forbiddenUntil[key] ?: return false
+        if (android.os.SystemClock.elapsedRealtime() < until) return true
+        forbiddenUntil.remove(key, until)
+        return false
+    }
+
+    private fun markForbidden(logicalUrl: String) {
+        forbiddenUntil[stableImageLoadUrl(logicalUrl)] =
+            android.os.SystemClock.elapsedRealtime() + FORBIDDEN_RETRY_AFTER_MS
+    }
+
     private fun loadInternal(
         url: String,
         reqWidth: Int,
@@ -268,6 +282,11 @@ class MezonImageLoader private constructor(context: Context) {
                 runOnMain { onSuccess(cached) }
                 return Cancellable.EMPTY
             }
+        }
+
+        if (!isDataImage && isForbidden(baseLogical)) {
+            runOnMain { onError?.invoke(IOException("HTTP 403")) }
+            return Cancellable.EMPTY
         }
 
         val cb = LoadCallback(onSuccess, onError)
@@ -358,6 +377,7 @@ class MezonImageLoader private constructor(context: Context) {
                 if (!response.isSuccessful) {
                     val code = response.code
                     response.close()
+                    if (code == 403) markForbidden(logicalUrl)
                     if (attempt < MAX_NETWORK_RETRIES && (code == 408 || code == 429 || code >= 500)) {
                         mainHandler.postDelayed({
                             ensureNetworkFetch(fetchUrl, logicalUrl, attempt + 1)
@@ -857,6 +877,7 @@ class MezonImageLoader private constructor(context: Context) {
 
         private const val SMALL_IMAGE_THRESHOLD = 100
         private const val MAX_NETWORK_RETRIES = 3
+        private const val FORBIDDEN_RETRY_AFTER_MS = 60_000L
         private const val RETRY_BASE_DELAY_MS = 750L
         private const val RETRY_MAX_DELAY_MS = 3000L
 

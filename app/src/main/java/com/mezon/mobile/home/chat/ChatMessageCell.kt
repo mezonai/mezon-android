@@ -332,6 +332,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private val shimmerEffect = ShimmerEffect()
     private var brokenImageDrawable: Drawable? = null
     private var brokenImageDrawableTint = 0
+    private var privateMediaDrawable: Drawable? = null
+    private var privateMediaDrawableTint = 0
     private var photoWidth = 0
     private var photoHeight = 0
     private var mediaGridCount = 0
@@ -3173,7 +3175,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 if (pressedOnMedia) {
                     pressedOnMedia = false
                     val msg = messageEntity
-                    if (msg != null) delegate?.didClickMedia(this, msg, pressedMediaIndex)
+                    if (msg != null && !isMediaSlotLocked(pressedMediaIndex)) {
+                        delegate?.didClickMedia(this, msg, pressedMediaIndex)
+                    }
                     return true
                 }
                 if (pressedOnOgp) {
@@ -3533,6 +3537,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             shimmerEffect.draw(canvas, imgX, yOff, imgX + photoWidth, yOff + photoHeight, 0f,
                 theme.resolvedMode != com.mezon.mobile.ui.theme.ThemeMode.LIGHT)
             if (visibleOnScreen) postInvalidateDelayed(32)
+        } else if (photoImage.isLoadForbidden()) {
+            drawPrivateMediaPlaceholder(
+                canvas, imgX, yOff, photoWidth.toFloat(), photoHeight.toFloat(), MEDIA_RADIUS,
+            )
         } else if (!photoImage.hasImage()) {
             drawBrokenImagePlaceholder(
                 canvas, imgX, yOff, photoWidth.toFloat(), photoHeight.toFloat(), MEDIA_RADIUS,
@@ -4024,7 +4032,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             val progress = if (msg != null && url.isNotEmpty()) msg.attachmentUploadProgress(url) else 0f
             drawAttachmentUploadSpinner(canvas, x, y, w, h, MEDIA_RADIUS, progress)
         } else if (!receiver.hasMainImage()) {
-            if (slotIsVideo.getOrNull(slot) == true) {
+            if (receiver.isLoadForbidden()) {
+                drawPrivateMediaPlaceholder(canvas, x, y, w, h, MEDIA_RADIUS)
+            } else if (slotIsVideo.getOrNull(slot) == true) {
                 drawVideoPlaceholder(canvas, x, y, w, h, MEDIA_RADIUS)
             } else if (receiver.shouldAnimateLoadingPlaceholder()) {
                 shimmerEffect.draw(canvas, x, y, x + w, y + h, MEDIA_RADIUS, isDark)
@@ -4033,7 +4043,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 drawBrokenImagePlaceholder(canvas, x, y, w, h, MEDIA_RADIUS)
             }
         }
-        if (slotIsVideo.getOrNull(slot) == true && !isSlotUploadPending(slot)) {
+        if (slotIsVideo.getOrNull(slot) == true && !isSlotUploadPending(slot) && !receiver.isLoadForbidden()) {
             drawVideoPlayButton(canvas, x, y, w, h)
         }
         return needsRedraw
@@ -4074,7 +4084,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             val progress = if (url.isNotEmpty()) msg.attachmentUploadProgress(url) else 0f
             drawAttachmentUploadSpinner(canvas, imgX, imgY, w, h, MEDIA_RADIUS, progress)
         } else if (!photoImage.hasMainImage()) {
-            if (isVideo) {
+            if (photoImage.isLoadForbidden()) {
+                drawPrivateMediaPlaceholder(canvas, imgX, imgY, w, h, MEDIA_RADIUS)
+            } else if (isVideo) {
                 drawVideoPlaceholder(canvas, imgX, imgY, w, h, MEDIA_RADIUS)
             } else if (photoImage.shouldAnimateLoadingPlaceholder()) {
                 shimmerEffect.draw(canvas, imgX, imgY, imgX + w, imgY + h, MEDIA_RADIUS,
@@ -4084,7 +4096,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 drawBrokenImagePlaceholder(canvas, imgX, imgY, w, h, MEDIA_RADIUS)
             }
         }
-        if (isVideo && !isSlotUploadPending(0)) {
+        if (isVideo && !isSlotUploadPending(0) && !photoImage.isLoadForbidden()) {
             drawVideoPlayButton(canvas, imgX, imgY, w, h)
             durationLayout?.let { drawDurationBadge(canvas, it, imgX, imgY) }
         }
@@ -4122,6 +4134,45 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
         MezonIcon.drawIcon(canvas, icon, (x + w / 2f).toInt(), (y + h / 2f).toInt(), size)
     }
+
+    private fun drawPrivateMediaPlaceholder(canvas: Canvas, x: Float, y: Float, w: Float, h: Float, radius: Float) {
+        tmpRect.set(x, y, x + w, y + h)
+        BROKEN_IMAGE_BG_PAINT.color = theme.border
+        if (radius > 0f) {
+            canvas.drawRoundRect(tmpRect, radius, radius, BROKEN_IMAGE_BG_PAINT)
+        } else {
+            canvas.drawRect(tmpRect, BROKEN_IMAGE_BG_PAINT)
+        }
+        val size = min(PRIVATE_MEDIA_ICON_SIZE, (min(w, h) * 0.45f).toInt())
+        if (size < BROKEN_IMAGE_ICON_MIN) return
+        val tint = theme.onSurfaceVariant
+        var icon = privateMediaDrawable
+        if (icon == null || privateMediaDrawableTint != tint) {
+            icon = MezonIcon.lockIcon.getDrawable(context, tint)
+            privateMediaDrawable = icon
+            privateMediaDrawableTint = tint
+        }
+        val cx = x + w / 2f
+        if (w < PRIVATE_MEDIA_LABEL_MIN_W || h < PRIVATE_MEDIA_LABEL_MIN_H) {
+            MezonIcon.drawIcon(canvas, icon, cx.toInt(), (y + h / 2f).toInt(), size)
+            return
+        }
+        val stackH = size + PRIVATE_MEDIA_LABEL_GAP + PRIVATE_MEDIA_TEXT_H
+        val top = y + (h - stackH) / 2f
+        MezonIcon.drawIcon(canvas, icon, cx.toInt(), (top + size / 2f).toInt(), size)
+        PRIVATE_MEDIA_TEXT_PAINT.color = tint
+        val label = android.text.TextUtils.ellipsize(
+            context.getString(R.string.message_attachment_private_media),
+            PRIVATE_MEDIA_TEXT_PAINT,
+            w - PRIVATE_MEDIA_LABEL_PAD * 2,
+            android.text.TextUtils.TruncateAt.END,
+        ).toString()
+        val baseline = top + size + PRIVATE_MEDIA_LABEL_GAP - PRIVATE_MEDIA_TEXT_ASCENT
+        canvas.drawText(label, cx, baseline, PRIVATE_MEDIA_TEXT_PAINT)
+    }
+
+    private fun isMediaSlotLocked(index: Int): Boolean =
+        (if (mediaGridCount > 1) mediaReceiver(index) else photoImage).isLoadForbidden()
 
     private fun drawVideoPlayButton(canvas: Canvas, x: Float, y: Float, w: Float, h: Float) {
         val cx = x + w / 2f
@@ -5399,6 +5450,20 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
         private val BROKEN_IMAGE_ICON_SIZE = LayoutHelper.dp(36)
         private val BROKEN_IMAGE_ICON_MIN = LayoutHelper.dp(14)
+        private val PRIVATE_MEDIA_ICON_SIZE = LayoutHelper.dp(28)
+        private val PRIVATE_MEDIA_LABEL_MIN_W = LayoutHelper.dp(140).toFloat()
+        private val PRIVATE_MEDIA_LABEL_MIN_H = LayoutHelper.dp(90).toFloat()
+        private val PRIVATE_MEDIA_LABEL_GAP = LayoutHelper.dp(8).toFloat()
+        private val PRIVATE_MEDIA_LABEL_PAD = LayoutHelper.dp(12).toFloat()
+        private val PRIVATE_MEDIA_TEXT_PAINT = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = LayoutHelper.dp(13).toFloat()
+            textAlign = Paint.Align.CENTER
+        }
+        private val PRIVATE_MEDIA_TEXT_FM = Paint.FontMetrics().also {
+            PRIVATE_MEDIA_TEXT_PAINT.getFontMetrics(it)
+        }
+        private val PRIVATE_MEDIA_TEXT_H = PRIVATE_MEDIA_TEXT_FM.descent - PRIVATE_MEDIA_TEXT_FM.ascent
+        private val PRIVATE_MEDIA_TEXT_ASCENT = PRIVATE_MEDIA_TEXT_FM.ascent
 
         private val PLAY_ICON_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = 0xFFFFFFFF.toInt()
