@@ -1483,12 +1483,16 @@ class DialogsController @Inject constructor(
         if (badgeDescs.isEmpty()) return false
         val byId = badgeDescs.associateBy { it.channelId }
         var changed = false
+        val participantChanges = ArrayList<Long>()
         var snapshot: ArrayList<DirectMessage>? = null
         synchronized(this) {
             for (p in badgeDescs) {
                 val participants = p.extractParticipants()
-                if (p.active == 1 && shouldCacheParticipantsFromDesc(p, participants)) {
+                if (p.active == 1 && shouldCacheParticipantsFromDesc(p, participants) &&
+                    participantsByChannel[p.channelId] != participants
+                ) {
                     participantsByChannel.put(p.channelId, participants)
+                    participantChanges.add(p.channelId)
                 }
                 if (p.active != 1 || dialogsDict.get(p.channelId) != null) continue
                 val inserted = p.toDirectMessage(currentUserId, appContext)
@@ -1516,6 +1520,9 @@ class DialogsController @Inject constructor(
                 dialogs.addAll(newList.sortedByDescending { it.lastSentMessageTs })
                 snapshot = ArrayList(dialogs)
             }
+        }
+        for (channelId in participantChanges) {
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.channelMembersDidLoad, channelId)
         }
         if (!changed) return false
         snapshot?.let { snap ->
