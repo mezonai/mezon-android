@@ -7004,9 +7004,13 @@ open class ChatFragment : BaseFragment() {
             selectedEmojiId = selectedEmojiId,
             currentUserId = userId,
             themeColors = themeColors,
-            memberResolver = { senderId ->
-                memberResolver.resolveMember(senderId, clanId, channelId, channelType)
+            membersResolver = { senderIds ->
+                memberResolver.resolveMembers(senderIds, clanId, channelId, channelType)
             },
+            notificationCenter = notificationCenter,
+            clanId = clanId,
+            channelId = channelId,
+            parentChannelId = channelController.findChannelById(channelId)?.parentId ?: routeParentId,
             onRemoveReaction = { emojiId, emoji, count ->
                 chatController.sendReaction(
                     channelId, clanId, channelType, resolveChannelPrivate(),
