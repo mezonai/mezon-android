@@ -2397,7 +2397,7 @@ class ChatController @Inject constructor(
                 ).also { attachmentJobsByTempId.put(params.tempId, it) }
         }
 
-        val cdnBaseUrl = BuildConfig.MEZON_BASE_IMG_URL
+        val cdnBaseUrl = BuildConfig.CLOUDFLARE_CDN_URL
         val preparedByIndex = arrayOfNulls<PreparedAttachmentSlot>(items.size)
         val presignFailedIndices = HashSet<Int>()
         val resultMutex = Mutex()

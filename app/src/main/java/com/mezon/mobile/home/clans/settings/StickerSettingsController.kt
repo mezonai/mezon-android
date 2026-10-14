@@ -124,7 +124,7 @@ class StickerSettingsController @Inject constructor(
                 bytes,
                 STICKER_DIMENSION,
                 STICKER_DIMENSION,
-                BuildConfig.MEZON_BASE_IMG_URL,
+                BuildConfig.CLOUDFLARE_CDN_URL,
             ).cdnUrl
         }
     }

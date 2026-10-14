@@ -35,8 +35,8 @@ object AttachmentUploader {
 
     private fun cdnUrlForView(typeCdn: Int, fallback: String, filename: String): String {
         val baseUrl = when (typeCdn) {
-            1 -> BuildConfig.MEZON_BASE_MEZON_IMG_URL
-            2 -> BuildConfig.MEZON_BASE_IMG_URL
+            1 -> BuildConfig.MEZON_CDN_URL
+            2 -> BuildConfig.CLOUDFLARE_CDN_URL
             else -> fallback
         }
         return "$baseUrl/$filename"

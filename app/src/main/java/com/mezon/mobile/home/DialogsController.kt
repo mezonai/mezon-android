@@ -760,7 +760,7 @@ class DialogsController @Inject constructor(
                         normalized.bytes,
                         512,
                         512,
-                        BuildConfig.MEZON_BASE_IMG_URL,
+                        BuildConfig.CLOUDFLARE_CDN_URL,
                     ).cdnUrl
                 }
             }

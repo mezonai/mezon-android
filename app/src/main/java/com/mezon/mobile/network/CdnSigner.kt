@@ -66,7 +66,7 @@ object CdnSigner {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val mediaOrigins: List<String> by lazy {
-        (listOf(BuildConfig.MEZON_BASE_IMG_URL) + KNOWN_MEDIA_ORIGINS).mapNotNull(::urlBase).distinct()
+        (listOf(BuildConfig.CLOUDFLARE_CDN_URL) + KNOWN_MEDIA_ORIGINS).mapNotNull(::urlBase).distinct()
     }
 
     private val imgproxyBase: String? by lazy { urlBase(BuildConfig.MEZON_IMGPROXY_BASE_URL) }

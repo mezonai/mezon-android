@@ -605,7 +605,7 @@ class EmojiSettingFragment : BaseFragment() {
                 bytes,
                 width.coerceAtLeast(1),
                 height.coerceAtLeast(1),
-                BuildConfig.MEZON_BASE_IMG_URL,
+                BuildConfig.CLOUDFLARE_CDN_URL,
             ).cdnUrl
         }
     }

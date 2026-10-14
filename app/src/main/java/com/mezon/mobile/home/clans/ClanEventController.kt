@@ -458,7 +458,7 @@ class ClanEventController @Inject constructor(
                     bytes,
                     width,
                     height,
-                    com.mezon.mobile.BuildConfig.MEZON_BASE_IMG_URL,
+                    com.mezon.mobile.BuildConfig.CLOUDFLARE_CDN_URL,
                 ).cdnUrl
             }
         }

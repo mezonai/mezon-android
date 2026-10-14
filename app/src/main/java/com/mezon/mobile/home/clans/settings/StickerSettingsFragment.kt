@@ -756,7 +756,7 @@ class StickerSettingsFragment : BaseFragment() {
 
                 views.imageView.setImageDrawable(null)
                 val displayUrl = sticker.src.ifBlank {
-                    "${BuildConfig.MEZON_BASE_IMG_URL}/stickers/${sticker.id}.webp"
+                    "${BuildConfig.CLOUDFLARE_CDN_URL}/stickers/${sticker.id}.webp"
                 }
                 val loadSize = LayoutHelper.dp(110f)
                 MezonImageLoader.getInstance(ctx).loadDrawable(

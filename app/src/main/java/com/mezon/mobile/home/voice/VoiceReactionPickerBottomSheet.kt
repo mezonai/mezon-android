@@ -285,7 +285,7 @@ class VoiceReactionPickerBottomSheet(
         if (raw.isBlank()) return ""
         return when {
             raw.startsWith("http://", true) || raw.startsWith("https://", true) -> raw
-            raw.startsWith("/") -> BuildConfig.MEZON_BASE_IMG_URL + raw
+            raw.startsWith("/") -> BuildConfig.CLOUDFLARE_CDN_URL + raw
             else -> raw
         }
     }
