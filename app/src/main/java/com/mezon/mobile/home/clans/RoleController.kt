@@ -318,7 +318,17 @@ class RoleController @Inject constructor(
             }
             for (member in members) {
                 if (member.userId == 0L) continue
-                byUser.put(member.userId, computeDisplayRoleForMember(member, byId))
+                byUser.put(member.userId, computeDisplayRole(member.roleIds, byId))
+            }
+            val roleIdsByListedUser = HashMap<Long, ArrayList<Long>>()
+            for (role in allRoles) {
+                for (uid in role.userIds) {
+                    if (uid == 0L || byUser.indexOfKey(uid) >= 0) continue
+                    roleIdsByListedUser.getOrPut(uid) { ArrayList() }.add(role.roleId)
+                }
+            }
+            for ((uid, roleIds) in roleIdsByListedUser) {
+                byUser.put(uid, computeDisplayRole(roleIds, byId))
             }
         }
         synchronized(displayRoleCacheLock) {
@@ -358,14 +368,14 @@ class RoleController @Inject constructor(
         }
     }
 
-    private fun computeDisplayRoleForMember(
-        member: ClanMember,
+    private fun computeDisplayRole(
+        roleIds: List<Long>,
         rolesById: Map<Long, ClanRole>
     ): UserDisplayRole {
-        if (member.roleIds.isEmpty()) return UserDisplayRole(0, "")
+        if (roleIds.isEmpty()) return UserDisplayRole(0, "")
         var bestOrder = Int.MAX_VALUE
         var bestRole: ClanRole? = null
-        for (rid in member.roleIds) {
+        for (rid in roleIds) {
             val role = rolesById[rid] ?: continue
             if (role.orderRole < bestOrder) {
                 bestOrder = role.orderRole
@@ -376,7 +386,7 @@ class RoleController @Inject constructor(
         var iconUrl = bestRole.iconUrl
         if (iconUrl.isBlank()) {
             var bestIconOrder = Int.MAX_VALUE
-            for (rid in member.roleIds) {
+            for (rid in roleIds) {
                 val role = rolesById[rid] ?: continue
                 if (role.iconUrl.isNotBlank() && role.orderRole < bestIconOrder) {
                     bestIconOrder = role.orderRole
@@ -537,7 +547,9 @@ class RoleController @Inject constructor(
                 if (force) pendingForceRoleReload.add(clanId)
                 return
             }
-            if (!force && rolesByClan[clanId].isNullOrEmpty().not()) return
+            val cached = rolesByClan[clanId]
+            val cacheLacksRoleUsers = cached?.any { it.memberCount > 0 && it.userIds.isEmpty() } == true
+            if (!force && !cached.isNullOrEmpty() && !cacheLacksRoleUsers) return
             loadingClans[clanId] = true
         }
         appScope.launch(ioDispatcher) {

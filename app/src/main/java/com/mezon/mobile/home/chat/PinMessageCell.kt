@@ -83,6 +83,8 @@ class PinMessageCell(context: Context, private val theme: ThemeColors) : FrameLa
         }
     }
 
+    private val anonymousUserId = com.mezon.mobile.BuildConfig.MEZON_ANONYMOUS_USER_ID.toLongOrNull() ?: 0L
+
     fun setData(
         data: PinMessageData,
         displayName: String?,
@@ -90,7 +92,8 @@ class PinMessageCell(context: Context, private val theme: ThemeColors) : FrameLa
         cachedMessage: MessageEntity? = null
     ) {
         pinData = data
-        val name = displayName?.takeIf { it.isNotBlank() } ?: data.username.ifBlank { "Unknown" }
+        val name = displayName?.takeIf { it.isNotBlank() }
+            ?: data.username.ifBlank { if (data.senderId == anonymousUserId) "Anonymous" else "Unknown" }
         headerView.setInfo(name, avatarUrl ?: data.avatar, data.messageId, data.username)
 
         messageCell.resetForRebind()

@@ -27,6 +27,7 @@ data class ClanRole(
     val roleChannelActive: Int,
     val channelIds: List<Long>,
     val orderRole: Int,
+    val userIds: List<Long> = emptyList(),
 )
 
 data class PermissionCatalogEntry(
@@ -73,6 +74,7 @@ fun mapProtoRoleToClanRole(proto: Role): ClanRole {
         roleChannelActive = proto.roleChannelActive,
         channelIds = proto.channelIdsList.toList(),
         orderRole = proto.orderRole,
+        userIds = if (proto.hasRoleUserList()) proto.roleUserList.roleUsersList.map { it.id } else emptyList(),
     )
 }
 

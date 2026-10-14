@@ -522,7 +522,7 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
         }
 
         when {
-            item.uploaderId == VIDEO_ANONYMOUS_USER_ID -> {
+            item.uploaderId == VIDEO_ANONYMOUS_USER_ID && item.senderAvatarUrl.isNullOrEmpty() -> {
                 avatarView.setImageDrawable(com.mezon.mobile.ui.cells.MezonIcon.anonymousAvatar.getDrawable(context))
             }
             !item.senderAvatarUrl.isNullOrEmpty() -> {
