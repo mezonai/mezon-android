@@ -37,7 +37,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 private val BASE_IMG: String
-    get() = com.mezon.mobile.BuildConfig.MEZON_BASE_IMG_URL
+    get() = com.mezon.mobile.BuildConfig.CLOUDFLARE_CDN_URL
 private const val EMOJI_SIZE_DP = 20
 
 private val VALID_LINK_INVITE_REGEX =

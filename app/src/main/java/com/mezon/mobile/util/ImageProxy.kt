@@ -9,7 +9,7 @@ private const val IMGPROXY_KEY = BuildConfig.MEZON_IMGPROXY_KEY
 private const val MAX_BYTES = 2_097_152
 private const val MAX_PROXY_DIM = 1200
 private val SKIP_PROXY_EXTENSIONS = setOf("gif", "webp")
-private val CONFIGURED_MEDIA_BASE = BuildConfig.MEZON_BASE_IMG_URL.trim().trimEnd('/')
+private val CONFIGURED_MEDIA_BASE = BuildConfig.CLOUDFLARE_CDN_URL.trim().trimEnd('/')
 
 fun isConfiguredMediaUrl(url: String): Boolean =
     CONFIGURED_MEDIA_BASE.isNotEmpty() && url.startsWith("$CONFIGURED_MEDIA_BASE/")
@@ -74,7 +74,7 @@ fun absoluteResourceUrl(raw: String): String {
         return t
     }
     if (t.startsWith("//")) return "https:$t"
-    val base = BuildConfig.MEZON_BASE_IMG_URL.trimEnd('/')
+    val base = BuildConfig.CLOUDFLARE_CDN_URL.trimEnd('/')
     return if (t.startsWith("/")) "$base$t" else "$base/$t"
 }
 

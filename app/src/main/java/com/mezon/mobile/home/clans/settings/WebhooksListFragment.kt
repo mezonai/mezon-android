@@ -515,7 +515,7 @@ class WebhooksListFragment : BaseFragment() {
     private fun randomPresetName(): String = WebhookConfig.PRESET_NAMES.random()
 
     private fun randomPresetAvatar(): String =
-        WebhookConfig.presetAvatarUrls(BuildConfig.MEZON_BASE_IMG_URL).random()
+        WebhookConfig.presetAvatarUrls(BuildConfig.CLOUDFLARE_CDN_URL).random()
 
     private fun createChannelWebhook(channelId: Long) {
         fragmentScope.launch(mainDispatcher) {

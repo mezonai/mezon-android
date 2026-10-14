@@ -409,6 +409,6 @@ private suspend fun uploadCommunityBanner(
     val filename = "community-banner/$clanId.$ext"
     return AttachmentUploader.uploadAttachmentBytes(
         api, apiUrl, token, filename, mimeType, bytes,
-        cdnBaseUrl = BuildConfig.MEZON_BASE_IMG_URL,
+        cdnBaseUrl = BuildConfig.CLOUDFLARE_CDN_URL,
     ).cdnUrl
 }
