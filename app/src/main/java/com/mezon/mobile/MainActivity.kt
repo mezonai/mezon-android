@@ -1045,6 +1045,10 @@ class MainActivity : BasePermissionsActivity(),
     fun showVoiceRoom(channelId: Long, clanId: Long, channelLabel: String, role: SfuRole = SfuRole.SPEAKER) {
         if (isStreamingOverlayVisible()) dismissStreamingRoom()
         val manager = voiceOverlayManager ?: return
+        if (clanId != 0L) {
+            EntryPointAccessors.fromApplication(applicationContext, FragmentEntryPoint::class.java)
+                .clansController().selectClan(clanId)
+        }
         val existing = voiceRoomFragment
         if (existing != null) {
             val sameRoom = existing.getChannelId() == channelId && existing.getClanId() == clanId

@@ -1,15 +1,19 @@
 package com.mezon.mobile.ui.cells
 
 import android.content.Context
+import android.content.res.ColorStateList
 import android.graphics.Canvas
 import android.graphics.Paint
-import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
+import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
 import android.text.StaticLayout
 import android.text.TextPaint
 import android.text.TextUtils
 import android.view.MotionEvent
+import android.view.View
+import android.view.accessibility.AccessibilityNodeInfo
 import com.mezon.mobile.R
 import com.mezon.mobile.core.BaseCell
 import com.mezon.mobile.core.LayoutHelper
@@ -33,19 +37,61 @@ class ChannelSearchCell(context: Context, private val theme: ThemeColors) : Base
 
     private val clanLinePaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
     private val joinTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
-    private val joinHitRect = RectF()
     private var showJoin = false
     private var joinClickListener: ((ChannelSearchDisplay) -> Unit)? = null
+    var isJoinTouch = false
+        private set
     private var joinLabelW = 0
     private var joinLabelH = 0
+    private val joinButton = object : View(context) {
+        override fun onInitializeAccessibilityNodeInfo(info: AccessibilityNodeInfo) {
+            super.onInitializeAccessibilityNodeInfo(info)
+            info.className = "android.widget.Button"
+        }
+    }.apply {
+        contentDescription = context.getString(R.string.search_join_channel)
+        isClickable = true
+        isFocusable = true
+        visibility = GONE
+        background = createJoinRipple()
+        setOnClickListener { this@ChannelSearchCell.display?.let { joinClickListener?.invoke(it) } }
+    }
 
     init {
         joinTextPaint.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         clanLinePaint.typeface = Typeface.DEFAULT
+        addView(joinButton)
     }
 
     fun setJoinClickListener(listener: ((ChannelSearchDisplay) -> Unit)?) {
         joinClickListener = listener
+        joinButton.visibility = if (showJoin && listener != null) VISIBLE else GONE
+    }
+
+    fun isJoinButtonHit(x: Float, y: Float): Boolean =
+        joinButton.visibility == VISIBLE && x >= joinButton.left && x < joinButton.right &&
+            y >= joinButton.top && y < joinButton.bottom
+
+    private fun createJoinRipple(): RippleDrawable {
+        val mask = GradientDrawable().apply {
+            cornerRadius = LayoutHelper.dp(6f).toFloat()
+            setColor(android.graphics.Color.WHITE)
+        }
+        val color = (theme.primary and 0x00FFFFFF) or 0x26000000
+        return RippleDrawable(ColorStateList.valueOf(color), null, mask)
+    }
+
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) isJoinTouch = isJoinButtonHit(event.x, event.y)
+        val handled = super.dispatchTouchEvent(event)
+        if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+            isJoinTouch = false
+        }
+        return handled
+    }
+
+    override fun dispatchSetPressed(pressed: Boolean) {
+        
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -56,6 +102,10 @@ class ChannelSearchCell(context: Context, private val theme: ThemeColors) : Base
             return
         }
         measureJoinLabel()
+        joinButton.measure(
+            MeasureSpec.makeMeasureSpec(joinLabelW, MeasureSpec.EXACTLY),
+            MeasureSpec.makeMeasureSpec(joinLabelH, MeasureSpec.EXACTLY)
+        )
         val textLeft = ICON_LEFT + ICON_SIZE + ICON_TEXT_GAP
         val joinSlot = if (showJoin) joinLabelW + JOIN_GAP_FROM_TEXT else 0
         val textWidth = max(0, w - textLeft - PAD_RIGHT - joinSlot)
@@ -67,6 +117,12 @@ class ChannelSearchCell(context: Context, private val theme: ThemeColors) : Base
         val contentH = max(ICON_SIZE, textBlock) + PAD_TOP + PAD_BOTTOM
         val rowH = if (showJoin) max(contentH, joinLabelH + PAD_TOP + PAD_BOTTOM) else contentH
         setMeasuredDimension(w, rowH + ROW_MARGIN_BOTTOM)
+    }
+
+    override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
+        val buttonLeft = measuredWidth - PAD_RIGHT - joinLabelW
+        val buttonTop = (measuredHeight - ROW_MARGIN_BOTTOM - joinLabelH) / 2
+        joinButton.layout(buttonLeft, buttonTop, buttonLeft + joinLabelW, buttonTop + joinLabelH)
     }
 
     override fun invalidate() {
@@ -81,9 +137,15 @@ class ChannelSearchCell(context: Context, private val theme: ThemeColors) : Base
             val ch = d.channel
             iconDrawable = ChannelItemCell.resolveChannelIcon(ch.type, ch.isPrivate, ch.isAgeRestricted).getDrawable(context)
             showJoin = d.showJoinUi
+            isJoinTouch = false
+            joinButton.isPressed = false
+            joinButton.visibility = if (showJoin && joinClickListener != null) VISIBLE else GONE
         }
         joinTextPaint.textSize = theme.dialogNamePaint.textSize
         joinTextPaint.color = theme.primary
+        (joinButton.background as RippleDrawable).setColor(
+            ColorStateList.valueOf((theme.primary and 0x00FFFFFF) or 0x26000000)
+        )
         clanLinePaint.textSize = theme.dialogNamePaint.textSize
         clanLinePaint.color = theme.dialogNamePaint.color
         requestLayout()
@@ -178,32 +240,10 @@ class ChannelSearchCell(context: Context, private val theme: ThemeColors) : Base
                 jl.draw(canvas)
                 canvas.restore()
             }
-            joinHitRect.set(
-                labelLeft.toFloat(),
-                labelTop,
-                (labelLeft + joinLabelW).toFloat(),
-                labelTop + joinLabelH
-            )
-        } else {
-            joinHitRect.setEmpty()
         }
 
         val dividerLeft = textLeft
         canvas.drawLine(dividerLeft, (h - 1).toFloat(), w.toFloat(), (h - 1).toFloat(), theme.dividerPaint)
-    }
-
-    override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (showJoin && !joinHitRect.isEmpty && joinHitRect.contains(event.x, event.y)) {
-            if (event.action == MotionEvent.ACTION_UP) {
-                val disp = display
-                if (disp != null) {
-                    joinClickListener?.invoke(disp)
-                    playSoundEffect(android.view.SoundEffectConstants.CLICK)
-                }
-            }
-            return true
-        }
-        return super.onTouchEvent(event)
     }
 
     companion object {

@@ -15,6 +15,7 @@ import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.network.ApiCacheTracker
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.network.MezonSocket
+import com.mezon.mobile.network.SocketConnectionLostException
 import com.mezon.mobile.network.SocketEventDispatcher
 import com.mezon.mobile.network.apiCacheKey
 import com.mezon.mobile.session.SessionManager
@@ -255,29 +256,52 @@ class VoiceController @Inject constructor(
             voiceSessionGeneration
         }
         return try {
-            sessionManager.withAutoRefresh { session ->
+            if (clanId != 0L) {
+                if (!socket.awaitConnected()) {
+                    throw SocketConnectionLostException("Socket unavailable while joining voice channel $channelId")
+                }
+                channelController.awaitChannelsForClan(clanId)
+                check(channelController.getChannels(clanId).isNotEmpty()) {
+                    "Clan $clanId channels are not ready for voice join"
+                }
+                currentCoroutineContext().ensureActive()
+                synchronized(this) {
+                    if (generation != voiceSessionGeneration) return null
+                }
+            }
+            val response = sessionManager.withAutoRefresh { session ->
                 val roomName = channelId.toString()
-                val response = withContext(ioDispatcher) {
+                withContext(ioDispatcher) {
                     api.generateMeetToken(
                         session.apiUrl, session.token, channelId, roomName,
                         meetTokenMetadata(clanId, session.userId.toLongOrNull() ?: 0L)
                     )
                 }
-                currentCoroutineContext().ensureActive()
-                val token = response.token
-                synchronized(this) {
-                    if (generation != voiceSessionGeneration) return@withAutoRefresh null
-                    if (token.isNullOrEmpty()) {
-                        currentVoiceInfo = null
-                        isConnecting = false
-                        return@withAutoRefresh null
-                    }
-                    meetToken = token
-                    meetSfuUrl = response.url.takeIf { it.isNotBlank() }
-                    isJoined = false
-                }
-                token
             }
+            currentCoroutineContext().ensureActive()
+            synchronized(this) {
+                if (generation != voiceSessionGeneration) return null
+            }
+            val token = response.token
+            if (!token.isNullOrEmpty() && clanId != 0L) {
+                if (!socket.awaitConnected()) {
+                    throw SocketConnectionLostException("Socket unavailable while joining voice channel $channelId")
+                }
+                socket.joinClanChatAwait(clanId)
+                currentCoroutineContext().ensureActive()
+            }
+            synchronized(this) {
+                if (generation != voiceSessionGeneration) return null
+                if (token.isNullOrEmpty()) {
+                    currentVoiceInfo = null
+                    isConnecting = false
+                    return null
+                }
+                meetToken = token
+                meetSfuUrl = response.url.takeIf { it.isNotBlank() }
+                isJoined = false
+            }
+            token
         } catch (e: Exception) {
             synchronized(this) {
                 if (generation == voiceSessionGeneration) {
