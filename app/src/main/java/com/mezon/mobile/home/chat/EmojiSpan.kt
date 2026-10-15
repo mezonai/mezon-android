@@ -110,8 +110,8 @@ class EmojiSpan(
             return
         }
 
+        val url = getEmojiUrl(emojiId) ?: return
         val view = viewRef.get() ?: return
-        val url = getEmojiUrl(emojiId, view.context) ?: return
         val loader = MezonImageLoader.getInstance(view.context)
 
         drawPlaceholder(canvas, x, topF.toInt(), bottomF.toInt())
@@ -132,7 +132,7 @@ class EmojiSpan(
                 applyDrawable(loaded)
             },
             onError = outerErr@{
-                val direct = getEmojiDirectUrl(emojiId, view.context) ?: run {
+                val direct = getEmojiDirectUrl(emojiId) ?: run {
                     viewRef.get()?.invalidate()
                     return@outerErr
                 }
@@ -155,12 +155,6 @@ class EmojiSpan(
         placeholderPaint.color = PLACEHOLDER_COLOR
         tmpRect.set(x, top.toFloat(), x + size, bottom.toFloat())
         canvas.drawRoundRect(tmpRect, PLACEHOLDER_RADIUS, PLACEHOLDER_RADIUS, placeholderPaint)
-    }
-
-    fun reloadImage() {
-        cancelLoad()
-        drawable = null
-        viewRef.get()?.invalidate()
     }
 
     fun cancelLoad() {

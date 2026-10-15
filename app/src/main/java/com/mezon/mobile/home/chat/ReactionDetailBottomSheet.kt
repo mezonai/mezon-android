@@ -213,7 +213,7 @@ class ReactionDetailBottomSheet(
             val emojiIv = ImageView(context).apply {
                 scaleType = ImageView.ScaleType.FIT_CENTER
             }
-            val url = com.mezon.mobile.util.getEmojiUrl(group.emojiId.toString(), context)
+            val url = com.mezon.mobile.util.getEmojiUrl(group.emojiId.toString())
             val emojiSize = LayoutHelper.dp(24)
             if (url != null) {
                 fun loadTabEmoji(loadUrl: String, isRetry: Boolean) {
@@ -226,7 +226,7 @@ class ReactionDetailBottomSheet(
                         },
                         onError = {
                             if (!isRetry) {
-                                val direct = com.mezon.mobile.util.getEmojiDirectUrl(group.emojiId.toString(), context)
+                                val direct = com.mezon.mobile.util.getEmojiDirectUrl(group.emojiId.toString())
                                 if (direct != null && direct != loadUrl) {
                                     loadTabEmoji(direct, true)
                                 }

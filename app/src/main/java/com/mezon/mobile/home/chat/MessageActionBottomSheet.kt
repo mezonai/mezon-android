@@ -242,14 +242,14 @@ class MessageActionBottomSheet(
             }
             btn.addView(iv, FrameLayout.LayoutParams(emojiSize, emojiSize, Gravity.CENTER))
 
-            val url = com.mezon.mobile.util.getEmojiUrl(qe.id.toString(), context)
+            val url = com.mezon.mobile.util.getEmojiUrl(qe.id.toString())
             if (url != null) {
                 fun loadIntoIv(loadUrl: String, isRetry: Boolean) {
                     loader.load(loadUrl, emojiSize, emojiSize, onSuccess = { bmp ->
                         iv.setImageBitmap(bmp)
                     }, onError = {
                         if (!isRetry) {
-                            val direct = com.mezon.mobile.util.getEmojiDirectUrl(qe.id.toString(), context)
+                            val direct = com.mezon.mobile.util.getEmojiDirectUrl(qe.id.toString())
                             if (direct != null && direct != loadUrl) {
                                 loadIntoIv(direct, true)
                             }

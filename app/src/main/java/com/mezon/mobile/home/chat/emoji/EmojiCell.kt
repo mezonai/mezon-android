@@ -59,7 +59,7 @@ class EmojiCell(context: Context, private val themeColors: ThemeColors) : BaseCe
     }
 
     fun setEmoji(item: EmojiItem) {
-        if (emoji == item) return
+        if (emoji?.id == item.id) return
         cancellable?.cancel()
         bitmap = null
         stopAnimation()
@@ -68,7 +68,7 @@ class EmojiCell(context: Context, private val themeColors: ThemeColors) : BaseCe
         isLocked = item.isForSale && item.src.isBlank()
 
         if (item.id.isNotBlank()) {
-            val url = getEmojiUrl(item.id, context, item.src)
+            val url = getEmojiUrl(item.id)
             if (url != null) {
                 val cached = loader.getBitmapFromMemory(url, IMAGE_SIZE, IMAGE_SIZE)
                 if (cached != null) {
@@ -81,7 +81,7 @@ class EmojiCell(context: Context, private val themeColors: ThemeColors) : BaseCe
                             invalidate()
                         },
                         onError = errLow@{
-                            val direct = getEmojiDirectUrl(item.id, context, item.src) ?: return@errLow
+                            val direct = getEmojiDirectUrl(item.id) ?: return@errLow
                             if (direct == url) return@errLow
                             cancellable = loader.load(direct, IMAGE_SIZE, IMAGE_SIZE,
                                 onSuccess = { bmp ->
@@ -101,7 +101,7 @@ class EmojiCell(context: Context, private val themeColors: ThemeColors) : BaseCe
                             invalidate()
                         },
                         onError = errDrawable@{
-                            val direct = getEmojiDirectUrl(item.id, context, item.src) ?: run {
+                            val direct = getEmojiDirectUrl(item.id) ?: run {
                                 invalidate()
                                 return@errDrawable
                             }
