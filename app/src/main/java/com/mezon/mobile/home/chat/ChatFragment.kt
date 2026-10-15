@@ -1318,6 +1318,10 @@ open class ChatFragment : BaseFragment() {
             updateVisibleRows(mask)
         }
 
+        observe(NotificationCenter.emojisNeedReload) { _, _, _ ->
+            if (fragmentView != null && ::adapter.isInitialized) adapter.refreshEmojis()
+        }
+
         observe(NotificationCenter.topicsNeedReload) { _, _, _ ->
             if (isPaused || isTopicMode || fragmentView == null) return@observe
             updateVisibleRows(NotificationCenter.UPDATE_MASK_TOPIC)

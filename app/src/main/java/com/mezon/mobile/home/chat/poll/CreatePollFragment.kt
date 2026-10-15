@@ -405,7 +405,7 @@ class CreatePollFragment : BaseFragment() {
         }
         placeholder.visibility = View.GONE
         preview.visibility = View.VISIBLE
-        getEmojiUrl(emojiId)?.let { preview.setImage(it) }
+        getEmojiUrl(emojiId, preview.context)?.let { preview.setImage(it) }
     }
 
     private fun addAnswerSlot() {

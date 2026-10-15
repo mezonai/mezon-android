@@ -26,6 +26,7 @@ import com.mezon.mobile.home.clans.ClanChannelEntity
 import com.mezon.mobile.home.clans.ClanRole
 import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
 import com.mezon.mobile.util.avatarImgproxyUrl
+import com.mezon.mobile.util.absoluteResourceUrl
 import com.mezon.mobile.util.getEmojiUrl
 
 class InputSuggestionCell(
@@ -374,7 +375,8 @@ class InputSuggestionCell(
         leadingDrawable = null
         namePaint.color = theme.onSurface
         subPaint.color = theme.textDisabled
-        val url = emoji.src.ifBlank { getEmojiUrl(emoji.id) ?: "" }
+        val url = if (emoji.src.isNotBlank()) absoluteResourceUrl(emoji.src)
+            else getEmojiUrl(emoji.id, context).orEmpty()
         if (url.isNotBlank()) loadLeadingDrawable(url, 22)
     }
 

@@ -356,6 +356,16 @@ class ChatAdapter(
         }
     }
 
+    private var emojiRenderRevision = 0
+    private object EmojiResourcesPayload
+
+    fun refreshEmojis() {
+        emojiRenderRevision++
+        if (messagesEndRow > messagesStartRow) {
+            notifyItemRangeChanged(messagesStartRow, messagesEndRow - messagesStartRow, EmojiResourcesPayload)
+        }
+    }
+
     private var linkedChannelRenderRevision = 0
     private object LinkedChannelLabelsPayload
 
@@ -367,8 +377,11 @@ class ChatAdapter(
     }
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int, payloads: MutableList<Any>) {
-        if (payloads.isNotEmpty() && payloads.all { it === LinkedChannelLabelsPayload }) {
-            if (holder is MessageViewHolder) holder.cell.refreshLinkedChannelLabels(linkedChannelRenderRevision)
+        if (payloads.isNotEmpty() && payloads.all { it === EmojiResourcesPayload || it === LinkedChannelLabelsPayload }) {
+            if (holder is MessageViewHolder) {
+                if (payloads.any { it === EmojiResourcesPayload }) holder.cell.refreshEmojis(emojiRenderRevision)
+                if (payloads.any { it === LinkedChannelLabelsPayload }) holder.cell.refreshLinkedChannelLabels(linkedChannelRenderRevision)
+            }
             return
         }
         super.onBindViewHolder(holder, position, payloads)
@@ -406,7 +419,8 @@ class ChatAdapter(
                 holder.cell.botCommandResolver = botCommandResolver
                 holder.cell.topicButtonEnabled = topicButtonEnabled
                 holder.cell.hasMentionHighlight = cachedHasMention(msg)
-                holder.cell.update(0, msg)
+                val contentRebuilt = holder.cell.update(0, msg)
+                holder.cell.refreshEmojis(emojiRenderRevision, contentRebuilt)
                 holder.cell.refreshLinkedChannelLabels(linkedChannelRenderRevision)
             }
             is WelcomeViewHolder -> {
