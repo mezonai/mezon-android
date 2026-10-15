@@ -294,7 +294,7 @@ class ReactionOverlayView(context: Context) : View(context) {
 
     private fun loadEmojiDrawableIfNeeded(fe: FloatingEmoji) {
         if (!fe.isServerEmojiId) return
-        val url = getEmojiUrl(fe.emoji) ?: return
+        val url = getEmojiUrl(fe.emoji, context) ?: return
         val loader = MezonImageLoader.getInstance(context)
 
         fun load(loadUrl: String, isRetry: Boolean) {
@@ -313,7 +313,7 @@ class ReactionOverlayView(context: Context) : View(context) {
                 },
                 onError = {
                     if (!isRetry) {
-                        val direct = com.mezon.mobile.util.getEmojiDirectUrl(fe.emoji)
+                        val direct = com.mezon.mobile.util.getEmojiDirectUrl(fe.emoji, context)
                         if (direct != null && direct != loadUrl) {
                             load(direct, true)
                         }

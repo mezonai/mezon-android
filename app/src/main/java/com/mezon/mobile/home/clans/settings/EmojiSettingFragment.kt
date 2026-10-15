@@ -57,6 +57,7 @@ import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.util.isClanEmojiNameValid
+import com.mezon.mobile.util.absoluteResourceUrl
 import com.mezon.mobile.util.getEmojiUrl
 import com.mezon.mobile.util.AttachmentUploader
 import com.mezon.mobile.util.CLAN_EMOJI_NAME_MAX_LENGTH
@@ -1137,7 +1138,8 @@ class EmojiSettingFragment : BaseFragment() {
 
             holder.forSaleBadge.visibility = if (item.isForSale) View.VISIBLE else View.GONE
 
-            val url = item.src.ifBlank { getEmojiUrl(item.id).orEmpty() }
+            val url = if (item.src.isNotBlank()) absoluteResourceUrl(item.src)
+                else getEmojiUrl(item.id, holder.emojiIv.context).orEmpty()
             if (url.isNotBlank()) {
                 holder.cancellable?.cancel()
                 if (com.mezon.mobile.core.SharedConfig.deviceIsLow()) {
@@ -1151,7 +1153,7 @@ class EmojiSettingFragment : BaseFragment() {
                             }
                         },
                         onError = errLow@{ _: Exception ->
-                            val direct = com.mezon.mobile.util.getEmojiDirectUrl(item.id) ?: return@errLow
+                            val direct = com.mezon.mobile.util.getEmojiDirectUrl(item.id, holder.emojiIv.context, item.src) ?: return@errLow
                             if (direct == url) return@errLow
                             holder.cancellable = MezonImageLoader.getInstance(holder.emojiIv.context).load(
                                 direct,
@@ -1180,7 +1182,7 @@ class EmojiSettingFragment : BaseFragment() {
                             }
                         },
                         onError = errDrawable@{ _: Exception ->
-                            val direct = com.mezon.mobile.util.getEmojiDirectUrl(item.id) ?: run {
+                            val direct = com.mezon.mobile.util.getEmojiDirectUrl(item.id, holder.emojiIv.context, item.src) ?: run {
                                 holder.emojiIv.setImageDrawable(null)
                                 return@errDrawable
                             }
