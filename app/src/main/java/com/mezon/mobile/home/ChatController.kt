@@ -4292,7 +4292,12 @@ class ChatController @Inject constructor(
                                 dest.channelType,
                                 mentionsData
                             )
-                            val attProtos = attachmentsFromEntity(msg)
+                            val attProtos = linkedForwardAttachments(
+                                session.apiUrl,
+                                session.token,
+                                attachmentsFromEntity(msg),
+                                dest.channelId
+                            )
                             try {
                                 val request = channelMessageSend {
                                     clanId = dest.clanId
@@ -4513,6 +4518,61 @@ class ChatController @Inject constructor(
             })
         }
         return out
+    }
+
+    private class ForwardCdnLink(val src: String, val dst: String, val url: String)
+
+    private fun forwardCdnLink(url: String, channelId: Long): ForwardCdnLink? {
+        val origin = BuildConfig.MEZON_CDN_URL.trim().trimEnd('/')
+        if (channelId == 0L || origin.isEmpty() || !url.startsWith("$origin/")) return null
+        val src = url.substring(origin.length + 1)
+        val parts = src.split('/')
+        if (parts.size != 2) return null
+        val folder = parts[0]
+        val file = parts[1]
+        if (folder.length != 16 || !folder.all { it in '0'..'9' || it in 'a'..'f' }) return null
+        if (file.contains('?') || file.contains('#')) return null
+        val separator = file.indexOf('_')
+        if (separator <= 0 || !file.substring(0, separator).all { it in '0'..'9' }) return null
+        val destinationFolder = java.lang.Long.toHexString(channelId).padStart(16, '0')
+        if (folder == destinationFolder) return null
+        val dst = "$destinationFolder/$file"
+        return ForwardCdnLink(src, dst, "$origin/$dst")
+    }
+
+    private suspend fun linkedForwardUrl(apiUrl: String, token: String, url: String, channelId: Long): String {
+        val link = forwardCdnLink(url, channelId) ?: return url
+        return try {
+            api.linkCDNFile(apiUrl, token, link.src, link.dst)
+            link.url
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: SocketRpcServerException) {
+            if (e.code == 6) link.url else url
+        } catch (e: HttpRpcStatusException) {
+            if (e.code == 409) link.url else url
+        } catch (_: Exception) {
+            url
+        }
+    }
+
+    private suspend fun linkedForwardAttachments(
+        apiUrl: String,
+        token: String,
+        attachments: List<MessageAttachment>,
+        channelId: Long
+    ): List<MessageAttachment> = coroutineScope {
+        attachments.map { attachment ->
+            async {
+                val url = linkedForwardUrl(apiUrl, token, attachment.url, channelId)
+                val thumbnail = linkedForwardUrl(apiUrl, token, attachment.thumbnail, channelId)
+                if (url == attachment.url && thumbnail == attachment.thumbnail) {
+                    attachment
+                } else {
+                    attachment.toBuilder().setUrl(url).setThumbnail(thumbnail).build()
+                }
+            }
+        }.awaitAll()
     }
 
     suspend fun addMessageToInbox(

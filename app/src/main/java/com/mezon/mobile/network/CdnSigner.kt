@@ -29,7 +29,7 @@ data class CdnRequestUrl(
 }
 
 object CdnSigner {
-    private const val REFRESH_AFTER_MS = 3 * 60 * 60 * 1000L
+    private const val REFRESH_AFTER_MS = 2 * 60 * 60 * 1000L
     private const val REFUSED_RETRY_AFTER_MS = 60_000L
     private const val FORBIDDEN_REFETCH_AFTER_MS = 30_000L
     private const val FETCH_TIMEOUT_MS = 10_000L
@@ -66,7 +66,7 @@ object CdnSigner {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val mediaOrigins: List<String> by lazy {
-        (listOf(BuildConfig.CLOUDFLARE_CDN_URL) + KNOWN_MEDIA_ORIGINS).mapNotNull(::urlBase).distinct()
+        (listOf(BuildConfig.CLOUDFLARE_CDN_URL, BuildConfig.MEZON_CDN_URL) + KNOWN_MEDIA_ORIGINS).mapNotNull(::urlBase).distinct()
     }
 
     private val imgproxyBase: String? by lazy { urlBase(BuildConfig.MEZON_IMGPROXY_BASE_URL) }

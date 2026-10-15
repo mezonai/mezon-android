@@ -19,6 +19,7 @@ import com.mezon.mobile.home.voice.VideoTrackLastFrameStore
 import com.mezon.mobile.network.NetworkMonitor
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.net.URLEncoder
+import java.util.WeakHashMap
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
@@ -394,6 +395,7 @@ class MezonSfuSession @Inject constructor(
     private var transportStatus = TransportStatus()
     @Volatile private var localAudioSenderRef: LocalAudioSender? = null
     private var remoteSnapshot: List<RemoteTransceiverSnapshot> = emptyList()
+    private val remoteAudioEnabled = WeakHashMap<AudioTrack, Boolean>()
     private var negotiatedDirections: List<SdpMidDirection> = emptyList()
     private var remoteTracks = RemoteTrackRegistry()
     private var snapshotTrackEvents = -1
@@ -2056,7 +2058,7 @@ class MezonSfuSession @Inject constructor(
             val assignment = midNumber?.takeIf { it >= 3 }?.let { slotAssignments[(it - 3) / 3] }
             if (fixedPool) {
                 val bound = assignment?.peerId != null && assignment.active[(midNumber - 3) % 3]
-                (item.track as? AudioTrack)?.setEnabled(bound)
+                (item.track as? AudioTrack)?.let { if (remoteAudioEnabled.put(it, bound) != bound) it.setEnabled(bound) }
                 if (!bound) {
                     clearRemoteKind(id, kind)
                     continue

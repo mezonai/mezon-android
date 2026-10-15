@@ -1117,7 +1117,6 @@ class VoiceRoomFragment : BaseFragment() {
                 username = resolved.username,
                 avatarUrl = resolved.avatarUrl,
                 isMuted = !(localMicOn || localPttActive),
-                isSpeaking = identity in speakingIds,
                 hasVideo = true,
                 videoTrack = localScreenTrack,
                 isScreenShare = true,
@@ -1133,7 +1132,6 @@ class VoiceRoomFragment : BaseFragment() {
             username = resolved.username,
             avatarUrl = resolved.avatarUrl,
             isMuted = !(localMicOn || localPttActive),
-            isSpeaking = identity in speakingIds,
             hasVideo = cameraTrack != null,
             videoTrack = cameraTrack,
             isScreenShare = false,
@@ -1156,7 +1154,6 @@ class VoiceRoomFragment : BaseFragment() {
                 username = resolved.username,
                 avatarUrl = resolved.avatarUrl,
                 isMuted = participant.muted,
-                isSpeaking = identity in speakingIds,
                 hasVideo = true,
                 videoTrack = participant.screen,
                 isScreenShare = true,
@@ -1172,7 +1169,6 @@ class VoiceRoomFragment : BaseFragment() {
             username = resolved.username,
             avatarUrl = resolved.avatarUrl,
             isMuted = participant.muted,
-            isSpeaking = identity in speakingIds,
             hasVideo = remoteCamera != null,
             videoTrack = remoteCamera,
             isScreenShare = false,
@@ -1202,6 +1198,16 @@ class VoiceRoomFragment : BaseFragment() {
 
     private fun resolvePipGridParticipant(): ParticipantInfo? {
         return participants.firstOrNull { !it.isScreenShare && it.hasVideo } ?: participants.firstOrNull { !it.isScreenShare }
+    }
+
+    private fun visibleGridKeys(): Set<String>? {
+        if (isInPipMode || !participantGrid.isShown) return null
+        val manager = participantGrid.layoutManager as? GridLayoutManager ?: return null
+        val first = manager.findFirstCompletelyVisibleItemPosition()
+        if (first == RecyclerView.NO_POSITION) return null
+        return (first..manager.findLastCompletelyVisibleItemPosition()).mapNotNullTo(HashSet()) {
+            participants.getOrNull(it)?.let(::participantKey)
+        }
     }
 
     private fun cancelParticipantDiff() {
@@ -1247,11 +1253,8 @@ class VoiceRoomFragment : BaseFragment() {
                 return@launch
             }
             participants.clear()
-            // Reactions/speaking can change while the diff runs; read their
-            // current state both here and when recycled cells bind.
             participants.addAll(next.map { it.copy(
                 isMuted = participantMuted(it),
-                isSpeaking = it.identity in speakingIds,
                 reactionBadge = reactionStates[it.identity] ?: ParticipantCell.ReactionBadgeType.NONE
             ) })
             participantAdapter.synchronizeItems()
@@ -1354,9 +1357,7 @@ class VoiceRoomFragment : BaseFragment() {
         val now = SystemClock.elapsedRealtime()
         speakerOrder.updateSpeaking(speakingIds, now)
         speakerOrder.retainMembers(nextParticipants.mapTo(HashSet()) { it.identity }, now)
-        val prioritized = speakerOrder.order(
-            nextParticipants, now, ::participantKey, { it.identity }, { it.isScreenShare }
-        )
+        val prioritized = speakerOrder.order(nextParticipants, now, ::participantKey, visibleGridKeys())
         scheduleSpeakerHoldExpiry()
         updateParticipants(prioritized)
     }

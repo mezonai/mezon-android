@@ -14,7 +14,6 @@ data class ParticipantInfo(
     val username: String = "",
     val avatarUrl: String? = null,
     val isMuted: Boolean,
-    val isSpeaking: Boolean,
     val hasVideo: Boolean,
     val videoTrack: VideoTrack? = null,
     val isScreenShare: Boolean = false,
@@ -149,6 +148,7 @@ class VoiceParticipantAdapter(
 
     override fun onViewAttachedToWindow(holder: ParticipantVH) {
         super.onViewAttachedToWindow(holder)
+        holder.participant?.let { holder.cell.updateSpeaking(isSpeaking(it.identity)) }
         attachVisibleVideo(holder)
     }
 
