@@ -2,22 +2,26 @@
 
 import android.app.Dialog
 import android.graphics.Color
+import android.graphics.Outline
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
+import android.text.TextUtils
 import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
+import android.view.ViewOutlineProvider
 import android.view.Window
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
-import android.text.SpannableStringBuilder
 import android.widget.TextView
+import androidx.core.graphics.ColorUtils
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mobile.R
@@ -60,31 +64,34 @@ class PollDetailModal(
             (AndroidUtilities.displaySize.y * 0.72f).toInt().coerceAtMost(LayoutHelper.dp(560))
 
         val modalBg = GradientDrawable().apply {
-            cornerRadius = LayoutHelper.dpf(20f)
+            cornerRadius = LayoutHelper.dpf(12f)
             setColor(themeColors.surface)
+            setStroke(LayoutHelper.dp(1), themeColors.borderDim)
         }
 
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             background = modalBg
-            setPadding(LayoutHelper.dp(16), LayoutHelper.dp(14), LayoutHelper.dp(16), LayoutHelper.dp(14))
+            clipToOutline = true
         }
 
-        val header = FrameLayout(context)
+        val header = FrameLayout(context).apply {
+            setPadding(LayoutHelper.dp(16), LayoutHelper.dp(16), LayoutHelper.dp(8), 0)
+        }
         titleView = TextView(context).apply {
-            setTextSize(TypedValue.COMPLEX_UNIT_DIP, 18f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
             setTextColor(themeColors.onSurface)
             typeface = android.graphics.Typeface.DEFAULT_BOLD
             maxLines = 3
         }
-        val closeSize = LayoutHelper.dp(22)
+        val closeSize = LayoutHelper.dp(40)
         header.addView(
             titleView,
             FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 Gravity.START or Gravity.CENTER_VERTICAL
-            ).apply { rightMargin = closeSize + LayoutHelper.dp(10) }
+            ).apply { marginEnd = closeSize + LayoutHelper.dp(8) }
         )
 
         val close = ImageView(context).apply {
@@ -92,7 +99,8 @@ class PollDetailModal(
             colorFilter =
                 PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
             scaleType = ImageView.ScaleType.FIT_CENTER
-            setPadding(LayoutHelper.dp(2), LayoutHelper.dp(2), LayoutHelper.dp(2), LayoutHelper.dp(2))
+            setPadding(LayoutHelper.dp(10), LayoutHelper.dp(10), LayoutHelper.dp(10), LayoutHelper.dp(10))
+            contentDescription = context.getString(R.string.common_close)
             setOnClickListener { dismiss() }
         }
         header.addView(
@@ -108,7 +116,7 @@ class PollDetailModal(
         )
 
         subtitleView = TextView(context).apply {
-            setTextSize(TypedValue.COMPLEX_UNIT_DIP, 13f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             setTextColor(themeColors.onSurfaceVariant)
         }
         root.addView(
@@ -116,18 +124,22 @@ class PollDetailModal(
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = LayoutHelper.dp(6) }
+            ).apply {
+                topMargin = LayoutHelper.dp(4)
+                marginStart = LayoutHelper.dp(16)
+                marginEnd = LayoutHelper.dp(16)
+            }
         )
 
         val divider = android.view.View(context).apply {
-            setBackgroundColor(themeColors.outlineVariant)
+            setBackgroundColor(themeColors.borderDim)
         }
         root.addView(
             divider,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LayoutHelper.dp(1)
-            ).apply { topMargin = LayoutHelper.dp(12) }
+            ).apply { topMargin = LayoutHelper.dp(16) }
         )
 
         val body = LinearLayout(context).apply {
@@ -140,6 +152,7 @@ class PollDetailModal(
         }
         optionsList = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
+            setPadding(LayoutHelper.dp(12), LayoutHelper.dp(12), LayoutHelper.dp(8), LayoutHelper.dp(12))
         }
         leftScroll.addView(
             optionsList,
@@ -150,11 +163,11 @@ class PollDetailModal(
         )
         body.addView(
             leftScroll,
-            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 0.4f)
         )
 
         val vDiv = android.view.View(context).apply {
-            setBackgroundColor(themeColors.outlineVariant)
+            setBackgroundColor(themeColors.borderDim)
         }
         body.addView(
             vDiv,
@@ -165,23 +178,21 @@ class PollDetailModal(
             layoutManager = LinearLayoutManager(context)
             adapter = voterAdapter
             clipToPadding = false
-            setPadding(LayoutHelper.dp(4), 0, LayoutHelper.dp(4), 0)
+            setPadding(LayoutHelper.dp(12), LayoutHelper.dp(4), LayoutHelper.dp(12), LayoutHelper.dp(4))
         }
         body.addView(
             votersList,
-            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 0.6f)
         )
 
-        val bodyH = (maxDialogH * 0.58f).toInt()
+        val bodyH = (maxDialogH * 0.68f).toInt()
             .coerceIn(LayoutHelper.dp(200), LayoutHelper.dp(420))
         root.addView(
             body,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 bodyH.coerceAtMost(maxDialogH - LayoutHelper.dp(140))
-            ).apply {
-                topMargin = LayoutHelper.dp(12)
-            }
+            )
         )
 
         setContentView(root)
@@ -247,36 +258,47 @@ class PollDetailModal(
     private fun optionRowBackground(selected: Boolean): GradientDrawable {
         return GradientDrawable().apply {
             cornerRadius = LayoutHelper.dpf(10f)
-            setColor(if (selected) themeColors.surfaceVariant else Color.TRANSPARENT)
+            setColor(
+                if (selected) ColorUtils.blendARGB(themeColors.surface, themeColors.primary, 0.2f)
+                else Color.TRANSPARENT
+            )
         }
     }
 
     private fun rebuildOptions() {
         optionsList.removeAllViews()
         for (ans in loaded.answers) {
-            val row = TextView(context).apply {
-                setPadding(LayoutHelper.dp(12), LayoutHelper.dp(12), LayoutHelper.dp(12), LayoutHelper.dp(12))
-                setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14f)
-                setTextColor(themeColors.onSurface)
-                maxLines = 2
-                ellipsize = android.text.TextUtils.TruncateAt.END
-                val cnt = loaded.countFor(ans.index)
-                val label = buildPollAnswerSpannable(ans.label, this)
-                text = SpannableStringBuilder().apply {
-                    append(label)
-                    append("  ·  $cnt")
-                }
+            val row = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                minimumHeight = LayoutHelper.dp(48)
+                setPadding(LayoutHelper.dp(8), LayoutHelper.dp(12), LayoutHelper.dp(8), LayoutHelper.dp(12))
                 background = optionRowBackground(false)
-                setOnClickListener {
-                    selectOption(ans.index)
-                }
+                setOnClickListener { selectOption(ans.index) }
             }
+            val label = TextView(context).apply {
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+                setTextColor(themeColors.onSurface)
+                setSingleLine(true)
+                ellipsize = TextUtils.TruncateAt.END
+                text = buildPollAnswerSpannable(ans.label, this)
+            }
+            val count = TextView(context).apply {
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+                setTextColor(themeColors.tabLabelInactive)
+                setSingleLine(true)
+                text = loaded.countFor(ans.index).toString()
+            }
+            row.addView(label, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            row.addView(count, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { marginStart = LayoutHelper.dp(8) })
             optionsList.addView(
                 row,
                 LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { bottomMargin = LayoutHelper.dp(6) }
+                ).apply { bottomMargin = LayoutHelper.dp(12) }
             )
         }
     }
@@ -284,9 +306,10 @@ class PollDetailModal(
     private fun selectOption(answerIndex: Int) {
         selectedAnswerIndex = answerIndex
         for (i in 0 until optionsList.childCount) {
-            val v = optionsList.getChildAt(i) as? TextView ?: continue
+            val v = optionsList.getChildAt(i)
             val ans = loaded.answers.getOrNull(i) ?: continue
             val sel = ans.index == answerIndex
+            v.isSelected = sel
             v.background = optionRowBackground(sel)
         }
         val voters =
@@ -336,25 +359,41 @@ class PollDetailModal(
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VoterHolder {
             val row = LinearLayout(parent.context).apply {
                 orientation = LinearLayout.HORIZONTAL
-                setPadding(LayoutHelper.dp(8), LayoutHelper.dp(8), LayoutHelper.dp(8), LayoutHelper.dp(8))
+                gravity = Gravity.CENTER_VERTICAL
+                layoutParams = RecyclerView.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+                minimumHeight = LayoutHelper.dp(60)
+                setPadding(0, LayoutHelper.dp(10), 0, LayoutHelper.dp(10))
             }
-            val avatar = android.widget.ImageView(parent.context).apply {
-                layoutParams = LinearLayout.LayoutParams(LayoutHelper.dp(40), LayoutHelper.dp(40))
+            val avatar = ImageView(parent.context).apply {
+                layoutParams = LinearLayout.LayoutParams(LayoutHelper.dp(36), LayoutHelper.dp(36))
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                outlineProvider = object : ViewOutlineProvider() {
+                    override fun getOutline(view: View, outline: Outline) {
+                        outline.setOval(0, 0, view.width, view.height)
+                    }
+                }
+                clipToOutline = true
             }
             val texts = LinearLayout(parent.context).apply {
                 orientation = LinearLayout.VERTICAL
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                    leftMargin = LayoutHelper.dp(10)
+                    marginStart = LayoutHelper.dp(10)
                 }
             }
             val name = TextView(parent.context).apply {
-                setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14f)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
                 setTextColor(theme.onSurface)
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
+                setSingleLine(true)
+                ellipsize = TextUtils.TruncateAt.END
             }
             val sub = TextView(parent.context).apply {
-                setTextSize(TypedValue.COMPLEX_UNIT_DIP, 12f)
-                setTextColor(theme.onSurfaceVariant)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                setTextColor(theme.tabLabelInactive)
+                setSingleLine(true)
+                ellipsize = TextUtils.TruncateAt.END
             }
             texts.addView(name)
             texts.addView(sub)
@@ -387,9 +426,9 @@ class PollDetailModal(
             ad.setInfo(item.userId, item.username)
             avatar.setImageDrawable(ad)
             if (item.avatarUrl.isNotEmpty()) {
-                val url = avatarImgproxyUrl(item.avatarUrl, LayoutHelper.dp(40))
+                val url = avatarImgproxyUrl(item.avatarUrl, LayoutHelper.dp(36))
                 cancel = MezonImageLoader.getInstance(row.context).load(
-                    url, LayoutHelper.dp(40), LayoutHelper.dp(40),
+                    url, LayoutHelper.dp(36), LayoutHelper.dp(36),
                     onSuccess = { bmp ->
                         avatar.setImageBitmap(bmp)
                     },
