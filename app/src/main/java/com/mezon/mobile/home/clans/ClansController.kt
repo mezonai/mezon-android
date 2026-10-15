@@ -462,7 +462,7 @@ class ClansController @Inject constructor(
                     jpegBytes,
                     1920,
                     1080,
-                    BuildConfig.MEZON_BASE_IMG_URL,
+                    BuildConfig.CLOUDFLARE_CDN_URL,
                 ).cdnUrl
             }
         }
@@ -877,7 +877,7 @@ class ClansController @Inject constructor(
                     bytes,
                     512,
                     512,
-                    BuildConfig.MEZON_BASE_IMG_URL,
+                    BuildConfig.CLOUDFLARE_CDN_URL,
                 ).cdnUrl
             }
         }
@@ -903,7 +903,7 @@ class ClansController @Inject constructor(
                     bytes,
                     512,
                     512,
-                    BuildConfig.MEZON_BASE_IMG_URL,
+                    BuildConfig.CLOUDFLARE_CDN_URL,
                 ).cdnUrl
             }
         }

@@ -369,6 +369,7 @@
     <string name="message_attachment_contact">Contact</string>
     <string name="message_attachment_location">Location</string>
     <string name="message_attachment_poll">Poll</string>
+    <string name="message_attachment_private_media">Media from private channel</string>
     <string name="action_copy_text">Copy Text</string>
     <string name="action_share_text">Share Text</string>
     <string name="tokens_sent_title">Funds Transferred: %1$s₫</string>
@@ -1403,6 +1404,7 @@
     <string name="voice_room_mute_voice">Mute</string>
     <string name="voice_room_kick_voice">Kick</string>
     <string name="voice_profile_in_voice">In voice</string>
+    <string name="voice_profile_sharing_screen">Sharing screen</string>
     <string name="voice_profile_join_voice">Join Voice</string>
     <string name="voice_room_mute_modal_title">Mute member</string>
     <string name="voice_room_mute_modal_content">Please confirm if you would like to mute \"%1$s\"?</string>

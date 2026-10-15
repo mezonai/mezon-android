@@ -32,6 +32,7 @@ internal data class ClanRoleExtraPayload(
     val rolePermissions: List<RolePermissionInfoRow>,
     val channelIds: List<Long>,
     val orderRole: Int = 0,
+    val userIds: List<Long> = emptyList(),
 )
 
 @Entity(tableName = "clan_role_list_meta")
@@ -116,6 +117,7 @@ internal fun ClanRole.toCacheEntity(): ClanRoleCacheEntity {
         },
         channelIds = channelIds,
         orderRole = orderRole,
+        userIds = userIds,
     )
     return ClanRoleCacheEntity(
         clanId = clanId,
@@ -157,6 +159,7 @@ internal fun ClanRoleCacheEntity.toClanRole(): ClanRole? = try {
         roleChannelActive = roleChannelActive,
         channelIds = p.channelIds,
         orderRole = p.orderRole,
+        userIds = p.userIds,
     )
 } catch (_: Exception) {
     null

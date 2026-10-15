@@ -6,6 +6,7 @@ import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -16,22 +17,86 @@ import android.widget.TextView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mobile.core.AndroidUtilities
-import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.BottomSheet
 import com.mezon.mobile.core.LayoutHelper
+import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.ui.cells.MezonIcon
 
 class ReactionDetailBottomSheet(
     context: Context,
-    private val message: MessageEntity,
-    private val selectedEmojiId: Long,
+    message: MessageEntity,
+    selectedEmojiId: Long,
     private val currentUserId: Long,
     private val themeColors: ThemeColors,
-    private val memberResolver: (senderId: Long) -> ClanMember?,
+    private val membersResolver: (senderIds: Set<Long>) -> Map<Long, ClanMember>,
+    private val notificationCenter: NotificationCenter,
+    private val clanId: Long,
+    private val channelId: Long,
+    private val parentChannelId: Long,
     private val onRemoveReaction: (emojiId: Long, emoji: String, count: Int) -> Unit
-) : BottomSheet(context) {
+) : BottomSheet(context), NotificationCenter.NotificationCenterDelegate {
+
+    private lateinit var senderList: RecyclerView
+    private val listScreenLocation = IntArray(2)
+    private var swipeDismissAllowed = false
+
+    init {
+        setAllowNestedScroll(false)
+    }
+
+    override fun canDismissWithSwipe(): Boolean = swipeDismissAllowed
+
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
+            senderList.getLocationOnScreen(listScreenLocation)
+            val fromHeader = ev.rawY < listScreenLocation[1]
+            swipeDismissAllowed = fromHeader || (
+                !senderList.canScrollVertically(-1) && senderList.scrollState != RecyclerView.SCROLL_STATE_SETTLING
+            )
+        }
+        val handled = super.dispatchTouchEvent(ev)
+        if (ev.actionMasked == MotionEvent.ACTION_UP || ev.actionMasked == MotionEvent.ACTION_CANCEL) {
+            swipeDismissAllowed = false
+        }
+        return handled
+    }
+
+    private val memberEvents = intArrayOf(
+        NotificationCenter.clanMembersDidLoad,
+        NotificationCenter.channelMembersDidLoad,
+        NotificationCenter.userClansDidLoad,
+        NotificationCenter.dialogsNeedReload
+    )
+
+    override fun onStart() {
+        super.onStart()
+        memberEvents.forEach { notificationCenter.addObserver(this, it) }
+    }
+
+    override fun onStop() {
+        memberEvents.forEach { notificationCenter.removeObserver(this, it) }
+        super.onStop()
+    }
+
+    override fun didReceivedNotification(id: Int, account: Int, vararg args: Any?) {
+        val target = args.firstOrNull() as? Long
+        when (id) {
+            NotificationCenter.clanMembersDidLoad -> {
+                if (clanId == 0L || target != clanId) return
+            }
+            NotificationCenter.channelMembersDidLoad -> {
+                if (target != channelId && (parentChannelId == 0L || target != parentChannelId)) return
+            }
+            NotificationCenter.userClansDidLoad -> Unit
+            NotificationCenter.dialogsNeedReload -> {
+                if (clanId != 0L) return
+            }
+            else -> return
+        }
+        senderAdapter.refreshProfiles()
+    }
 
     private val groups = message.combineReactions()
     private var selectedTabIndex = groups.indexOfFirst { it.emojiId == selectedEmojiId }.coerceAtLeast(0)
@@ -110,7 +175,7 @@ class ReactionDetailBottomSheet(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
         ))
 
-        val recyclerView = RecyclerView(
+        senderList = RecyclerView(
             context, null, com.mezon.mobile.R.attr.mezonRecyclerListViewStyle
         ).apply {
             layoutManager = LinearLayoutManager(context)
@@ -118,8 +183,8 @@ class ReactionDetailBottomSheet(
             clipToPadding = false
         }
         senderAdapter = SenderAdapter()
-        recyclerView.adapter = senderAdapter
-        rootLayout.addView(recyclerView, LinearLayout.LayoutParams(
+        senderList.adapter = senderAdapter
+        rootLayout.addView(senderList, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
         ))
 
@@ -212,7 +277,7 @@ class ReactionDetailBottomSheet(
         val hasMyReaction = group.senders.any { it.senderId == currentUserId && it.count > 0 }
         deleteButton.visibility = if (hasMyReaction) View.VISIBLE else View.GONE
 
-        senderAdapter.setSenders(group.senders, group.emoji)
+        senderAdapter.setSenders(group.senders)
     }
 
     private fun deleteMyReaction() {
@@ -224,12 +289,16 @@ class ReactionDetailBottomSheet(
 
     private inner class SenderAdapter : RecyclerView.Adapter<SenderViewHolder>() {
         private var senders: List<ReactionSender> = emptyList()
-        private var emoji: String = ""
+        private val profiles = ReactionSenderProfiles(membersResolver)
 
-        fun setSenders(newSenders: List<ReactionSender>, newEmoji: String) {
+        fun setSenders(newSenders: List<ReactionSender>) {
             senders = newSenders.filter { it.count > 0 }
-            emoji = newEmoji
+            profiles.setSenders(senders)
             notifyDataSetChanged()
+        }
+
+        fun refreshProfiles() {
+            profiles.refresh().forEach { notifyItemChanged(it, "profile") }
         }
 
         override fun getItemCount() = senders.size
@@ -238,14 +307,16 @@ class ReactionDetailBottomSheet(
             val row = LinearLayout(parent.context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(0, 0, 0, LayoutHelper.dp(10))
+                layoutParams = RecyclerView.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, LayoutHelper.dp(56)
+                )
                 setBackgroundColor(themeColors.background)
             }
             return SenderViewHolder(row)
         }
 
         override fun onBindViewHolder(holder: SenderViewHolder, position: Int) {
-            holder.bind(senders[position])
+            holder.bind(senders[position], profiles[position])
         }
     }
 
@@ -260,42 +331,42 @@ class ReactionDetailBottomSheet(
             clipToOutline = true
         }
         private val nameView = TextView(row.context).apply {
-            setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14f)
+            setTextSize(TypedValue.COMPLEX_UNIT_DIP, 15f)
             setTextColor(themeColors.onSurface)
             typeface = android.graphics.Typeface.DEFAULT_BOLD
+            setSingleLine(true)
+            ellipsize = android.text.TextUtils.TruncateAt.END
         }
         private val countView = TextView(row.context).apply {
-            setTextSize(TypedValue.COMPLEX_UNIT_DIP, 12f)
+            setTextSize(TypedValue.COMPLEX_UNIT_DIP, 13f)
             setTextColor(themeColors.onSurfaceVariant)
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            setSingleLine(true)
         }
 
         init {
-            row.addView(avatarView, LinearLayout.LayoutParams(LayoutHelper.dp(36), LayoutHelper.dp(36)))
-            row.addView(nameView, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                leftMargin = LayoutHelper.dp(12)
-            })
-            row.addView(countView, LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { leftMargin = LayoutHelper.dp(12) })
+            row.addView(avatarView, LinearLayout.LayoutParams(LayoutHelper.dp(40), LayoutHelper.dp(40)))
+            val textColumn = LinearLayout(row.context).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(nameView, LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LayoutHelper.dp(20)
+                ))
+                addView(countView, LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LayoutHelper.dp(18)
+                ))
+            }
+            row.addView(textColumn, LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+            ).apply { leftMargin = LayoutHelper.dp(8) })
         }
 
-        fun bind(sender: ReactionSender) {
-            val member = memberResolver(sender.senderId)
-            val name = if (member != null) {
-                member.clanNick.ifBlank { member.displayName.ifBlank { member.username } }
-            } else {
-                "User ${sender.senderId}"
-            }
-            nameView.text = name
-            countView.text = "x${sender.count}"
+        fun bind(sender: ReactionSender, profile: ReactionSenderProfile) {
+            nameView.text = profile.name
+            countView.text = "×${sender.count}"
 
-            val avatarUrl = if (member != null) {
-                member.clanAvatar.ifBlank { member.avatarUrl }
-            } else ""
-
-            val proxyUrl = if (avatarUrl.isNotBlank()) com.mezon.mobile.util.avatarImgproxyUrl(avatarUrl, LayoutHelper.dp(36)) else null
-            avatarView.setImage(proxyUrl, sender.senderId, member?.username ?: "")
+            val proxyUrl = if (profile.avatarUrl.isNotBlank()) {
+                com.mezon.mobile.util.avatarImgproxyUrl(profile.avatarUrl, LayoutHelper.dp(40))
+            } else null
+            avatarView.setImage(proxyUrl, sender.senderId, profile.username)
         }
     }
 }

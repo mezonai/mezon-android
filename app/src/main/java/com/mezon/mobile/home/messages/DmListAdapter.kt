@@ -4,6 +4,7 @@ import android.view.ViewGroup
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.home.voice.VoiceActivityBadge
 import com.mezon.mobile.ui.cells.HeaderCell
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -27,7 +28,7 @@ sealed class DmListEntry {
 
 class DmListAdapter(
     private val themeColors: ThemeColors,
-    private val inVoiceChecker: ((DirectMessage) -> Boolean)? = null,
+    private val voiceActivityResolver: ((DirectMessage) -> VoiceActivityBadge?)? = null,
     private val buzzChecker: ((Long) -> Boolean)? = null
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
@@ -177,7 +178,7 @@ class DmListAdapter(
             is DmListEntry.Message -> {
                 val cell = (holder as MessageViewHolder).cell
                 cell.hasBuzz = buzzChecker?.invoke(entry.dm.channelId) == true
-                cell.isInVoice = inVoiceChecker?.invoke(entry.dm) == true
+                cell.voiceActivity = voiceActivityResolver?.invoke(entry.dm)
                 cell.update(0, entry.dm)
             }
         }
@@ -187,7 +188,7 @@ class DmListAdapter(
         val entry = items.getOrNull(position)
         if (payloads.isNotEmpty() && payloads.all { it == PAYLOAD_VOICE_PRESENCE }) {
             if (entry is DmListEntry.Message && holder is MessageViewHolder) {
-                holder.cell.applyInVoice(inVoiceChecker?.invoke(entry.dm) == true)
+                holder.cell.applyVoiceActivity(voiceActivityResolver?.invoke(entry.dm))
             }
             return
         }

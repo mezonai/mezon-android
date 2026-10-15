@@ -167,7 +167,7 @@ class SoundEffectSettingsController @Inject constructor(
                 filename,
                 "audio/wav",
                 wav,
-                cdnBaseUrl = BuildConfig.MEZON_BASE_IMG_URL,
+                cdnBaseUrl = BuildConfig.CLOUDFLARE_CDN_URL,
             ).cdnUrl
         }
     }

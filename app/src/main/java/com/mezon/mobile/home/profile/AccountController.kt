@@ -483,7 +483,7 @@ class AccountController @Inject constructor(
                             fileBytes,
                             400,
                             400,
-                            BuildConfig.MEZON_BASE_IMG_URL,
+                            BuildConfig.CLOUDFLARE_CDN_URL,
                         ).cdnUrl
                     }
                 }

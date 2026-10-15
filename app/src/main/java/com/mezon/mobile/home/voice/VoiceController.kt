@@ -152,6 +152,13 @@ class VoiceController @Inject constructor(
         return inVoiceStatus[userId]
     }
 
+    @Synchronized
+    fun getUserVoiceActivity(userId: Long): VoiceActivityBadge? {
+        val status = inVoiceStatus[userId] ?: return null
+        val sharing = screenSharingByClan[status.clanId]?.get(status.channelId)?.contains(userId) == true
+        return if (sharing) VoiceActivityBadge.SHARING_SCREEN else VoiceActivityBadge.IN_VOICE
+    }
+
     private fun voiceRevision(clanId: Long): Long = voiceRevisions[clanId] ?: 0L
 
     private fun bumpVoiceRevision(clanId: Long) {

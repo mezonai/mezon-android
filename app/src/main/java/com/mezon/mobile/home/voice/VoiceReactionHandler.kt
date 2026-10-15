@@ -178,7 +178,7 @@ class VoiceReactionHandler(
         if (value.isBlank()) return ""
         return when {
             value.startsWith("http://", true) || value.startsWith("https://", true) -> value
-            value.startsWith("/") -> BuildConfig.MEZON_BASE_IMG_URL + value
+            value.startsWith("/") -> BuildConfig.CLOUDFLARE_CDN_URL + value
             else -> value
         }
     }
