@@ -32,7 +32,6 @@ class ImageReceiver(private val parentView: View) {
     private var thumbCancellable: MezonImageLoader.Cancellable? = null
     private var isAnimatedRequest = false
     private var loadExhausted = false
-    private var loadForbidden = false
 
     private var imageX = 0f
     private var imageY = 0f
@@ -216,7 +215,6 @@ class ImageReceiver(private val parentView: View) {
 
         if ((urlChanged || forceReload) && url != null) {
             loadExhausted = false
-            loadForbidden = false
             mainCancellable?.cancel()
             currentUrl = url
             val rw = if (requestW > 0) requestW else 800
@@ -258,7 +256,7 @@ class ImageReceiver(private val parentView: View) {
                         onMainImageLoaded?.invoke()
                     },
                     onError = {
-                        if (currentUrl == expectedUrl) onLoadError(url, it, rw, rh, loader)
+                        if (currentUrl == expectedUrl) onLoadError(url, rw, rh, loader)
                     }
                 )
             } else {
@@ -301,15 +299,14 @@ class ImageReceiver(private val parentView: View) {
                         onMainImageLoaded?.invoke()
                     },
                     onError = {
-                        if (currentUrl == expectedUrl) onLoadError(url, it, rw, rh, loader)
+                        if (currentUrl == expectedUrl) onLoadError(url, rw, rh, loader)
                     }
                 )
             }
         }
     }
 
-    private fun onLoadError(failedUrl: String, error: Exception, rw: Int, rh: Int, loader: MezonImageLoader) {
-        noteLoadError(error)
+    private fun onLoadError(failedUrl: String, rw: Int, rh: Int, loader: MezonImageLoader) {
         val chain = buildMainImageFallbackUrls(failedUrl)
         if (chain.isEmpty()) {
             loadExhausted = true
@@ -361,12 +358,10 @@ class ImageReceiver(private val parentView: View) {
                 currentAlpha = 1f
                 thumbBitmap = null
                 loadExhausted = false
-                loadForbidden = false
                 parentView.invalidate()
             },
             onError = {
                 if (currentUrl != expected) return@load
-                noteLoadError(it)
                 loadFallbackUrlFromChain(chain, index + 1, rw, rh, loader)
             }
         )
@@ -599,12 +594,6 @@ class ImageReceiver(private val parentView: View) {
 
     fun hasImage(): Boolean = imageBitmap != null || thumbBitmap != null || animatedDrawable != null
     fun hasMainImage(): Boolean = imageBitmap != null || animatedDrawable != null
-    fun isLoadForbidden(): Boolean = loadExhausted && loadForbidden
-
-    private fun noteLoadError(error: Exception) {
-        if ((error as? java.io.IOException)?.message == "HTTP 403") loadForbidden = true
-    }
-
     fun hasAnimatedImage(): Boolean = animatedDrawable != null
 
     fun shouldAnimateLoadingPlaceholder(): Boolean {
@@ -630,7 +619,6 @@ class ImageReceiver(private val parentView: View) {
         pendingForceAnimated = false
         pendingLocalUri = null
         loadExhausted = false
-        loadForbidden = false
     }
 
     fun setLocalUri(uri: android.net.Uri, context: Context) {

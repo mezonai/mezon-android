@@ -369,7 +369,6 @@
     <string name="message_attachment_contact">Contact</string>
     <string name="message_attachment_location">Location</string>
     <string name="message_attachment_poll">Poll</string>
-    <string name="message_attachment_private_media">Media from private channel</string>
     <string name="action_copy_text">Copy Text</string>
     <string name="action_share_text">Share Text</string>
     <string name="tokens_sent_title">Funds Transferred: %1$s₫</string>
@@ -1416,6 +1415,10 @@
     <string name="voice_room_moderation_kick_failed">Could not kick this member.</string>
     <string name="voice_room_muted_by_moderator">You have been muted by a channel moderator.</string>
     <string name="voice_room_kicked">You have been kicked from the channel.</string>
+    <string name="voice_room_camera_limit_reached">This voice channel has reached its camera limit. Try again when someone turns their camera off.</string>
+    <string name="voice_room_camera_update_failed">Couldn\'t turn your camera on or off. Please try again.</string>
+    <string name="voice_room_screen_share_limit_reached">This voice channel has reached its screen share limit. Try again when someone stops sharing.</string>
+    <string name="voice_room_screen_share_update_failed">Couldn\'t start or stop screen sharing. Please try again.</string>
     <string name="voice_room_alone_timeout">You were disconnected from the voice channel because you were alone in it for too long.</string>
     <string name="voice_room_duplicate_session">You joined the voice channel on another device, so this session was disconnected.</string>
     <string name="voice_room_disconnected_rejoin">You were disconnected from the voice channel.</string>

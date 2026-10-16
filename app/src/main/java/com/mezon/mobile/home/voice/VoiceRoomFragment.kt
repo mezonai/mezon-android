@@ -608,11 +608,7 @@ class VoiceRoomFragment : BaseFragment() {
                 if (enabled) {
                     requestCameraToggle()
                 } else {
-                    sfuSession.setCameraEnabled(false)
-                    localCameraOn = false
-                    voiceController.isLocalVideoEnabled = false
-                    headerView.setSwitchCameraVisible(false)
-                    doUpdateParticipantList()
+                    turnLocalCameraOff()
                 }
             }
             onMicToggle = { enabled ->
@@ -891,6 +887,38 @@ class VoiceRoomFragment : BaseFragment() {
         Toast.makeText(activity, getString(R.string.voice_room_muted_by_moderator), Toast.LENGTH_SHORT).show()
     }
 
+    private fun onCameraRefused(code: String) {
+        if (localCameraOn) {
+            if (::controlBar.isInitialized) controlBar.setCameraEnabled(false)
+            turnLocalCameraOff()
+        }
+        val activity = getParentActivity() ?: return
+        val message = if (code == "camera_capacity_full") {
+            R.string.voice_room_camera_limit_reached
+        } else {
+            R.string.voice_room_camera_update_failed
+        }
+        Toast.makeText(activity, getString(message), Toast.LENGTH_SHORT).show()
+    }
+
+    private fun onScreenShareRefused(code: String) {
+        val activity = getParentActivity() ?: return
+        val message = if (code == "screen_share_capacity_full") {
+            R.string.voice_room_screen_share_limit_reached
+        } else {
+            R.string.voice_room_screen_share_update_failed
+        }
+        Toast.makeText(activity, getString(message), Toast.LENGTH_SHORT).show()
+    }
+
+    private fun turnLocalCameraOff() {
+        sfuSession.setCameraEnabled(false)
+        localCameraOn = false
+        voiceController.isLocalVideoEnabled = false
+        headerView.setSwitchCameraVisible(false)
+        doUpdateParticipantList()
+    }
+
     private fun onRemovedFromRoom(cause: SfuRemovalCause, reason: String) {
         getParentActivity()?.let { activity ->
             val text = when (cause) {
@@ -975,6 +1003,8 @@ class VoiceRoomFragment : BaseFragment() {
                 applyVoiceLayoutForMode()
             }
             sfuSession.onError = { code, _ -> Log.e(TAG, "sfu error: $code") }
+            sfuSession.onCameraRefused = { code -> onCameraRefused(code) }
+            sfuSession.onScreenShareRefused = { code -> onScreenShareRefused(code) }
             sfuSession.onLocalVideoTrack = { track ->
                 localCameraTrack = track
                 doUpdateParticipantList()
@@ -1759,6 +1789,8 @@ class VoiceRoomFragment : BaseFragment() {
             sfuSession.onPeerJoined = null
             sfuSession.onRoleChanged = null
             sfuSession.onError = null
+            sfuSession.onCameraRefused = null
+            sfuSession.onScreenShareRefused = null
             sfuSession.onLocalVideoTrack = null
             sfuSession.onLocalScreenTrack = null
             sfuSession.onSpeaking = null
