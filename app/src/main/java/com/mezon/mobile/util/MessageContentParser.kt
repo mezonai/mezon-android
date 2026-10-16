@@ -925,15 +925,26 @@ private fun parseArray(obj: JSONObject, key: String, map: (JSONObject) -> Conten
     return list
 }
 
-fun getEmojiUrl(emojiId: String): String? {
+internal fun resolveEmojiSourceUrl(emojiId: String, src: String): String? {
     if (emojiId.isBlank()) return null
-    val sourceUrl = "$BASE_IMG/emojis/$emojiId.webp"
+    return if (src.isNotBlank()) absoluteResourceUrl(src) else "$BASE_IMG/emojis/$emojiId.webp"
+}
+
+private fun emojiSource(emojiId: String, context: Context, src: String?): String =
+    src?.takeIf { it.isNotBlank() }
+        ?: obtainEntryPoint(context)?.emojiController()?.getEmojiById(emojiId)?.src.orEmpty()
+
+fun getEmojiUrl(emojiId: String, context: Context, src: String? = null): String? {
+    if (emojiId.isBlank()) return null
+    val selectedSrc = emojiSource(emojiId, context, src)
+    val sourceUrl = resolveEmojiSourceUrl(emojiId, selectedSrc) ?: return null
     return createImgproxyUrl(sourceUrl, EMOJI_SIZE_DP * 4, EMOJI_SIZE_DP * 4, "fit")
 }
 
-fun getEmojiDirectUrl(emojiId: String): String? {
+fun getEmojiDirectUrl(emojiId: String, context: Context, src: String? = null): String? {
     if (emojiId.isBlank()) return null
-    return "$BASE_IMG/emojis/$emojiId.webp"
+    val selectedSrc = emojiSource(emojiId, context, src)
+    return resolveEmojiSourceUrl(emojiId, selectedSrc)
 }
 
 fun resolveStickerSourceUrl(stickerId: String, src: String): String {

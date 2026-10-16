@@ -620,6 +620,25 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         locationCardLayout.clear()
     }
 
+    private var emojiRenderRevision = 0
+
+    fun refreshEmojis(revision: Int, contentRebuilt: Boolean = false) {
+        if (emojiRenderRevision == revision) return
+        emojiRenderRevision = revision
+        if (contentRebuilt) return
+        val msg = messageEntity ?: return
+        val text = contentLayout?.text as? Spanned
+        val spans = text?.getSpans(0, text.length, EmojiSpan::class.java).orEmpty()
+        val hasReactions = reactionGroups.isNotEmpty()
+        if (spans.isEmpty() && !hasReactions) return
+        spans.forEach { it.reloadImage() }
+        if (hasReactions) {
+            val maxWidth = if (drawPhotoImage) photoWidth else maxBubbleWidth()
+            buildReactionLayouts(msg, maxWidth)
+        }
+        invalidate()
+    }
+
     private var lastBoundId = 0L
     private var lastBoundContentHash = 0
     private var lastBoundCombined = false
@@ -4276,7 +4295,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
 
         for (i in groups.indices) {
-            val url = getEmojiUrl(groups[i].emojiId.toString()) ?: continue
+            val url = getEmojiUrl(groups[i].emojiId.toString(), context) ?: continue
             val cachedBmp = loader.getBitmapFromMemory(url, REACTION_EMOJI_SIZE, REACTION_EMOJI_SIZE)
             if (cachedBmp != null) {
                 val cached = android.graphics.drawable.BitmapDrawable(context.resources, cachedBmp)
@@ -4301,7 +4320,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     onError = {
                         if (loadToken != reactionBitmapLoadToken) return@loadDrawable
                         if (!isRetry) {
-                            val direct = getEmojiDirectUrl(groups[idx].emojiId.toString())
+                            val direct = getEmojiDirectUrl(groups[idx].emojiId.toString(), context)
                             if (direct != null && direct != loadUrl) {
                                 startLoad(direct, true)
                                 return@loadDrawable
