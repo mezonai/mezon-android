@@ -238,7 +238,7 @@ open class ChatFragment : BaseFragment() {
         private val INPUT_OGP_IMAGE_SIZE = LayoutHelper.dp(40f)
         private val INPUT_OGP_BAR_CORNER = LayoutHelper.dp(12f).toFloat()
         private val INPUT_OGP_URL_REGEX = Regex("""https?://[^\s]+""", RegexOption.IGNORE_CASE)
-        private const val INPUT_OGP_DEBOUNCE_MS = 80L
+        private const val INPUT_OGP_DEBOUNCE_MS = 300L
         private const val SLASH_COMMAND_DEBOUNCE_MS = 300L
         private const val INPUT_OGP_CACHE_MAX = 32
         private const val INPUT_OGP_SEND_WAIT_MS = 400L
@@ -6293,12 +6293,9 @@ open class ChatFragment : BaseFragment() {
             commitInputOgpForSend(cached)
             return
         }
-        showInputOgpLoading(candidate)
-        inputOgpFetchJob?.cancel()
-        InputOgpFetcher.cancelInFlight()
-        val debounceMs = if (rawText.trim() == candidate) 0L else INPUT_OGP_DEBOUNCE_MS
+        clearInputOgpPreview()
         inputOgpFetchJob = fragmentScope.launch(ioDispatcher) {
-            if (debounceMs > 0L) delay(debounceMs)
+            delay(INPUT_OGP_DEBOUNCE_MS)
             if (!isActive || inputOgpUrl != candidate) return@launch
             val preview = InputOgpFetcher.fetch(
                 candidate,
@@ -6330,16 +6327,6 @@ open class ChatFragment : BaseFragment() {
             if (inputOgpUrl != url) return@launch
             block()
         }
-    }
-
-    private fun showInputOgpLoading(url: String) {
-        inputOgpBar?.visibility = View.VISIBLE
-        inputOgpTitle?.text = getString(R.string.common_loading_data)
-        inputOgpDesc?.text = url
-        inputOgpImageLoad.cancel()
-        inputOgpImageLoad = MezonImageLoader.Cancellable.EMPTY
-        inputOgpImage?.setImageDrawable(null)
-        inputOgpImage?.visibility = View.GONE
     }
 
     private fun clearInputOgpPreview() {
