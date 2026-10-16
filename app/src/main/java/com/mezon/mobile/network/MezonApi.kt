@@ -139,6 +139,7 @@ import com.mezon.mezon.api.listNotificationsRequest
 import com.mezon.mezon.api.searchCtrlKRequest
 import com.mezon.mezon.api.searchMentionUsersRequest
 import com.mezon.mezon.api.generateCDNSignatureRequest
+import com.mezon.mezon.api.linkCDNFileRequest
 import com.mezon.mezon.api.searchMessageRequest
 import com.mezon.mezon.api.sessionRefreshRequest
 import com.mezon.mezon.api.Session
@@ -433,8 +434,12 @@ class MezonApi @Inject constructor(
         private const val SOCKET_UNKNOWN_API_MESSAGE = "msg='Not found.'"
         private const val UPLOAD_FILENAME_MAX_BYTES = 100
         private const val UPLOAD_EXTENSION_MAX_BYTES = 16
+        private val UPLOAD_FILENAME_DOT_RUN = Regex("\\.{2,}")
 
-        internal fun fittedUploadFilename(filename: String): String {
+        internal fun fittedUploadFilename(filename: String): String =
+            lengthFittedUploadFilename(filename).replace(UPLOAD_FILENAME_DOT_RUN, ".")
+
+        private fun lengthFittedUploadFilename(filename: String): String {
             if (filename.utf8ByteCount() <= UPLOAD_FILENAME_MAX_BYTES) return filename
             val dot = filename.lastIndexOf('.')
             val suffix = if (dot > 0) filename.substring(dot) else ""
@@ -2628,6 +2633,19 @@ class MezonApi @Inject constructor(
         }
         val bytes = rpc(apiUrl, token, "GenerateCDNSignature", request.toByteArray())
         return GenerateCDNSignatureResponse.parseFrom(bytes)
+    }
+
+    suspend fun linkCDNFile(
+        apiUrl: String,
+        token: String,
+        src: String,
+        dst: String
+    ) {
+        val request = linkCDNFileRequest {
+            this.src = src
+            this.dst = dst
+        }
+        rpc(apiUrl, token, "LinkCDNFile", request.toByteArray())
     }
 
     suspend fun listEmojisByUserId(

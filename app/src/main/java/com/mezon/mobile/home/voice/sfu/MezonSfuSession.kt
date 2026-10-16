@@ -19,6 +19,7 @@ import com.mezon.mobile.home.voice.VideoTrackLastFrameStore
 import com.mezon.mobile.network.NetworkMonitor
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.net.URLEncoder
+import java.util.WeakHashMap
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
@@ -148,6 +149,9 @@ private val SESSION_LOST_ERRORS = setOf(
     "missing_offer_generation",
 )
 private val ROOM_UNAVAILABLE_ERRORS = setOf("room_capacity", "invalid_room", "room_creation_failed", "auth_not_configured")
+private val CAMERA_REFUSAL_ERRORS = setOf("camera_capacity_full", "camera_update_failed")
+private val SCREEN_REFUSAL_ERRORS = setOf("screen_share_capacity_full", "screen_share_update_failed")
+private const val SFU_MEDIA_POOL_VERSION = 1
 private const val SFU_CLOSE_KICKED = 4006
 private const val SFU_CLOSE_ALONE_TIMEOUT = 4011
 private const val SFU_CLOSE_DUPLICATE_SESSION = 4012
@@ -283,6 +287,8 @@ class MezonSfuSession @Inject constructor(
     var onPeerJoined: ((String) -> Unit)? = null
     var onRoleChanged: ((SfuRole) -> Unit)? = null
     var onError: ((String, String?) -> Unit)? = null
+    var onCameraRefused: ((String) -> Unit)? = null
+    var onScreenShareRefused: ((String) -> Unit)? = null
     var onLocalVideoTrack: ((VideoTrack?) -> Unit)? = null
     var onLocalScreenTrack: ((VideoTrack?) -> Unit)? = null
     var onPushToTalkActive: ((Boolean) -> Unit)? = null
@@ -394,6 +400,7 @@ class MezonSfuSession @Inject constructor(
     private var transportStatus = TransportStatus()
     @Volatile private var localAudioSenderRef: LocalAudioSender? = null
     private var remoteSnapshot: List<RemoteTransceiverSnapshot> = emptyList()
+    private val remoteAudioEnabled = WeakHashMap<AudioTrack, Boolean>()
     private var negotiatedDirections: List<SdpMidDirection> = emptyList()
     private var remoteTracks = RemoteTrackRegistry()
     private var snapshotTrackEvents = -1
@@ -419,6 +426,11 @@ class MezonSfuSession @Inject constructor(
     private var fixedPool = false
     private data class SlotAssignment(val generation: ULong, val peerId: String?, val active: List<Boolean>)
     private val slotAssignments = HashMap<Int, SlotAssignment>()
+    private data class PoolLayout(val audio: Int, val camera: Int, val screen: Int)
+    private data class PoolSlot(val kind: String, val slot: Int)
+    private data class PoolAssignment(val generation: ULong, val peerId: String?, val active: Boolean)
+    private var poolLayout: PoolLayout? = null
+    private val poolAssignments = HashMap<PoolSlot, PoolAssignment>()
     private val remote = LinkedHashMap<String, RemoteEntry>()
     private var lastParticipants: List<SfuParticipant> = emptyList()
     private var lastSpeakingIds: Set<String> = emptySet()
@@ -797,6 +809,8 @@ class MezonSfuSession @Inject constructor(
         localTracksAdded = false
         fixedPool = false
         slotAssignments.clear()
+        poolLayout = null
+        poolAssignments.clear()
         transceiverCache = emptyList()
         localAudioSenderRef = null
         transportStatus = TransportStatus()
@@ -931,6 +945,8 @@ class MezonSfuSession @Inject constructor(
         if (oldScreenTrack != null) onLocalScreenTrack?.invoke(null)
         fixedPool = false
         slotAssignments.clear()
+        poolLayout = null
+        poolAssignments.clear()
         transceiverCache = emptyList()
         localAudioSenderRef = null
         remoteSnapshot = emptyList()
@@ -1188,6 +1204,7 @@ class MezonSfuSession @Inject constructor(
                         .put("room", call.channelId.toString())
                         .put("token", token)
                         .put("role", role.wire)
+                        .put("media_pool_version", SFU_MEDIA_POOL_VERSION)
                 )
             }
         }
@@ -1248,6 +1265,14 @@ class MezonSfuSession @Inject constructor(
             "ping" -> send(JSONObject().put("type", "pong"))
             "pong" -> clearSocketProbe()
             "joined" -> {
+                if (msg.optString("media_pool_mode") == "decoupled") {
+                    poolLayout = PoolLayout(
+                        msg.optInt("max_audio_slots"),
+                        msg.optInt("max_camera_slots"),
+                        msg.optInt("max_screen_slots"),
+                    )
+                    fixedPool = true
+                }
                 if (connectionState == SfuConnectionState.CONNECTING || connectionState == SfuConnectionState.JOINING) {
                     emitState(SfuConnectionState.AWAITING_OFFER)
                 }
@@ -1351,6 +1376,15 @@ class MezonSfuSession @Inject constructor(
                         SystemClock.elapsedRealtime() - it < KEYFRAME_ERROR_WINDOW_MS
                     } == true -> {
                         Log.w(TAG, "sfu keyframe request deferred: $detail")
+                    }
+                    detail in CAMERA_REFUSAL_ERRORS -> {
+                        Log.w(TAG, "sfu refused the camera ($detail)")
+                        onCameraRefused?.invoke(detail)
+                    }
+                    detail in SCREEN_REFUSAL_ERRORS -> {
+                        Log.w(TAG, "sfu refused the screen share ($detail)")
+                        if (screenOn) setScreenShare(false, null)
+                        onScreenShareRefused?.invoke(detail)
                     }
                     detail in SESSION_LOST_ERRORS -> {
                         Log.w(TAG, "sfu lost this session ($detail); reconnecting")
@@ -1857,6 +1891,7 @@ class MezonSfuSession @Inject constructor(
                 state.screenActive = peer.optBoolean("screen_active") && peer.optBoolean("screen_requested", true)
             }
             applySlotMessage(peer, membership = true)
+            applyPoolMembership(peer, peerId)
             if (fixedPool) {
                 ownershipChanged = true
                 continue
@@ -1892,6 +1927,7 @@ class MezonSfuSession @Inject constructor(
     }
 
     private fun applySlotMessage(msg: JSONObject, membership: Boolean = false): Boolean {
+        if (msg.has("kind")) return applyPoolSlotMessage(msg)
         val slot = (msg.opt("slot") ?: msg.opt("remote_slot"))?.toString()?.toIntOrNull() ?: return false
         if (slot < 0 || slot > (Int.MAX_VALUE - 5) / 3) return false
         val generation = msg.opt(if (membership) "assignment_generation" else "generation")
@@ -1920,6 +1956,87 @@ class MezonSfuSession @Inject constructor(
             for (offset in 0..2) claimMid((base + offset).toString(), peerId)
         }
         return true
+    }
+
+    private fun applyPoolSlotMessage(msg: JSONObject): Boolean {
+        val kind = msg.optString("kind")
+        val slot = msg.opt("slot")?.toString()?.toIntOrNull() ?: return false
+        val generation = msg.opt("generation")?.toString()?.toULongOrNull()?.takeIf { it > 0uL } ?: return false
+        if (msg.optString("type") == "slot_released") {
+            return applyPoolSlot(PoolSlot(kind, slot), generation, null, null, null, active = false, membership = false)
+        }
+        val peerId = msg.opt("peer_id")?.toString()?.takeIf { it != "0" && it != "null" && it.isNotBlank() } ?: return false
+        return applyPoolSlot(
+            PoolSlot(kind, slot), generation, peerId, msg.optString("user_id"), msg.opt("mid")?.toString(),
+            active = msg.optBoolean("active"), membership = false,
+        )
+    }
+
+    private fun applyPoolMembership(peer: JSONObject, peerId: String) {
+        val slots = peer.optJSONObject("media_slots") ?: return
+        for (kind in listOf("audio", "camera", "screen")) {
+            val granted = slots.optJSONObject(kind) ?: continue
+            val slot = granted.opt("slot")?.toString()?.toIntOrNull() ?: continue
+            val generation = granted.opt("generation")?.toString()?.toULongOrNull()?.takeIf { it > 0uL } ?: continue
+            applyPoolSlot(
+                PoolSlot(kind, slot), generation, peerId, peer.optString("user_id"), granted.opt("mid")?.toString(),
+                active = true, membership = true,
+            )
+        }
+    }
+
+    private fun applyPoolSlot(
+        key: PoolSlot,
+        generation: ULong,
+        peerId: String?,
+        userId: String?,
+        mid: String?,
+        active: Boolean,
+        membership: Boolean,
+    ): Boolean {
+        val layout = poolLayout ?: return false
+        val expected = poolMid(layout, key.kind, key.slot)?.toString() ?: return false
+        if (peerId != null && mid != null && mid != expected) return false
+        val previous = poolAssignments[key]
+        if (previous != null && (previous.generation > generation || (membership && previous.generation == generation))) return false
+        if (peerId != null && previous?.generation == generation && previous.peerId != peerId) return false
+        val previousPeer = previous?.peerId
+        if (previousPeer != null && previousPeer != peerId) clearPoolMapping(expected, key.kind, previousPeer)
+        poolAssignments[key] = PoolAssignment(generation, peerId, active)
+        if (peerId != null) {
+            val state = memberByPeerId.getOrPut(peerId) { MemberState() }
+            userId?.takeIf { it.isNotEmpty() && it != "null" }?.let { state.userId = it }
+            claimMid(expected, peerId)
+        }
+        return true
+    }
+
+    private fun clearPoolMapping(mid: String, kind: String, peerId: String) {
+        peerIdByMid.remove(mid)
+        userIdByMid.remove(mid)
+        roleByMid.remove(mid)
+        (remoteTracks.byMid[mid] as? VideoTrack)?.let { VideoTrackLastFrameStore.observe(it)?.clear() }
+        clearRemoteKind("sfu-peer-$peerId", kind)
+    }
+
+    private fun poolMid(layout: PoolLayout, kind: String, slot: Int): Int? {
+        val (start, count) = when (kind) {
+            "audio" -> 0 to layout.audio
+            "camera" -> layout.audio to layout.camera
+            "screen" -> layout.audio + layout.camera to layout.screen
+            else -> return null
+        }
+        return if (slot in 0 until count) 3 + start + slot else null
+    }
+
+    private fun poolSlotOf(layout: PoolLayout, mid: Int): PoolSlot? {
+        var rest = mid - 3
+        if (rest < 0) return null
+        for ((kind, count) in listOf("audio" to layout.audio, "camera" to layout.camera, "screen" to layout.screen)) {
+            if (rest < count) return PoolSlot(kind, rest)
+            rest -= count
+        }
+        return null
     }
 
     private fun claimMid(mid: String, peerId: String): Boolean {
@@ -1961,6 +2078,12 @@ class MezonSfuSession @Inject constructor(
                 if (assignment.peerId == null || assignment.peerId != peerId || (generation != null && generation != assignment.generation)) continue
                 clearSlotMapping(slot)
                 slotAssignments[slot] = assignment.copy(peerId = null)
+            }
+            for ((key, assignment) in poolAssignments.toMap()) {
+                val holder = assignment.peerId ?: continue
+                if (holder != peerId) continue
+                poolLayout?.let { poolMid(it, key.kind, key.slot) }?.let { clearPoolMapping(it.toString(), key.kind, holder) }
+                poolAssignments[key] = assignment.copy(peerId = null)
             }
             memberByPeerId.remove(peerId)
             syncRemoteMedia()
@@ -2054,9 +2177,14 @@ class MezonSfuSession @Inject constructor(
             val kind = remoteKind(mid)
             val midNumber = mid.toIntOrNull()
             val assignment = midNumber?.takeIf { it >= 3 }?.let { slotAssignments[(it - 3) / 3] }
+            val poolAssignment = poolLayout?.let { layout -> midNumber?.let { poolSlotOf(layout, it) } }?.let { poolAssignments[it] }
             if (fixedPool) {
-                val bound = assignment?.peerId != null && assignment.active[(midNumber - 3) % 3]
-                (item.track as? AudioTrack)?.setEnabled(bound)
+                val bound = if (poolLayout != null) {
+                    poolAssignment?.peerId != null && (kind != "audio" || poolAssignment.active)
+                } else {
+                    assignment?.peerId != null && assignment.active[(midNumber - 3) % 3]
+                }
+                (item.track as? AudioTrack)?.let { if (remoteAudioEnabled.put(it, bound) != bound) it.setEnabled(bound) }
                 if (!bound) {
                     clearRemoteKind(id, kind)
                     continue
@@ -2229,6 +2357,8 @@ class MezonSfuSession @Inject constructor(
         retiringPeerConnection = null
         fixedPool = false
         slotAssignments.clear()
+        poolLayout = null
+        poolAssignments.clear()
         transceiverCache = emptyList()
         localAudioSenderRef = null
         remoteSnapshot = emptyList()
@@ -2326,6 +2456,7 @@ class MezonSfuSession @Inject constructor(
     }
 
     private fun remoteParticipantId(mid: String): String {
+        if (poolLayout != null) return peerIdByMid[mid]?.let { "sfu-peer-$it" } ?: "mid-$mid"
         val n = mid.toIntOrNull()
         return if (n != null && n >= 3) "peer-${(n - 3) / 3}" else "mid-$mid"
     }
@@ -2333,6 +2464,7 @@ class MezonSfuSession @Inject constructor(
     private fun remoteKind(mid: String): String? {
         val n = mid.toIntOrNull() ?: return null
         if (n < 3) return null
+        poolLayout?.let { return poolSlotOf(it, n)?.kind }
         return when ((n - 3) % 3) {
             0 -> "audio"
             1 -> "camera"

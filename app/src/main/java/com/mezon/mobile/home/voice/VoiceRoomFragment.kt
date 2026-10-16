@@ -608,11 +608,7 @@ class VoiceRoomFragment : BaseFragment() {
                 if (enabled) {
                     requestCameraToggle()
                 } else {
-                    sfuSession.setCameraEnabled(false)
-                    localCameraOn = false
-                    voiceController.isLocalVideoEnabled = false
-                    headerView.setSwitchCameraVisible(false)
-                    doUpdateParticipantList()
+                    turnLocalCameraOff()
                 }
             }
             onMicToggle = { enabled ->
@@ -891,6 +887,38 @@ class VoiceRoomFragment : BaseFragment() {
         Toast.makeText(activity, getString(R.string.voice_room_muted_by_moderator), Toast.LENGTH_SHORT).show()
     }
 
+    private fun onCameraRefused(code: String) {
+        if (localCameraOn) {
+            if (::controlBar.isInitialized) controlBar.setCameraEnabled(false)
+            turnLocalCameraOff()
+        }
+        val activity = getParentActivity() ?: return
+        val message = if (code == "camera_capacity_full") {
+            R.string.voice_room_camera_limit_reached
+        } else {
+            R.string.voice_room_camera_update_failed
+        }
+        Toast.makeText(activity, getString(message), Toast.LENGTH_SHORT).show()
+    }
+
+    private fun onScreenShareRefused(code: String) {
+        val activity = getParentActivity() ?: return
+        val message = if (code == "screen_share_capacity_full") {
+            R.string.voice_room_screen_share_limit_reached
+        } else {
+            R.string.voice_room_screen_share_update_failed
+        }
+        Toast.makeText(activity, getString(message), Toast.LENGTH_SHORT).show()
+    }
+
+    private fun turnLocalCameraOff() {
+        sfuSession.setCameraEnabled(false)
+        localCameraOn = false
+        voiceController.isLocalVideoEnabled = false
+        headerView.setSwitchCameraVisible(false)
+        doUpdateParticipantList()
+    }
+
     private fun onRemovedFromRoom(cause: SfuRemovalCause, reason: String) {
         getParentActivity()?.let { activity ->
             val text = when (cause) {
@@ -975,6 +1003,8 @@ class VoiceRoomFragment : BaseFragment() {
                 applyVoiceLayoutForMode()
             }
             sfuSession.onError = { code, _ -> Log.e(TAG, "sfu error: $code") }
+            sfuSession.onCameraRefused = { code -> onCameraRefused(code) }
+            sfuSession.onScreenShareRefused = { code -> onScreenShareRefused(code) }
             sfuSession.onLocalVideoTrack = { track ->
                 localCameraTrack = track
                 doUpdateParticipantList()
@@ -1117,7 +1147,6 @@ class VoiceRoomFragment : BaseFragment() {
                 username = resolved.username,
                 avatarUrl = resolved.avatarUrl,
                 isMuted = !(localMicOn || localPttActive),
-                isSpeaking = identity in speakingIds,
                 hasVideo = true,
                 videoTrack = localScreenTrack,
                 isScreenShare = true,
@@ -1133,7 +1162,6 @@ class VoiceRoomFragment : BaseFragment() {
             username = resolved.username,
             avatarUrl = resolved.avatarUrl,
             isMuted = !(localMicOn || localPttActive),
-            isSpeaking = identity in speakingIds,
             hasVideo = cameraTrack != null,
             videoTrack = cameraTrack,
             isScreenShare = false,
@@ -1156,7 +1184,6 @@ class VoiceRoomFragment : BaseFragment() {
                 username = resolved.username,
                 avatarUrl = resolved.avatarUrl,
                 isMuted = participant.muted,
-                isSpeaking = identity in speakingIds,
                 hasVideo = true,
                 videoTrack = participant.screen,
                 isScreenShare = true,
@@ -1172,7 +1199,6 @@ class VoiceRoomFragment : BaseFragment() {
             username = resolved.username,
             avatarUrl = resolved.avatarUrl,
             isMuted = participant.muted,
-            isSpeaking = identity in speakingIds,
             hasVideo = remoteCamera != null,
             videoTrack = remoteCamera,
             isScreenShare = false,
@@ -1202,6 +1228,16 @@ class VoiceRoomFragment : BaseFragment() {
 
     private fun resolvePipGridParticipant(): ParticipantInfo? {
         return participants.firstOrNull { !it.isScreenShare && it.hasVideo } ?: participants.firstOrNull { !it.isScreenShare }
+    }
+
+    private fun visibleGridKeys(): Set<String>? {
+        if (isInPipMode || !participantGrid.isShown) return null
+        val manager = participantGrid.layoutManager as? GridLayoutManager ?: return null
+        val first = manager.findFirstCompletelyVisibleItemPosition()
+        if (first == RecyclerView.NO_POSITION) return null
+        return (first..manager.findLastCompletelyVisibleItemPosition()).mapNotNullTo(HashSet()) {
+            participants.getOrNull(it)?.let(::participantKey)
+        }
     }
 
     private fun cancelParticipantDiff() {
@@ -1247,11 +1283,8 @@ class VoiceRoomFragment : BaseFragment() {
                 return@launch
             }
             participants.clear()
-            // Reactions/speaking can change while the diff runs; read their
-            // current state both here and when recycled cells bind.
             participants.addAll(next.map { it.copy(
                 isMuted = participantMuted(it),
-                isSpeaking = it.identity in speakingIds,
                 reactionBadge = reactionStates[it.identity] ?: ParticipantCell.ReactionBadgeType.NONE
             ) })
             participantAdapter.synchronizeItems()
@@ -1354,9 +1387,7 @@ class VoiceRoomFragment : BaseFragment() {
         val now = SystemClock.elapsedRealtime()
         speakerOrder.updateSpeaking(speakingIds, now)
         speakerOrder.retainMembers(nextParticipants.mapTo(HashSet()) { it.identity }, now)
-        val prioritized = speakerOrder.order(
-            nextParticipants, now, ::participantKey, { it.identity }, { it.isScreenShare }
-        )
+        val prioritized = speakerOrder.order(nextParticipants, now, ::participantKey, visibleGridKeys())
         scheduleSpeakerHoldExpiry()
         updateParticipants(prioritized)
     }
@@ -1758,6 +1789,8 @@ class VoiceRoomFragment : BaseFragment() {
             sfuSession.onPeerJoined = null
             sfuSession.onRoleChanged = null
             sfuSession.onError = null
+            sfuSession.onCameraRefused = null
+            sfuSession.onScreenShareRefused = null
             sfuSession.onLocalVideoTrack = null
             sfuSession.onLocalScreenTrack = null
             sfuSession.onSpeaking = null
