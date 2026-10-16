@@ -28,6 +28,7 @@ import com.mezon.mobile.R
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.LayoutHelper
+import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.home.chat.MezonImageLoader
@@ -43,8 +44,12 @@ class PollDetailModal(
     private val scope: CoroutineScope,
     private val seedParsed: ParsedPoll,
     private val loadPoll: suspend () -> ParsedPoll,
-    private val memberResolver: (Long) -> ClanMember?
-) : Dialog(context) {
+    membersResolver: (Set<Long>) -> Map<Long, ClanMember>,
+    private val notificationCenter: NotificationCenter,
+    private val clanId: Long,
+    private val channelId: Long,
+    private val parentChannelId: Long
+) : Dialog(context), NotificationCenter.NotificationCenterDelegate {
 
     private lateinit var titleView: TextView
     private lateinit var subtitleView: TextView
@@ -53,7 +58,41 @@ class PollDetailModal(
     private var loaded: ParsedPoll = seedParsed
     private var selectedAnswerIndex: Int = seedParsed.answers.firstOrNull()?.index ?: 0
 
-    private val voterAdapter = VoterAdapter(themeColors)
+    private val voterAdapter = VoterAdapter(themeColors, membersResolver)
+    private val memberEvents = intArrayOf(
+        NotificationCenter.clanMembersDidLoad,
+        NotificationCenter.channelMembersDidLoad,
+        NotificationCenter.userClansDidLoad,
+        NotificationCenter.dialogsNeedReload
+    )
+
+    override fun onStart() {
+        super.onStart()
+        memberEvents.forEach { notificationCenter.addObserver(this, it) }
+    }
+
+    override fun onStop() {
+        memberEvents.forEach { notificationCenter.removeObserver(this, it) }
+        super.onStop()
+    }
+
+    override fun didReceivedNotification(id: Int, account: Int, vararg args: Any?) {
+        val target = args.firstOrNull() as? Long
+        when (id) {
+            NotificationCenter.clanMembersDidLoad -> {
+                if (clanId == 0L || target != clanId) return
+            }
+            NotificationCenter.channelMembersDidLoad -> {
+                if (target != channelId && (parentChannelId == 0L || target != parentChannelId)) return
+            }
+            NotificationCenter.userClansDidLoad -> Unit
+            NotificationCenter.dialogsNeedReload -> {
+                if (clanId != 0L) return
+            }
+            else -> return
+        }
+        voterAdapter.refreshProfiles()
+    }
 
     init {
         requestWindowFeature(Window.FEATURE_NO_TITLE)
@@ -314,46 +353,22 @@ class PollDetailModal(
         }
         val voters =
             loaded.voterDetails.find { it.answerIndex == answerIndex }?.userIds.orEmpty()
-        if (voters.isEmpty()) {
-            voterAdapter.submit(emptyList())
-            return
-        }
-        val models = voters.map { uid ->
-            val m = try {
-                memberResolver(uid)
-            } catch (e: Exception) {
-                Log.w(TAG, "memberResolver", e)
-                null
-            }
-            VoterRow(
-                uid,
-                m?.let { member ->
-                    member.clanNick.ifBlank { member.displayName.ifBlank { member.username } }
-                }
-                    .orEmpty()
-                    .ifEmpty { uid.toString() },
-                m?.username.orEmpty().ifEmpty { uid.toString() },
-                m?.let { member -> member.clanAvatar.ifBlank { member.avatarUrl } }.orEmpty()
-            )
-        }
-        voterAdapter.submit(models)
+        voterAdapter.submit(voters)
     }
 
-    private class VoterRow(
-        val userId: Long,
-        val display: String,
-        val username: String,
-        val avatarUrl: String
-    )
-
     private class VoterAdapter(
-        private val theme: ThemeColors
+        private val theme: ThemeColors,
+        membersResolver: (Set<Long>) -> Map<Long, ClanMember>
     ) : RecyclerView.Adapter<VoterHolder>() {
-        private var items: List<VoterRow> = emptyList()
+        private val profiles = PollVoterProfiles(membersResolver)
 
-        fun submit(list: List<VoterRow>) {
-            items = list
+        fun submit(voterIds: List<Long>) {
+            profiles.setVoters(voterIds)
             notifyDataSetChanged()
+        }
+
+        fun refreshProfiles() {
+            profiles.refresh().forEach { notifyItemChanged(it, "profile") }
         }
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VoterHolder {
@@ -403,10 +418,10 @@ class PollDetailModal(
         }
 
         override fun onBindViewHolder(holder: VoterHolder, position: Int) {
-            holder.bind(items[position])
+            holder.bind(profiles[position])
         }
 
-        override fun getItemCount(): Int = items.size
+        override fun getItemCount(): Int = profiles.size
     }
 
     private class VoterHolder(
@@ -417,7 +432,7 @@ class PollDetailModal(
     ) : RecyclerView.ViewHolder(row) {
         private var cancel: MezonImageLoader.Cancellable? = null
 
-        fun bind(item: VoterRow) {
+        fun bind(item: PollVoterProfile) {
             name.text = item.display
             sub.text = item.username
             cancel?.cancel()
