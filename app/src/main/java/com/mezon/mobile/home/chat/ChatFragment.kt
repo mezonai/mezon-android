@@ -1282,10 +1282,11 @@ open class ChatFragment : BaseFragment() {
 
         observe(NotificationCenter.channelsDidLoad) { _, _, args ->
             if (::adapter.isInitialized) adapter.refreshLinkedChannelLabels()
-            if (fragmentView == null || isPaused || isTopicMode) return@observe
+            if (fragmentView == null || isPaused) return@observe
             val changedClanId = args.firstOrNull() as? Long ?: return@observe
             if (changedClanId != clanId || clanId == 0L) return@observe
-            refreshClanHeaderFromChannel()
+            loadMentionMemberSources()
+            if (!isTopicMode) refreshClanHeaderFromChannel()
         }
 
         observe(NotificationCenter.updateInterfaces) { _, _, args ->
@@ -4164,6 +4165,11 @@ open class ChatFragment : BaseFragment() {
         val ctx = getContext() ?: return
         val act = getParentActivity()
         if (act != null && (act.isFinishing || act.isDestroyed)) return
+        if (clanId != 0L) {
+            loadMentionMemberSources()
+        } else {
+            dialogsController.loadDmParticipants(channelId)
+        }
         try {
             PollDetailModal(
                 context = ctx,
@@ -4176,14 +4182,18 @@ open class ChatFragment : BaseFragment() {
                         mergePollFromGetResponse(seed, r)
                     }
                 },
-                memberResolver = { uid ->
+                membersResolver = { userIds ->
                     try {
-                        memberResolver.resolveMember(uid, clanId, channelId, channelType)
+                        memberResolver.resolveMembers(userIds, clanId, channelId, channelType)
                     } catch (e: Exception) {
-                        Log.w(TAG, "resolveMember for poll detail", e)
-                        null
+                        Log.w(TAG, "resolveMembers for poll detail", e)
+                        emptyMap()
                     }
-                }
+                },
+                notificationCenter = notificationCenter,
+                clanId = clanId,
+                channelId = channelId,
+                parentChannelId = channelController.findChannelById(channelId)?.parentId ?: routeParentId
             ).show()
         } catch (e: Exception) {
             Log.e(TAG, "openPollDetailSheet", e)
@@ -6997,6 +7007,7 @@ open class ChatFragment : BaseFragment() {
         val ctx = getContext() ?: return
         val activity = getParentActivity() ?: return
         if (activity.isFinishing || activity.isDestroyed) return
+        loadMentionMemberSources()
         val userId = chatController.getCurrentUserId()
         val sheet = ReactionDetailBottomSheet(
             context = ctx,
