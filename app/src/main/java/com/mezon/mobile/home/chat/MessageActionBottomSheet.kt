@@ -403,13 +403,6 @@ class MessageActionBottomSheet(
             }
         }
 
-        actions.add(ActionItem(
-            ActionType.MarkUnRead,
-            context.getString(R.string.action_mark_unread),
-            R.drawable.ic_chat_mark_unread_icon,
-            applyIconTint = false
-        ))
-
         if (message.id > 0L && message.sendState == MessageEntity.SEND_STATE_SENT) {
             actions.add(ActionItem(
                 ActionType.AddToInbox,
