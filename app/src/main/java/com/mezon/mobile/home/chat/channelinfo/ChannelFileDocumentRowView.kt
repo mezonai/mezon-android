@@ -30,10 +30,9 @@ class ChannelFileDocumentRowView(
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        val iconSize = LayoutHelper.dp(16f)
         iconView.scaleType = ImageView.ScaleType.FIT_CENTER
         iconView.adjustViewBounds = true
-        row.addView(iconView, LayoutHelper.createLinear(iconSize, iconSize, 0f, Gravity.CENTER_VERTICAL))
+        row.addView(iconView, LayoutHelper.createLinear(34, 34, 0f, Gravity.CENTER_VERTICAL))
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.START

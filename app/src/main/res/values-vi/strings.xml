@@ -43,6 +43,7 @@
     <string name="common_forward">Chuyển tiếp</string>
     <string name="common_share">Chia sẻ</string>
     <string name="common_download">Tải xuống</string>
+    <string name="common_file_open_failed">Không thể mở liên kết tệp. Vui lòng thử lại.</string>
     <string name="common_detail">Chi tiết</string>
     <string name="common_forwarded">Đã chuyển tiếp</string>
     <string name="common_send_message">Nhắn tin</string>
