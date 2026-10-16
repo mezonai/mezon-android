@@ -339,8 +339,8 @@ internal class ChannelMediaGalleryAdapter(
                     else ->
                         (m?.clanAvatar?.ifBlank { null } ?: m?.avatarUrl) ?: ""
                 }
-            val avatarUsername = m?.username.orEmpty()
-            slot.av.setInfo(item.uploaderId, avatarUsername.ifEmpty { "_" })
+            val avatarUsername = m?.username.orEmpty().ifBlank { item.senderUsername }
+            slot.av.setInfo(item.uploaderId, avatarUsername.ifEmpty { "User" })
             slot.av.setImageUrl(avatarUrl)
         }
 
@@ -426,9 +426,14 @@ internal class ChannelMediaGalleryAdapter(
                     val resolvedName = if (mediaItem.uploaderId == anonymousUserId) {
                         ctx.getString(com.mezon.mobile.R.string.advanced_anonymous)
                     } else if (isDm) {
-                        m?.displayName?.takeIf { it.isNotBlank() } ?: m?.username?.takeIf { it.isNotBlank() } ?: "User"
+                        m?.displayName?.takeIf { it.isNotBlank() }
+                            ?: m?.username?.takeIf { it.isNotBlank() }
+                            ?: mediaItem.senderUsername.ifBlank { "User" }
                     } else {
-                        m?.clanNick?.takeIf { it.isNotBlank() } ?: m?.displayName?.takeIf { it.isNotBlank() } ?: m?.username?.takeIf { it.isNotBlank() } ?: "User"
+                        m?.clanNick?.takeIf { it.isNotBlank() }
+                            ?: m?.displayName?.takeIf { it.isNotBlank() }
+                            ?: m?.username?.takeIf { it.isNotBlank() }
+                            ?: mediaItem.senderUsername.ifBlank { "User" }
                     }
                     val resolvedAvatar = if (isDm) {
                         m?.avatarUrl
@@ -454,12 +459,12 @@ internal class ChannelMediaGalleryAdapter(
                 } else if (isDm) {
                     member?.displayName?.takeIf { it.isNotBlank() }
                         ?: member?.username?.takeIf { it.isNotBlank() }
-                        ?: "User"
+                        ?: tapped.senderUsername.ifBlank { "User" }
                 } else {
                     member?.clanNick?.takeIf { it.isNotBlank() }
                         ?: member?.displayName?.takeIf { it.isNotBlank() }
                         ?: member?.username?.takeIf { it.isNotBlank() }
-                        ?: "User"
+                        ?: tapped.senderUsername.ifBlank { "User" }
                 }
                 val senderAvatar = if (isDm) {
                     member?.avatarUrl

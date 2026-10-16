@@ -41,7 +41,8 @@ data class ChannelGalleryMediaItem(
     val height: Int = 0,
     val size: Int = 0,
     val duration: Int = 0,
-    val isPending: Boolean = false
+    val isPending: Boolean = false,
+    val senderUsername: String = ""
 ) {
     val isVideo: Boolean get() = isVideoAttachmentType(filetype)
 }
@@ -511,7 +512,8 @@ private fun AttachmentInfo.toGalleryMediaItem(message: MessageEntity, index: Int
         height = height,
         size = size,
         duration = duration,
-        isPending = message.isSending
+        isPending = message.isSending,
+        senderUsername = message.senderUsername
     )
 }
 
@@ -542,8 +544,10 @@ private fun ChannelAttachment.toFilteredMediaOrNull(): ChannelGalleryMediaItem? 
 }
 
 private fun ChannelGalleryMediaItem.enrichFromMessage(message: MessageEntity?): ChannelGalleryMediaItem {
-    val attachment = message?.allImageAttachments?.firstOrNull { it.url == url } ?: return this
-    return copy(
+    if (message == null) return this
+    val enriched = copy(senderUsername = senderUsername.ifBlank { message.senderUsername })
+    val attachment = message.allImageAttachments.firstOrNull { it.url == url } ?: return enriched
+    return enriched.copy(
         thumbnail = thumbnail.ifBlank { attachment.thumb },
         filename = filename.ifBlank { attachment.filename },
         width = width.takeIf { it > 0 } ?: attachment.width,
