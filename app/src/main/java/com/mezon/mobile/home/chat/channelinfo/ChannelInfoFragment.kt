@@ -813,6 +813,7 @@ class ChannelInfoFragment : BaseFragment() {
             channelFilesController = channelFilesController,
             memberResolver = memberResolver,
             hostActivity = act,
+            hostFragment = this,
             isVietnameseLocale = userController.languageTag.startsWith("vi"),
             getString = { resId -> getString(resId) },
             getStringArg = { resId, arg -> getString(resId, arg) }

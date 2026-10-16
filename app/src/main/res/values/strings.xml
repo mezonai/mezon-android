@@ -45,6 +45,7 @@
     <string name="common_forward">Forward</string>
     <string name="common_share">Share</string>
     <string name="common_download">Download</string>
+    <string name="common_file_open_failed">Could not open file link. Please try again.</string>
     <string name="common_detail">Detail</string>
     <string name="common_forwarded">Forwarded</string>
     <string name="common_send_message">Message</string>

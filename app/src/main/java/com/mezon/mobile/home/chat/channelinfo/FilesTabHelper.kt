@@ -25,6 +25,7 @@ import android.widget.TextView
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.R
+import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.network.CdnSigner
 import com.mezon.mobile.core.RecyclerListView
@@ -32,7 +33,9 @@ import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.ChannelFilesController
 import com.mezon.mobile.home.ChannelFilesType
 import com.mezon.mobile.home.MemberResolver
+import com.mezon.mobile.ui.MezonToast
 import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.ui.cells.ToastOverlay
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -45,6 +48,7 @@ class FilesTabHelper(
     private val channelFilesController: ChannelFilesController,
     private val memberResolver: MemberResolver,
     private val hostActivity: Activity,
+    private val hostFragment: BaseFragment,
     private val isVietnameseLocale: Boolean,
     private val getString: (Int) -> String,
     private val getStringArg: (Int, String) -> String
@@ -81,9 +85,15 @@ class FilesTabHelper(
 
         override fun openUrl(url: String) {
             CdnSigner.requestUrlOnMain(url) { signed ->
+                if (hostFragment.isFinished) return@requestUrlOnMain
                 try {
                     hostActivity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(signed.url)))
                 } catch (_: Exception) {
+                    MezonToast.show(
+                        hostFragment,
+                        ToastOverlay.ToastType.ERROR,
+                        getString(R.string.common_file_open_failed)
+                    )
                 }
             }
         }

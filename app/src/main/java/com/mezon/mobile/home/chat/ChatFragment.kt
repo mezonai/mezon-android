@@ -2336,34 +2336,18 @@ open class ChatFragment : BaseFragment() {
                 CdnSigner.requestUrlOnMain(url) { signed ->
                     if (isFinished) return@requestUrlOnMain
                     try {
-                        val mime = when {
-                            msg.attachmentFiletype.isNotEmpty() -> msg.attachmentFiletype
-                            else -> "*/*"
-                        }
-                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW)
-                        intent.setDataAndType(android.net.Uri.parse(signed.url), mime)
-                        intent.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        context.startActivity(intent)
+                        context.startActivity(
+                            android.content.Intent(
+                                android.content.Intent.ACTION_VIEW,
+                                android.net.Uri.parse(signed.url)
+                            )
+                        )
                     } catch (_: Exception) {
-                        try {
-                            val filename = msg.attachmentFilename.ifEmpty { url.substringAfterLast('/') }
-                            val request = android.app.DownloadManager.Request(android.net.Uri.parse(signed.url))
-                                .setTitle(filename)
-                                .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                                .setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, filename)
-                            val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
-                            dm.enqueue(request)
-                            MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.INFO, "Downloading $filename")
-                        } catch (_: Exception) {
-                            runCatching {
-                                context.startActivity(
-                                    android.content.Intent(
-                                        android.content.Intent.ACTION_VIEW,
-                                        android.net.Uri.parse(signed.url)
-                                    )
-                                )
-                            }
-                        }
+                        MezonToast.show(
+                            this@ChatFragment,
+                            ToastOverlay.ToastType.ERROR,
+                            getString(R.string.common_file_open_failed)
+                        )
                     }
                 }
             }
