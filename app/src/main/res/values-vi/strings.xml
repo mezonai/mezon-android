@@ -1192,6 +1192,7 @@
     <string name="voice_room_camera_update_failed">Không bật/tắt được camera. Vui lòng thử lại.</string>
     <string name="voice_room_screen_share_limit_reached">Kênh thoại đã đạt giới hạn số người chia sẻ màn hình. Hãy thử lại khi có người dừng chia sẻ.</string>
     <string name="voice_room_screen_share_update_failed">Không bật/tắt được chia sẻ màn hình. Vui lòng thử lại.</string>
+    <string name="voice_room_screen_share_not_allowed">Chỉ người nói mới có thể chia sẻ màn hình trong kênh thoại này.</string>
     <string name="voice_room_alone_timeout">Bạn đã bị ngắt khỏi kênh thoại vì ở một mình quá lâu.</string>
     <string name="voice_room_duplicate_session">Bạn đã tham gia kênh thoại trên thiết bị khác nên phiên này bị ngắt kết nối.</string>
     <string name="voice_room_disconnected_rejoin">Bạn đã bị ngắt khỏi kênh thoại.</string>

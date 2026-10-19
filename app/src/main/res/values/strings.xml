@@ -1420,6 +1420,7 @@
     <string name="voice_room_camera_update_failed">Couldn\'t turn your camera on or off. Please try again.</string>
     <string name="voice_room_screen_share_limit_reached">This voice channel has reached its screen share limit. Try again when someone stops sharing.</string>
     <string name="voice_room_screen_share_update_failed">Couldn\'t start or stop screen sharing. Please try again.</string>
+    <string name="voice_room_screen_share_not_allowed">Only speakers can share their screen in this voice channel.</string>
     <string name="voice_room_alone_timeout">You were disconnected from the voice channel because you were alone in it for too long.</string>
     <string name="voice_room_duplicate_session">You joined the voice channel on another device, so this session was disconnected.</string>
     <string name="voice_room_disconnected_rejoin">You were disconnected from the voice channel.</string>

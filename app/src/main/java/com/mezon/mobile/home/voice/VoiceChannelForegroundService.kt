@@ -26,11 +26,24 @@ class VoiceChannelForegroundService : Service() {
             return START_NOT_STICKY
         }
         val label = intent.getStringExtra(EXTRA_CHANNEL_LABEL).orEmpty()
+        val screenShareReady = pendingScreenShareReady
+        pendingScreenShareReady = null
         try {
             ensureChannel()
             startForegroundWithType(buildNotification(label))
+            screenShareReady?.invoke(true)
         } catch (e: Exception) {
             Log.e(TAG, "startForeground failed", e)
+            if (screenSharing) {
+                screenSharing = false
+                screenShareReady?.invoke(false)
+                try {
+                    startForegroundWithType(buildNotification(label))
+                    return START_NOT_STICKY
+                } catch (retry: Exception) {
+                    Log.e(TAG, "startForeground without screen share failed", retry)
+                }
+            }
             stopSelf()
         }
         return START_NOT_STICKY
@@ -46,7 +59,11 @@ class VoiceChannelForegroundService : Service() {
 
     private fun serviceTypeMask(): Int {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            return ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+            return if (screenSharing) {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            } else {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+            }
         }
         var mask = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
         if (hasPermission(Manifest.permission.RECORD_AUDIO)) {
@@ -54,6 +71,9 @@ class VoiceChannelForegroundService : Service() {
         }
         if (hasPermission(Manifest.permission.CAMERA)) {
             mask = mask or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+        }
+        if (screenSharing) {
+            mask = mask or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
         }
         return mask
     }
@@ -116,7 +136,27 @@ class VoiceChannelForegroundService : Service() {
         private const val NOTIFICATION_ID = 9003
         private const val EXTRA_CHANNEL_LABEL = "voice_channel_label"
 
+        private var channelLabel = ""
+        private var screenSharing = false
+        private var pendingScreenShareReady: ((Boolean) -> Unit)? = null
+
         fun start(context: Context, channelLabel: String) {
+            this.channelLabel = channelLabel
+            startService(context)
+        }
+
+        fun setScreenSharing(context: Context, sharing: Boolean, onReady: ((Boolean) -> Unit)? = null) {
+            if (!sharing && !screenSharing) return
+            screenSharing = sharing
+            pendingScreenShareReady = onReady
+            if (!startService(context)) {
+                screenSharing = false
+                pendingScreenShareReady = null
+                onReady?.invoke(false)
+            }
+        }
+
+        private fun startService(context: Context): Boolean =
             try {
                 ContextCompat.startForegroundService(
                     context,
@@ -124,12 +164,15 @@ class VoiceChannelForegroundService : Service() {
                         putExtra(EXTRA_CHANNEL_LABEL, channelLabel)
                     }
                 )
+                true
             } catch (e: Exception) {
                 Log.e(TAG, "startForegroundService rejected", e)
+                false
             }
-        }
 
         fun stop(context: Context) {
+            screenSharing = false
+            pendingScreenShareReady = null
             try {
                 context.stopService(Intent(context, VoiceChannelForegroundService::class.java))
             } catch (_: Exception) {

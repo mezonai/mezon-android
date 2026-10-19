@@ -68,6 +68,7 @@ class VoiceControlBar(
     var onMicPressEnd: (() -> Unit)? = null
     var onChatClick: (() -> Unit)? = null
     var onRaiseHandClick: (() -> Unit)? = null
+    var onScreenShareClick: (() -> Unit)? = null
     var onEndCallClick: (() -> Unit)? = null
 
     private var cameraEnabled = false
@@ -82,7 +83,7 @@ class VoiceControlBar(
     private val micButton: VoiceStyleCircleButton
     private val micWeakDot: View
     private val chatButton: VoiceStyleCircleButton
-    private val raiseHandButton: VoiceStyleCircleButton
+    private val screenShareButton: VoiceStyleCircleButton
     private val endCallButton: VoiceStyleCircleButton
 
     private val pttLayout: LinearLayout
@@ -194,17 +195,17 @@ class VoiceControlBar(
         }
         addButton(row, chatButton, true)
 
-        raiseHandButton = VoiceStyleCircleButton(
+        screenShareButton = VoiceStyleCircleButton(
             context,
-            MezonIcon.raiseHandIcon,
+            MezonIcon.voiceScreenShareIcon,
             themeColors.tertiary,
             btnBorder,
             defaultTint,
-            VoiceStyleCircleButton.iconSizePx(context, 32f)
+            VoiceStyleCircleButton.iconSizePx(context, 24f)
         ).apply {
-            setOnClickListener { onRaiseHandClick?.invoke() }
+            setOnClickListener { onScreenShareClick?.invoke() }
         }
-        addButton(row, raiseHandButton, true)
+        addButton(row, screenShareButton, true)
 
         endCallButton = VoiceStyleCircleButton(
             context,
@@ -552,7 +553,7 @@ class VoiceControlBar(
     private fun updateSecondaryButtonsVisibility() {
         val vis = if (!isGroupCall && !pushToTalkMode) View.VISIBLE else View.GONE
         chatButton.visibility = vis
-        raiseHandButton.visibility = vis
+        screenShareButton.visibility = vis
     }
 
     fun setMicrophoneAvailable(available: Boolean) {
@@ -595,8 +596,12 @@ class VoiceControlBar(
 
     fun setRaiseHandActive(active: Boolean) {
         raiseHandActive = active
-        raiseHandButton.updateBgColor(themeColors.tertiary)
-        raiseHandButton.updateIconTint(if (active) RAISE_HAND_ACTIVE else themeColors.tabLabelActive)
         pttRaiseIcon.setImageDrawable(tintedIcon(MezonIcon.raiseHandIcon, if (active) RAISE_HAND_ACTIVE else defaultMicTint))
+    }
+
+    fun setScreenShareEnabled(enabled: Boolean) {
+        val green = themeColors.voiceActiveGreen
+        screenShareButton.updateBgColor(if (enabled) (green and 0x00FFFFFF) or 0x38000000 else themeColors.tertiary)
+        screenShareButton.updateIconTint(if (enabled) green else themeColors.tabLabelActive)
     }
 }

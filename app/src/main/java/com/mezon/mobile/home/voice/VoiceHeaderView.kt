@@ -29,6 +29,8 @@ class VoiceHeaderView(
         private val BUTTON_SIZE = LayoutHelper.dp(40)
         private val BUTTON_RADIUS = LayoutHelper.dp(40).toFloat()
         private val ICON_SIZE = LayoutHelper.dp(20)
+        private val RAISE_HAND_ICON_SIZE = LayoutHelper.dp(26)
+        private val RAISE_HAND_ACTIVE = 0xFFEFBC39.toInt()
         private val LEFT_GAP = LayoutHelper.dp(12)
         private val RIGHT_GAP = LayoutHelper.dp(10)
         private val H_PADDING = LayoutHelper.dp(10)
@@ -37,6 +39,7 @@ class VoiceHeaderView(
     var onMinimizeClick: (() -> Unit)? = null
     var onAgentClick: (() -> Unit)? = null
     var onSwitchCameraClick: (() -> Unit)? = null
+    var onRaiseHandClick: (() -> Unit)? = null
     var onAudioOutputClick: ((View) -> Unit)? = null
     var onMoreClick: ((View) -> Unit)? = null
 
@@ -47,6 +50,7 @@ class VoiceHeaderView(
     private val agentIconView: ImageView
     private val agentProgress: ProgressBar
     private val switchCameraBtn: FrameLayout
+    private val raiseHandBtn: FrameLayout
     private val minimizeBtn: FrameLayout
     private val moreBtn: FrameLayout
     private val audioOutputBtn: FrameLayout
@@ -166,6 +170,13 @@ class VoiceHeaderView(
             marginStart = RIGHT_GAP
         })
 
+        raiseHandBtn = createCircleButton(context, MezonIcon.raiseHandIcon, RAISE_HAND_ICON_SIZE) {
+            onRaiseHandClick?.invoke()
+        }
+        rightContainer.addView(raiseHandBtn, LinearLayout.LayoutParams(BUTTON_SIZE, BUTTON_SIZE).apply {
+            marginStart = RIGHT_GAP
+        })
+
         audioOutputBtn = createCircleButton(context, MezonIcon.channelVoice) { v ->
             onAudioOutputClick?.invoke(v)
         }
@@ -224,6 +235,16 @@ class VoiceHeaderView(
         switchCameraBtn.visibility = if (visible) View.VISIBLE else View.GONE
     }
 
+    fun setRaiseHandVisible(visible: Boolean) {
+        raiseHandBtn.visibility = if (visible) View.VISIBLE else View.GONE
+    }
+
+    fun setRaiseHandActive(active: Boolean) {
+        val iconView = raiseHandBtn.getChildAt(0) as? ImageView ?: return
+        val tint = if (active) RAISE_HAND_ACTIVE else themeColors.onSurface
+        iconView.drawable?.mutate()?.colorFilter = PorterDuffColorFilter(tint, PorterDuff.Mode.SRC_IN)
+    }
+
     fun setAgentVisible(visible: Boolean) {
         agentBtn.visibility = if (visible) View.VISIBLE else View.GONE
     }
@@ -273,7 +294,12 @@ class VoiceHeaderView(
         agentIconView.drawable?.mutate()?.colorFilter = PorterDuffColorFilter(tint, PorterDuff.Mode.SRC_IN)
     }
 
-    private fun createCircleButton(context: Context, icon: MezonIcon, onClick: (View) -> Unit): FrameLayout {
+    private fun createCircleButton(
+        context: Context,
+        icon: MezonIcon,
+        iconSize: Int = ICON_SIZE,
+        onClick: (View) -> Unit
+    ): FrameLayout {
         val bg = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
             setColor(themeColors.channelPanelBg)
@@ -292,7 +318,7 @@ class VoiceHeaderView(
                 })
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
             }
-            addView(iconView, LayoutParams(ICON_SIZE, ICON_SIZE, Gravity.CENTER))
+            addView(iconView, LayoutParams(iconSize, iconSize, Gravity.CENTER))
         }
     }
 

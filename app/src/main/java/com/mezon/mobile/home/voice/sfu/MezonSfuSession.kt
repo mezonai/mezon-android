@@ -5,9 +5,14 @@ import android.content.Intent
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
+import android.graphics.Point
+import android.hardware.display.DisplayManager
 import android.media.projection.MediaProjection
 import android.net.Network
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
+import android.view.Display
 import android.util.Base64
 import android.util.Log
 import com.mezon.mobile.BuildConfig
@@ -108,9 +113,9 @@ private fun resolveCameraTier(cameras: Int, currentIndex: Int): Int {
     val target = cameraTierIndexFor(cameras)
     return if (target >= currentIndex) target else minOf(currentIndex, cameraTierIndexFor(cameras, 1))
 }
-private const val SCREEN_WIDTH = 1280
-private const val SCREEN_HEIGHT = 720
+private const val SCREEN_MAX_LONG_SIDE = 1280
 private const val SCREEN_FPS = 15
+private const val SCREEN_MAX_BITRATE_BPS = 3_500_000
 private const val SPEAKING_POLL_MS = 300L
 private const val SPEAKING_POLL_LARGE_ROOM_MS = 1_000L
 private const val LARGE_ROOM_REMOTE_COUNT = 16
@@ -150,7 +155,12 @@ private val SESSION_LOST_ERRORS = setOf(
 )
 private val ROOM_UNAVAILABLE_ERRORS = setOf("room_capacity", "invalid_room", "room_creation_failed", "auth_not_configured")
 private val CAMERA_REFUSAL_ERRORS = setOf("camera_capacity_full", "camera_update_failed")
-private val SCREEN_REFUSAL_ERRORS = setOf("screen_share_capacity_full", "screen_share_update_failed")
+private val SCREEN_REFUSAL_ERRORS = setOf(
+    "screen_share_capacity_full",
+    "screen_share_update_failed",
+    "screen_share_not_allowed",
+    "invalid_screen_share_active",
+)
 private const val SFU_MEDIA_POOL_VERSION = 1
 private const val SFU_CLOSE_KICKED = 4006
 private const val SFU_CLOSE_ALONE_TIMEOUT = 4011
@@ -362,6 +372,8 @@ class MezonSfuSession @Inject constructor(
     private var screenSource: VideoSource? = null
     private var screenTrack: VideoTrack? = null
     private var screenHelper: SurfaceTextureHelper? = null
+    private var screenCaptureSize: Pair<Int, Int>? = null
+    private var screenDisplayListener: DisplayManager.DisplayListener? = null
 
     private var joined = false
     private var localTracksAdded = false
@@ -939,6 +951,7 @@ class MezonSfuSession @Inject constructor(
         val oldAudioSource = audioSource
         cameraCapturing = false
         screenCaptureToken++
+        unregisterScreenDisplayListener()
         cameraTrack = null; cameraSource = null; cameraHelper = null; cameraCapturer = null
         screenTrack = null; screenSource = null; screenHelper = null; screenCapturer = null
         localAudioTrack = null; audioSource = null
@@ -1061,14 +1074,21 @@ class MezonSfuSession @Inject constructor(
     fun setScreenShare(on: Boolean, permissionData: Intent?) {
         scope?.launch {
             if (on) {
-                if (permissionData == null) return@launch
-                startScreenCapture(permissionData)
-                send(JSONObject().put("type", "share_screen").put("active", true))
+                if (permissionData == null || screenOn) return@launch
+                if (role != SfuRole.SPEAKER) {
+                    onScreenShareRefused?.invoke("screen_share_not_allowed")
+                    return@launch
+                }
+                if (!startScreenCapture(permissionData)) {
+                    onScreenShareRefused?.invoke("screen_share_update_failed")
+                    return@launch
+                }
                 screenOn = true
+                if (stateRestored) send(JSONObject().put("type", "share_screen").put("active", true))
             } else {
                 stopScreenShare()
-                send(JSONObject().put("type", "share_screen").put("active", false))
                 screenOn = false
+                if (stateRestored) send(JSONObject().put("type", "share_screen").put("active", false))
             }
         }
     }
@@ -1723,6 +1743,10 @@ class MezonSfuSession @Inject constructor(
             tc?.direction = RtpTransceiver.RtpTransceiverDirection.INACTIVE
             pttActive = false
             onPushToTalkActive?.invoke(false)
+            if (screenOn) {
+                stopScreenShare()
+                screenOn = false
+            }
         }
         onRoleChanged?.invoke(newRole)
     }
@@ -1819,8 +1843,9 @@ class MezonSfuSession @Inject constructor(
         cameraCapturing = false
     }
 
-    private fun startScreenCapture(permissionData: Intent) {
-        if (!active || screenTrack != null) return
+    private fun startScreenCapture(permissionData: Intent): Boolean {
+        if (!active) return false
+        if (screenTrack != null) return true
         val captureToken = ++screenCaptureToken
         val capturer = ScreenCapturerAndroid(permissionData, object : MediaProjection.Callback() {
             override fun onStop() {
@@ -1830,17 +1855,92 @@ class MezonSfuSession @Inject constructor(
             }
         })
         val source = factory.createVideoSource(true)
-        val helper = SurfaceTextureHelper.create("SfuScreenThread", webRtcInfra.eglContext) ?: return
-        capturer.initialize(helper, context, source.capturerObserver)
-        capturer.startCapture(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_FPS)
+        val helper = SurfaceTextureHelper.create("SfuScreenThread", webRtcInfra.eglContext)
+        if (helper == null) {
+            source.dispose()
+            return false
+        }
+        val (width, height) = screenCaptureDimensions()
+        val started = runCatching {
+            capturer.initialize(helper, context, ScreenFrameKeepAlive(helper, source.capturerObserver))
+            capturer.startCapture(width, height, SCREEN_FPS)
+        }.onFailure { Log.e(TAG, "startScreenCapture failed", it) }.isSuccess
+        if (!started) {
+            screenCaptureToken++
+            runCatching { capturer.stopCapture() }
+            runCatching { capturer.dispose() }
+            runCatching { source.dispose() }
+            runCatching { helper.dispose() }
+            return false
+        }
         val track = factory.createVideoTrack("sfu_screen", source)
         track.setEnabled(true)
         screenCapturer = capturer
         screenSource = source
         screenHelper = helper
         screenTrack = track
+        screenCaptureSize = width to height
+        registerScreenDisplayListener()
         onLocalScreenTrack?.invoke(track)
         if (peerConnection != null) reattachScreen()
+        return true
+    }
+
+    private fun screenCaptureDimensions(): Pair<Int, Int> {
+        val size = Point()
+        val display = context.getSystemService(DisplayManager::class.java)?.getDisplay(Display.DEFAULT_DISPLAY)
+        @Suppress("DEPRECATION")
+        display?.getRealSize(size)
+        if (size.x <= 0 || size.y <= 0) {
+            val metrics = context.resources.displayMetrics
+            size.set(metrics.widthPixels, metrics.heightPixels)
+        }
+        val scale = minOf(1.0, SCREEN_MAX_LONG_SIDE.toDouble() / maxOf(size.x, size.y, 1))
+        val width = maxOf(2, (size.x * scale).toInt() and 1.inv())
+        val height = maxOf(2, (size.y * scale).toInt() and 1.inv())
+        return width to height
+    }
+
+    private fun registerScreenDisplayListener() {
+        if (screenDisplayListener != null) return
+        val manager = context.getSystemService(DisplayManager::class.java) ?: return
+        val listener = object : DisplayManager.DisplayListener {
+            override fun onDisplayAdded(displayId: Int) = Unit
+            override fun onDisplayRemoved(displayId: Int) = Unit
+            override fun onDisplayChanged(displayId: Int) {
+                if (displayId != Display.DEFAULT_DISPLAY) return
+                val capturer = screenCapturer ?: return
+                val next = screenCaptureDimensions()
+                if (next == screenCaptureSize) return
+                screenCaptureSize = next
+                runCatching { capturer.changeCaptureFormat(next.first, next.second, SCREEN_FPS) }
+                    .onFailure { Log.w(TAG, "screen capture resize failed", it) }
+            }
+        }
+        manager.registerDisplayListener(listener, Handler(Looper.getMainLooper()))
+        screenDisplayListener = listener
+    }
+
+    private fun unregisterScreenDisplayListener() {
+        val listener = screenDisplayListener ?: return
+        screenDisplayListener = null
+        screenCaptureSize = null
+        context.getSystemService(DisplayManager::class.java)?.unregisterDisplayListener(listener)
+    }
+
+    private fun applyScreenShareEncoding(sender: RtpSender) {
+        try {
+            val params = sender.parameters
+            params.degradationPreference = RtpParameters.DegradationPreference.MAINTAIN_RESOLUTION
+            for (encoding in params.encodings) {
+                encoding.maxBitrateBps = SCREEN_MAX_BITRATE_BPS
+                encoding.maxFramerate = SCREEN_FPS
+                encoding.scaleResolutionDownBy = null
+            }
+            sender.parameters = params
+        } catch (e: Exception) {
+            Log.w(TAG, "screen encoding not applied", e)
+        }
     }
 
     private fun reattachScreen(addingTo: PeerConnection? = null) {
@@ -1849,6 +1949,7 @@ class MezonSfuSession @Inject constructor(
         if (tc != null) {
             if (tc.sender.track() !== track) {
                 tc.sender.setTrack(track, false)
+                applyScreenShareEncoding(tc.sender)
                 tc.direction = RtpTransceiver.RtpTransceiverDirection.SEND_ONLY
             }
             return
@@ -1860,6 +1961,7 @@ class MezonSfuSession @Inject constructor(
 
     private fun stopScreenShare() {
         screenCaptureToken++
+        unregisterScreenDisplayListener()
         if (screenTrack != null) findTransceiver(MID_SCREEN, "video")?.sender?.setTrack(null, false)
         runCatching { screenCapturer?.stopCapture() }
         runCatching { screenTrack?.dispose() }
