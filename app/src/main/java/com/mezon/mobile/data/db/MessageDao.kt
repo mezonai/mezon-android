@@ -3,7 +3,10 @@ package com.mezon.mobile.data.db
 import com.mezon.mobile.home.chat.MessageEntity
 import androidx.room.Dao
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Upsert
+import com.mezon.mezon.api.MessageReaction
+import com.mezon.mobile.home.chat.applyReactionEvent
 
 @Dao
 interface MessageDao {
@@ -83,4 +86,15 @@ interface MessageDao {
 
     @Query("UPDATE messages SET reactionsJson = :reactionsJson WHERE channelId = :channelId AND id = :messageId")
     suspend fun updateReactions(channelId: Long, messageId: Long, reactionsJson: String)
+
+    @Transaction
+    suspend fun applyReaction(channelId: Long, reaction: MessageReaction): String? {
+        val existing = getById(channelId, reaction.messageId) ?: return null
+        val updatedJson = applyReactionEvent(
+            existing.reactionsJson, reaction.emojiId, reaction.emoji,
+            reaction.senderId, reaction.action
+        )
+        updateReactions(channelId, reaction.messageId, updatedJson)
+        return updatedJson
+    }
 }

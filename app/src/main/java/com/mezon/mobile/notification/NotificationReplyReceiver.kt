@@ -148,12 +148,8 @@ class NotificationReplyReceiver : BroadcastReceiver() {
                             messageId = messageId,
                             emojiId = LIKE_EMOJI_ID,
                             emoji = LIKE_EMOJI_SHORTNAME,
-                            count = 1,
                             actionDelete = false,
-                            messageSenderId = messageSenderId,
-                            topicId = topicId,
-                            httpOnly = true,
-                            retryDelaysMs = SEND_RETRY_DELAYS_MS
+                            topicId = topicId
                         )
                     }
                 }

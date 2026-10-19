@@ -803,7 +803,6 @@ fun applyReactionEvent(
     emojiId: Long,
     emoji: String,
     senderId: Long,
-    count: Int,
     actionRemove: Boolean
 ): String {
     val arr = if (currentJson.isNotEmpty()) {
@@ -828,7 +827,7 @@ fun applyReactionEvent(
         obj.put("emoji_id", emojiId)
         obj.put("emoji", emoji)
         obj.put("sender_id", senderId)
-        obj.put("count", count.coerceAtLeast(1))
+        obj.put("count", 1)
         arr.put(obj)
     }
     return arr.toString()

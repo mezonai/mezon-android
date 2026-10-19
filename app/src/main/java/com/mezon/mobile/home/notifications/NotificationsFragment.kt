@@ -35,6 +35,7 @@ import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
 import com.mezon.mobile.ui.cells.MezonIcon
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 private data class TabDef(val category: Int, val labelRes: Int, val icon: MezonIcon)
@@ -496,14 +497,20 @@ class NotificationsFragment : BaseFragment() {
     }
 
     private fun openTopicFromSdTopic(item: SdTopicEntity) {
-        openTopicDiscussion(
-            topicId = item.id,
-            rootMessageId = item.messageId,
-            targetMessageId = 0L,
-            clanId = item.clanId,
-            parentChannelId = item.channelId,
-            channelType = CHANNEL_TYPE_THREAD
-        )
+        fragmentScope.launch(Dispatchers.Main) {
+            val parentChannel = channelController.findChannelById(item.channelId, item.clanId) ?: run {
+                channelController.findOrFetchChannelLabel(item.channelId, item.clanId)
+                channelController.findChannelById(item.channelId, item.clanId)
+            }
+            openTopicDiscussion(
+                topicId = item.id,
+                rootMessageId = item.messageId,
+                targetMessageId = 0L,
+                clanId = item.clanId,
+                parentChannelId = item.channelId,
+                channelType = parentChannel?.type?.takeIf { it != 0 } ?: CHANNEL_TYPE_CHANNEL
+            )
+        }
     }
 
     private fun tryLoadMore(recyclerView: androidx.recyclerview.widget.RecyclerView) {

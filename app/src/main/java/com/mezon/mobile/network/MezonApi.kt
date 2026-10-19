@@ -1856,11 +1856,8 @@ class MezonApi @Inject constructor(
         count: Int,
         messageSenderId: Long,
         actionDelete: Boolean,
-        topicId: Long = 0L,
-        emojiRecentId: Long = 0L,
-        senderName: String = "",
-        httpOnly: Boolean = false
-    ): ChannelMessageSend {
+        topicId: Long = 0L
+    ) {
         val request = messageReaction {
             this.clanId = clanId
             this.channelId = channelId
@@ -1873,12 +1870,8 @@ class MezonApi @Inject constructor(
             this.messageSenderId = messageSenderId
             this.action = actionDelete
             this.topicId = topicId
-            this.emojiRecentId = emojiRecentId
-            this.senderName = senderName
         }
-        val bytes = rpc(apiUrl, token, "ReactChannelMessage", request.toByteArray(), httpOnly)
-        return if (bytes.isEmpty()) ChannelMessageSend.getDefaultInstance()
-        else ChannelMessageSend.parseFrom(bytes)
+        rpc(apiUrl, token, "ReactChannelMessage", request.toByteArray())
     }
 
     suspend fun activeArchivedThread(

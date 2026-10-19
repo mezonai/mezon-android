@@ -1345,20 +1345,15 @@ open class ChatFragment : BaseFragment() {
 
         observe(NotificationCenter.reactionDidUpdate) { _, _, args ->
             if (isPaused || fragmentView == null) return@observe
-            if (args.size < 7) return@observe
+            if (args.size < 3) return@observe
             val eventChannelId = args[0] as? Long ?: return@observe
             if (eventChannelId != messageListKey) return@observe
             val messageId = args[1] as? Long ?: return@observe
-            val emojiId = args[2] as? Long ?: return@observe
-            val emoji = args[3] as? String ?: return@observe
-            val senderId = args[4] as? Long ?: return@observe
-            val count = args[5] as? Int ?: return@observe
-            val actionRemove = args[6] as? Boolean ?: return@observe
+            val updatedJson = args[2] as? String ?: return@observe
 
             val idx = messages.indexOfFirst { it.id == messageId }
             if (idx >= 0) {
                 val old = messages[idx]
-                val updatedJson = applyReactionEvent(old.reactionsJson, emojiId, emoji, senderId, count, actionRemove)
                 val updated = old.copy(reactionsJson = updatedJson)
                 messages[idx] = updated
                 messagesDict.put(messageId, updated)
@@ -4375,6 +4370,8 @@ open class ChatFragment : BaseFragment() {
                 is ChatMessageCell -> {
                     val msg = child.messageEntity ?: continue
                     val updated = messagesDict.get(msg.id) ?: continue
+                    if (mask == NotificationCenter.UPDATE_MASK_REACTIONS &&
+                        updated.reactionsJson == msg.reactionsJson) continue
                     val modelIdx = messages.indexOfFirst { it.id == msg.id }
                     if (modelIdx >= 0) {
                         child.isCombined = adapter.isCombinedAt(modelIdx)
@@ -6960,7 +6957,7 @@ open class ChatFragment : BaseFragment() {
         chatController.sendReaction(
             channelId, clanId, channelType, resolveChannelPrivate(),
             msg.id, group.emojiId, group.emoji,
-            1, actionDelete = false, msg.senderId, topicId = topicId
+            actionDelete = false, topicId = topicId
         )
     }
 
@@ -6972,7 +6969,7 @@ open class ChatFragment : BaseFragment() {
             chatController.sendReaction(
                 channelId, clanId, channelType, resolveChannelPrivate(),
                 msg.id, emojiId, emojiShortname,
-                1, actionDelete = false, msg.senderId, topicId = topicId
+                actionDelete = false, topicId = topicId
             )
         }
         sheet.show()
@@ -6997,11 +6994,11 @@ open class ChatFragment : BaseFragment() {
             clanId = clanId,
             channelId = channelId,
             parentChannelId = channelController.findChannelById(channelId)?.parentId ?: routeParentId,
-            onRemoveReaction = { emojiId, emoji, count ->
+            onRemoveReaction = { emojiId, emoji, _ ->
                 chatController.sendReaction(
                     channelId, clanId, channelType, resolveChannelPrivate(),
                     msg.id, emojiId, emoji,
-                    count, actionDelete = true, msg.senderId, topicId = topicId
+                    actionDelete = true, topicId = topicId
                 )
             }
         )
@@ -7144,7 +7141,7 @@ open class ChatFragment : BaseFragment() {
                 override fun onReactionSelected(emojiId: Long, emoji: String, message: MessageEntity) {
                     chatController.sendReaction(
                         channelId, clanId, channelType, resolveChannelPrivate(),
-                        message.id, emojiId, emoji, 1, actionDelete = false, message.senderId,
+                        message.id, emojiId, emoji, actionDelete = false,
                         topicId = topicId
                     )
                 }
@@ -7900,9 +7897,7 @@ open class ChatFragment : BaseFragment() {
                     messageId = msg.id,
                     emojiId = GIVE_COFFEE_EMOJI_ID,
                     emoji = GIVE_COFFEE_EMOJI,
-                    count = 1,
                     actionDelete = false,
-                    messageSenderId = msg.senderId,
                     topicId = topicId
                 )
 

@@ -1043,6 +1043,10 @@ class MezonSocket @Inject constructor(
             }
         }
 
+        if (envelope.hasMessageReactionEvent() && cid != 0) {
+            return
+        }
+
         when (case) {
             Envelope.MessageCase.PONG -> {
                 lastPongAtMs = System.currentTimeMillis()

@@ -26,7 +26,7 @@ import com.mezon.mobile.ui.cells.MezonIcon
 
 class ReactionDetailBottomSheet(
     context: Context,
-    message: MessageEntity,
+    private val message: MessageEntity,
     selectedEmojiId: Long,
     private val currentUserId: Long,
     private val themeColors: ThemeColors,
@@ -63,7 +63,8 @@ class ReactionDetailBottomSheet(
         return handled
     }
 
-    private val memberEvents = intArrayOf(
+    private val observedEvents = intArrayOf(
+        NotificationCenter.reactionDidUpdate,
         NotificationCenter.clanMembersDidLoad,
         NotificationCenter.channelMembersDidLoad,
         NotificationCenter.userClansDidLoad,
@@ -72,15 +73,31 @@ class ReactionDetailBottomSheet(
 
     override fun onStart() {
         super.onStart()
-        memberEvents.forEach { notificationCenter.addObserver(this, it) }
+        observedEvents.forEach { notificationCenter.addObserver(this, it) }
     }
 
     override fun onStop() {
-        memberEvents.forEach { notificationCenter.removeObserver(this, it) }
+        observedEvents.forEach { notificationCenter.removeObserver(this, it) }
         super.onStop()
     }
 
     override fun didReceivedNotification(id: Int, account: Int, vararg args: Any?) {
+        if (id == NotificationCenter.reactionDidUpdate) {
+            if (args.getOrNull(0) as? Long != message.channelId ||
+                args.getOrNull(1) as? Long != message.id) return
+            val updatedJson = args.getOrNull(2) as? String ?: return
+            val updatedGroups = message.copy(reactionsJson = updatedJson).combineReactions()
+            if (updatedGroups == groups) return
+            val selectedEmojiId = groups.getOrNull(selectedTabIndex)?.emojiId
+            groups = updatedGroups
+            val retainedIndex = groups.indexOfFirst { it.emojiId == selectedEmojiId }
+            selectedTabIndex = if (retainedIndex >= 0) retainedIndex else {
+                selectedTabIndex.coerceAtMost(groups.lastIndex).coerceAtLeast(0)
+            }
+            buildTabs()
+            updateContent()
+            return
+        }
         val target = args.firstOrNull() as? Long
         when (id) {
             NotificationCenter.clanMembersDidLoad -> {
@@ -98,7 +115,7 @@ class ReactionDetailBottomSheet(
         senderAdapter.refreshProfiles()
     }
 
-    private val groups = message.combineReactions()
+    private var groups = message.combineReactions()
     private var selectedTabIndex = groups.indexOfFirst { it.emojiId == selectedEmojiId }.coerceAtLeast(0)
     private lateinit var senderAdapter: SenderAdapter
     private lateinit var titleView: TextView
@@ -270,8 +287,13 @@ class ReactionDetailBottomSheet(
     }
 
     private fun updateContent() {
-        if (groups.isEmpty()) return
-        val group = groups.getOrNull(selectedTabIndex) ?: return
+        val group = groups.getOrNull(selectedTabIndex)
+        if (group == null) {
+            titleView.text = ""
+            deleteButton.visibility = View.GONE
+            senderAdapter.setSenders(emptyList())
+            return
+        }
         titleView.text = group.emoji
 
         val hasMyReaction = group.senders.any { it.senderId == currentUserId && it.count > 0 }
