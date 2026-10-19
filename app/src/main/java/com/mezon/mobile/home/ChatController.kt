@@ -4305,7 +4305,9 @@ class ChatController @Inject constructor(
                                     this.mode = mode
                                     this.isPublic = isPublic
                                     content = wire
-                                    this.code = msg.code
+                                    this.code = if (msg.code == MessageEntity.CODE_MESSAGE_BUZZ) {
+                                        MessageEntity.CODE_CHAT
+                                    } else msg.code
                                     mentionsProto?.let { if (it.isNotEmpty()) mentions.addAll(it) }
                                     if (attProtos.isNotEmpty()) attachments.addAll(attProtos)
                                     mentionEveryone = extractMentionEveryoneFromForwardContent(wire)
