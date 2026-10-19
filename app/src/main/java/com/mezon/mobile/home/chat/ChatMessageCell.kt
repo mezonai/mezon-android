@@ -2083,11 +2083,13 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     private fun computeHeight(msg: MessageEntity): Int {
         val topPad = if (isCombined) COMBINE_PAD_V else PAD_V
-        var h = topPad + PAD_BOTTOM
+        var h = topPad
 
         if (hasReply) {
             h += REPLY_ROW_HEIGHT + REPLY_V_GAP
         }
+
+        val avatarBottom = if (isCombined) 0 else h + AVATAR_SIZE
 
         senderLayout?.let { h += it.height + GAP_V_INNER }
         forwardLayout?.let { h += it.height + GAP_V_INNER }
@@ -2117,7 +2119,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             errorLayout?.let { h += it.height + GAP_V_INNER }
         }
 
-        return h
+        return maxOf(h, avatarBottom) + PAD_BOTTOM
     }
 
     private fun buildFileLayouts(msg: MessageEntity, textWidth: Int) {
