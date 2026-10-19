@@ -8,7 +8,6 @@ import android.view.View
 import android.widget.LinearLayout
 import android.widget.Space
 import android.widget.TextView
-import android.widget.Toast
 import com.mezon.mobile.R
 import com.mezon.mobile.core.BottomSheet
 import com.mezon.mobile.core.LayoutHelper
@@ -40,10 +39,6 @@ class ClanMenuBottomSheet(
     private val onLeaveClan: Runnable,
     private val onDeleteClan: Runnable,
 ) : BottomSheet(context) {
-
-    private fun showComingSoon() {
-        Toast.makeText(context, context.getString(R.string.feature_coming_soon), Toast.LENGTH_SHORT).show()
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -225,7 +220,7 @@ class ClanMenuBottomSheet(
                         theme,
                         context.getString(R.string.clan_menu_edit_clan_profile),
                         null,
-                        Runnable { showComingSoon() }
+                        onOpenClanSettings
                     ),
                     ClanSettingsUiHelpers.buildMezonChevronRowWithoutIcon(
                         context,
