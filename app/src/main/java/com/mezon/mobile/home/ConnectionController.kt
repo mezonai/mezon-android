@@ -48,6 +48,7 @@ class ConnectionController @Inject constructor(
     private val callController: dagger.Lazy<CallController>,
     private val badgeCoordinator: dagger.Lazy<BadgeCoordinator>,
     private val topicBadgeTracker: dagger.Lazy<TopicBadgeTracker>,
+    private val voiceController: dagger.Lazy<com.mezon.mobile.home.voice.VoiceController>,
     @ApplicationContext private val appContext: Context,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     @ApplicationScope private val appScope: CoroutineScope
@@ -162,6 +163,7 @@ class ConnectionController @Inject constructor(
                 try {
                     channelController.get().awaitChannelsForClan(selectedClanId)
                     mezonSocket.joinClanChat(selectedClanId)
+                    voiceController.get().refetchVoiceChannelMembersAfterClanJoin(selectedClanId)
                 }
                 catch (e: Exception) { Log.e(TAG, "joinClanChat($selectedClanId) failed", e) }
             }

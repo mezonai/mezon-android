@@ -132,6 +132,7 @@ import com.mezon.mobile.ui.cells.ColoredImageSpan
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.PageDownButton
 import com.mezon.mobile.ui.cells.ToastOverlay
+import com.mezon.mobile.ui.cells.TypingDotsDrawable
 import com.mezon.mobile.util.FileUtils
 import com.mezon.mobile.util.EmojiMarker
 import com.mezon.mobile.util.HashtagData
@@ -243,6 +244,9 @@ open class ChatFragment : BaseFragment() {
         private const val INPUT_OGP_CACHE_MAX = 32
         private const val INPUT_OGP_SEND_WAIT_MS = 400L
         private const val MAX_MESSAGE_CONTENT_BYTES = 3700
+        private const val REMOTE_TYPING_TTL_MS = 3_000L
+        private const val REMOTE_TYPING_FADE_MS = 100L
+        private const val REMOTE_TYPING_STRIP_HEIGHT_DP = 18f
         private val inputOgpCache = object : LinkedHashMap<String, InputOgpPreview>(16, 0.75f, true) {
             override fun removeEldestEntry(eldest: Map.Entry<String, InputOgpPreview>): Boolean = size > INPUT_OGP_CACHE_MAX
         }
@@ -444,6 +448,12 @@ open class ChatFragment : BaseFragment() {
     private var inputOgpImageLoad: MezonImageLoader.Cancellable = MezonImageLoader.Cancellable.EMPTY
     private var inputOgpThumbnailUrl: String? = null
     private var awaitingOgpForSend = false
+    private var remoteTypingStrip: TextView? = null
+    private var remoteTypingDots: TypingDotsDrawable? = null
+    private var remoteTypingStripShown = false
+    private data class RemoteTyper(val name: String, val expiresAtMs: Long)
+    private val remoteTypers = LinkedHashMap<Long, RemoteTyper>()
+    private val remoteTypingExpireRunnable = Runnable { pruneRemoteTypers() }
 
     private lateinit var userClanController: UserClanController
     private lateinit var userController: com.mezon.mobile.home.profile.UserController
@@ -1366,9 +1376,22 @@ open class ChatFragment : BaseFragment() {
             }
         }
 
+        observe(NotificationCenter.typingEvent) { _, _, args ->
+            val eventKey = args.getOrNull(0) as? Long ?: return@observe
+            if (eventKey != messageListKey) return@observe
+            val eventClanId = args.getOrNull(1) as? Long ?: 0L
+            if (eventClanId != 0L && eventClanId != clanId) return@observe
+            val senderId = args.getOrNull(2) as? Long ?: return@observe
+            val name = (args.getOrNull(3) as? String).orEmpty()
+            onRemoteTyping(senderId, name)
+        }
+
         observe(NotificationCenter.themeChanged) { _, _, _ ->
             if (fragmentView == null) return@observe
             rootView.setBackgroundColor(themeColors.chatBackground)
+            remoteTypingStrip?.setTextColor(themeColors.textDisabled)
+            remoteTypingDots?.color = themeColors.textDisabled
+            refreshRemoteTypingStrip()
             inputBar.setBackgroundColor(themeColors.surface)
             noPermissionBar.setBackgroundColor(themeColors.surface)
             noPermissionText.setTextColor(themeColors.textDisabled)
@@ -1742,7 +1765,7 @@ open class ChatFragment : BaseFragment() {
             lm.stackFromEnd = false
             layoutManager = lm
             itemAnimator = null
-            setPadding(0, 0, 0, LayoutHelper.dp(8f))
+            setPadding(0, 0, 0, LayoutHelper.dp(REMOTE_TYPING_STRIP_HEIGHT_DP))
             clipToPadding = false
             setItemViewCacheSize(8)
             visibility = View.INVISIBLE
@@ -1799,6 +1822,30 @@ open class ChatFragment : BaseFragment() {
             text = getString(R.string.dm_no_messages)
         }
         contentFrame.addView(emptyView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
+
+        remoteTypingDots = TypingDotsDrawable(themeColors.textDisabled)
+        remoteTypingStrip = TextView(context).apply {
+            setTextColor(themeColors.textDisabled)
+            textSize = 12f
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(LayoutHelper.dp(14f), 0, LayoutHelper.dp(12f), 0)
+            compoundDrawablePadding = LayoutHelper.dp(6f)
+            setCompoundDrawablesWithIntrinsicBounds(remoteTypingDots, null, null, null)
+            alpha = 0f
+            visibility = View.INVISIBLE
+        }
+        remoteTypingStripShown = false
+        contentFrame.addView(
+            remoteTypingStrip,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                LayoutHelper.dp(REMOTE_TYPING_STRIP_HEIGHT_DP),
+                Gravity.BOTTOM
+            )
+        )
+        refreshRemoteTypingStrip()
 
         pageDownButton = PageDownButton(context, themeColors).apply {
             setOnClickListener { onPageDownClicked() }
@@ -2274,6 +2321,9 @@ open class ChatFragment : BaseFragment() {
                 updateSendButtonState()
                 updateInputOgpPreview(s?.toString().orEmpty())
                 checkSuggestionTrigger()
+                if (!s.isNullOrEmpty() && editingMessage == null) {
+                    chatController.sendTyping(channelId, clanId, channelType, resolveChannelPrivate(), topicId)
+                }
             }
         })
 
@@ -3294,6 +3344,12 @@ open class ChatFragment : BaseFragment() {
         waitingForKeyboardOpen = false
         AndroidUtilities.cancelRunOnUIThread(openKeyboardRunnable)
         AndroidUtilities.cancelRunOnUIThread(showKeyboardFromEmojiRunnable)
+        AndroidUtilities.cancelRunOnUIThread(remoteTypingExpireRunnable)
+        remoteTypers.clear()
+        remoteTypingStrip?.animate()?.cancel()
+        remoteTypingDots?.stop()
+        remoteTypingDots = null
+        remoteTypingStrip = null
         notificationCenter.removePostponeNotificationsCallback(postponeNewMessagesCallback)
         notificationCenter.onAnimationFinish(transitionAnimationIndex)
         if (::recyclerView.isInitialized) cancelPendingScroll()
@@ -3593,6 +3649,7 @@ open class ChatFragment : BaseFragment() {
             val position = adapter.messagesStartRow
             lm.scrollToPositionWithOffset(position, 0)
         }
+        r.run()
         pendingBottomScroll = r
         recyclerView.post(r)
     }
@@ -3608,6 +3665,7 @@ open class ChatFragment : BaseFragment() {
         val lm = recyclerView.layoutManager as? LinearLayoutManager ?: return
         val firstVisible = lm.findFirstVisibleItemPosition()
         if (firstVisible <= 3 || firstVisible == RecyclerView.NO_POSITION) {
+            recyclerView.scrollToPosition(0)
             recyclerView.post { recyclerView.scrollToPosition(0) }
         }
     }
@@ -4949,6 +5007,68 @@ open class ChatFragment : BaseFragment() {
             return channelController.findChannelById(channelId)?.isPrivate ?: false
         }
         return false
+    }
+
+    private fun onRemoteTyping(senderId: Long, name: String) {
+        remoteTypers[senderId] = RemoteTyper(
+            name.ifBlank { "…" },
+            android.os.SystemClock.elapsedRealtime() + REMOTE_TYPING_TTL_MS
+        )
+        refreshRemoteTypingStrip()
+    }
+
+    private fun pruneRemoteTypers() {
+        val now = android.os.SystemClock.elapsedRealtime()
+        remoteTypers.values.removeAll { it.expiresAtMs <= now }
+        refreshRemoteTypingStrip()
+    }
+
+    private fun refreshRemoteTypingStrip() {
+        AndroidUtilities.cancelRunOnUIThread(remoteTypingExpireRunnable)
+        val nextExpiry = remoteTypers.values.minOfOrNull { it.expiresAtMs }
+        if (nextExpiry != null) {
+            val delay = (nextExpiry - android.os.SystemClock.elapsedRealtime()).coerceAtLeast(0L)
+            AndroidUtilities.runOnUIThread(remoteTypingExpireRunnable, delay)
+        }
+        val strip = remoteTypingStrip ?: return
+        val line = buildRemoteTypingLine()
+        if (line != null) strip.text = line
+        setRemoteTypingStripShown(line != null)
+    }
+
+    private fun buildRemoteTypingLine(): CharSequence? = when (remoteTypers.size) {
+        0 -> null
+        1 -> {
+            val name = remoteTypers.values.first().name
+            val text = getString(R.string.common_is_typing, name)
+            val start = text.indexOf(name)
+            SpannableString(text).apply {
+                if (start >= 0) {
+                    val end = start + name.length
+                    setSpan(android.text.style.ForegroundColorSpan(themeColors.onSurfaceVariant), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+            }
+        }
+        else -> getString(R.string.common_several_people_typing)
+    }
+
+    private fun setRemoteTypingStripShown(shown: Boolean) {
+        if (shown == remoteTypingStripShown) return
+        val strip = remoteTypingStrip ?: return
+        remoteTypingStripShown = shown
+        strip.animate().cancel()
+        if (shown) {
+            remoteTypingDots?.start()
+            strip.visibility = View.VISIBLE
+            strip.animate().alpha(1f).setDuration(REMOTE_TYPING_FADE_MS).start()
+        } else {
+            strip.animate().alpha(0f).setDuration(REMOTE_TYPING_FADE_MS)
+                .withEndAction {
+                    strip.visibility = View.INVISIBLE
+                    remoteTypingDots?.stop()
+                }
+                .start()
+        }
     }
 
     private fun rejoinChannelOnSocket() {
