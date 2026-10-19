@@ -53,7 +53,7 @@
     <string name="common_today">Today</string>
     <string name="common_today_at">Today at</string>
     <string name="common_yesterday_at">Yesterday at</string>
-    <string name="common_is_typing"> is typing…</string>
+    <string name="common_is_typing">%1$s is typing…</string>
     <string name="common_several_people_typing">Several people are typing…</string>
     <string name="common_poor_connection">You are currently offline.</string>
     <string name="error_network_no_connection">No internet connection. Please turn on Wi‑Fi or mobile data and try again.</string>

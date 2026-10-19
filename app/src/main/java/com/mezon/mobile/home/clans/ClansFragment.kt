@@ -246,7 +246,6 @@ class ClansFragment : BaseFragment() {
             if (fragmentView == null || listFrozen) return@observe
             val clanId = clansController.selectedClanId.value
             if (clanId == 0L) return@observe
-            voiceController.fetchVoiceChannelMembers(clanId, noCache = true)
             streamingController.fetchStreamChannelMembers(clanId, noCache = true)
             syncVoiceMembersUi()
         }

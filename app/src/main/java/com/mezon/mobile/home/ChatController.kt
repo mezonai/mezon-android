@@ -321,6 +321,7 @@ class ChatController @Inject constructor(
         appScope.launch { observeReactionEvents() }
         appScope.launch { observeSdTopicEvents() }
         appScope.launch { observeTopicInMessageEvents() }
+        appScope.launch { observeTypingEvents() }
         appScope.launch(ioDispatcher) {
             val session = sessionManager.sessionFlow.first { it != null }
             cachedCurrentUserId = session?.userId?.toLongOrNull() ?: 0L
@@ -1337,6 +1338,43 @@ class ChatController @Inject constructor(
                 ?: channelController.get().linkedChannelDetail(id)
         }
 
+    private var lastTypingKey = 0L
+    private var lastTypingSentAtMs = 0L
+
+    fun sendTyping(
+        channelId: Long,
+        clanId: Long,
+        channelType: Int,
+        isChannelPrivate: Boolean,
+        topicId: Long = 0L
+    ) {
+        if (channelId == 0L || isAnonymousSend(clanId)) return
+        if (mezonSocket.connectionState.value != ConnectionState.CONNECTED) return
+        val key = messageCacheKey(channelId, topicId)
+        val now = SystemClock.elapsedRealtime()
+        if (key == lastTypingKey && now - lastTypingSentAtMs < TYPING_SEND_THROTTLE_MS) return
+        lastTypingKey = key
+        lastTypingSentAtMs = now
+        val (name, _) = optimisticSenderPresentation(userController.get(), clanId, channelType, anon = false)
+        mezonSocket.writeMessageTyping(
+            clanId, channelId, channelTypeToStreamMode(channelType), !isChannelPrivate, name, topicId
+        )
+    }
+
+    private suspend fun observeTypingEvents() {
+        socketEventDispatcher.typingEvents.collect { e ->
+            if (e.senderId == 0L || e.senderId == getCurrentUserId()) return@collect
+            val key = if (e.topicId != 0L) e.topicId else e.channelId
+            notificationCenter.postNotificationOnMainThread(
+                NotificationCenter.typingEvent,
+                key,
+                e.clanId,
+                e.senderId,
+                e.senderDisplayName.ifBlank { e.senderUsername }
+            )
+        }
+    }
+
     fun sendMessage(
         channelId: Long,
         clanId: Long,
@@ -1947,6 +1985,7 @@ class ChatController @Inject constructor(
         private const val DUP_RECONCILE_RETRY_DELAY_MS = 3_000L
         private const val DUP_RECONCILE_BEFORE_WINDOW_SECONDS = 40L
         private const val DUP_RECONCILE_AFTER_BUFFER_SECONDS = 10L
+        private const val TYPING_SEND_THROTTLE_MS = 2_000L
     }
 
     private fun generateTempId(channelId: Long): Long {

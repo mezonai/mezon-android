@@ -33,6 +33,7 @@ import com.mezon.mobile.home.clans.channelapp.ChannelAppController
 import com.mezon.mobile.home.notifications.NotificationStore
 import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.profile.UserController
+import com.mezon.mobile.home.voice.VoiceController
 import dagger.Lazy
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
@@ -71,6 +72,7 @@ class ClansController @Inject constructor(
     private val badgeCoordinator: Lazy<BadgeCoordinator>,
     private val notificationStore: Lazy<NotificationStore>,
     private val topicBadgeTracker: Lazy<TopicBadgeTracker>,
+    private val voiceController: Lazy<VoiceController>,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     @ApplicationScope private val appScope: CoroutineScope
 ) {
@@ -138,6 +140,9 @@ class ClansController @Inject constructor(
                 if (clanId != 0L && mezonSocket.awaitConnected()) {
                     channelController.awaitChannelsForClan(clanId)
                     mezonSocket.joinClanChat(clanId)
+                    if (_selectedClanId.value == clanId) {
+                        voiceController.get().refetchVoiceChannelMembersAfterClanJoin(clanId)
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "joinClanChat($clanId) failed", e)

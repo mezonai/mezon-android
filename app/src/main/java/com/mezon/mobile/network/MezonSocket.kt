@@ -625,22 +625,26 @@ class MezonSocket @Inject constructor(
         }
     }
 
-    suspend fun writeMessageTyping(
+    fun writeMessageTyping(
         clanId: Long,
         channelId: Long,
         mode: Int,
         isPublic: Boolean,
         senderDisplayName: String,
         topicId: Long = 0L
-    ): Envelope = send {
-        this.messageTypingEvent = messageTypingEvent {
-            this.clanId = clanId
-            this.channelId = channelId
-            this.mode = mode
-            this.isPublic = isPublic
-            this.senderDisplayName = senderDisplayName
-            this.topicId = topicId
-        }
+    ) {
+        val cid = nextCid()
+        sendFireAndForget(envelope {
+            this.cid = cid
+            this.messageTypingEvent = messageTypingEvent {
+                this.clanId = clanId
+                this.channelId = channelId
+                this.mode = mode
+                this.isPublic = isPublic
+                this.senderDisplayName = senderDisplayName
+                this.topicId = topicId
+            }
+        })
     }
 
     suspend fun writeLastSeenMessage(
