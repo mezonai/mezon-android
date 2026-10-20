@@ -488,6 +488,7 @@ class MainActivity : BasePermissionsActivity(),
     @Suppress("DEPRECATION")
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        voiceRoomFragment?.onActivityResult(requestCode, resultCode, data)
         actionBarLayout.onActivityResult(requestCode, resultCode, data)
         super.onActivityResult(requestCode, resultCode, data)
     }

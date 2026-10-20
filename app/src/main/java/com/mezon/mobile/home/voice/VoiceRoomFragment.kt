@@ -1,6 +1,7 @@
 package com.mezon.mobile.home.voice
 
 import android.Manifest
+import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -8,6 +9,7 @@ import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
+import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -76,6 +78,7 @@ private const val ARG_ROLE = "join_role"
 private const val REQUEST_VOICE_PERMISSIONS = 1401
 private const val REQUEST_MIC_TOGGLE = 1402
 private const val REQUEST_CAMERA_TOGGLE = 1403
+private const val REQUEST_SCREEN_CAPTURE = 1404
 private const val SWITCH_CAMERA_THROTTLE_MS = 300L
 private const val RAISE_HAND_COOLDOWN_MS = 10_000L
 private const val RAISE_UP_PREFIX = "raising-up:"
@@ -478,6 +481,8 @@ class VoiceRoomFragment : BaseFragment() {
                 }
             }
             onSwitchCameraClick = { switchLocalCamera() }
+            setRaiseHandVisible(!isGroupCall && joinRole != SfuRole.AUDIENCE)
+            onRaiseHandClick = { sendRaiseHandReaction() }
             onAudioOutputClick = { cycleAudioOutput() }
             onMoreClick = { anchor ->
                 getParentActivity()?.let { activity ->
@@ -534,7 +539,7 @@ class VoiceRoomFragment : BaseFragment() {
         participantAdapter = VoiceParticipantAdapter(
             themeColors = themeColors,
             getParticipants = { getGridParticipants() },
-            onScreenShareClick = { showFocusedShare(it) },
+            onScreenShareClick = { if (it.deviceId != LOCAL_DEVICE_ID) showFocusedShare(it) },
             onParticipantLongPress = { openParticipantModerationSheet(it) },
             itemKeyProvider = { participantKey(it) },
             isCompactMode = { isInPipMode },
@@ -622,6 +627,7 @@ class VoiceRoomFragment : BaseFragment() {
             onMicPressEnd = { sfuSession.pttRelease() }
             onChatClick = { openChatHistoryForCurrentChannel() }
             onRaiseHandClick = { sendRaiseHandReaction() }
+            onScreenShareClick = { toggleScreenShare() }
             onEndCallClick = {
                 disconnectAndLeave()
                 dismissOverlay()
@@ -903,12 +909,40 @@ class VoiceRoomFragment : BaseFragment() {
 
     private fun onScreenShareRefused(code: String) {
         val activity = getParentActivity() ?: return
-        val message = if (code == "screen_share_capacity_full") {
-            R.string.voice_room_screen_share_limit_reached
-        } else {
-            R.string.voice_room_screen_share_update_failed
+        val message = when (code) {
+            "screen_share_capacity_full" -> R.string.voice_room_screen_share_limit_reached
+            "screen_share_not_allowed" -> R.string.voice_room_screen_share_not_allowed
+            else -> R.string.voice_room_screen_share_update_failed
         }
         Toast.makeText(activity, getString(message), Toast.LENGTH_SHORT).show()
+        if (!localScreenOn) VoiceChannelForegroundService.setScreenSharing(activity, false)
+    }
+
+    private fun toggleScreenShare() {
+        if (localScreenOn) {
+            sfuSession.setScreenShare(false, null)
+            return
+        }
+        if (!sfuConnected || joinRole == SfuRole.AUDIENCE) return
+        val manager = getParentActivity()?.getSystemService(MediaProjectionManager::class.java) ?: return
+        try {
+            startActivityForResult(manager.createScreenCaptureIntent(), REQUEST_SCREEN_CAPTURE)
+        } catch (e: ActivityNotFoundException) {
+            onScreenShareRefused("screen_share_update_failed")
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode != REQUEST_SCREEN_CAPTURE) return
+        if (resultCode != Activity.RESULT_OK || data == null || !sfuConnected || localScreenOn) return
+        val activity = getParentActivity() ?: return
+        VoiceChannelForegroundService.setScreenSharing(activity, true) { ready ->
+            if (ready) {
+                sfuSession.setScreenShare(true, data)
+            } else {
+                onScreenShareRefused("screen_share_update_failed")
+            }
+        }
     }
 
     private fun turnLocalCameraOff() {
@@ -1000,6 +1034,7 @@ class VoiceRoomFragment : BaseFragment() {
             sfuSession.onRoleChanged = { r ->
                 joinRole = r
                 if (::controlBar.isInitialized) controlBar.setPushToTalkMode(r == SfuRole.AUDIENCE)
+                if (::headerView.isInitialized) headerView.setRaiseHandVisible(!isGroupCall && r != SfuRole.AUDIENCE)
                 applyVoiceLayoutForMode()
             }
             sfuSession.onError = { code, _ -> Log.e(TAG, "sfu error: $code") }
@@ -1012,6 +1047,8 @@ class VoiceRoomFragment : BaseFragment() {
             sfuSession.onLocalScreenTrack = { track ->
                 localScreenTrack = track
                 localScreenOn = track != null
+                if (::controlBar.isInitialized) controlBar.setScreenShareEnabled(track != null)
+                if (track == null) getParentActivity()?.let { VoiceChannelForegroundService.setScreenSharing(it, false) }
                 doUpdateParticipantList()
             }
             sfuSession.onSpeaking = { ids ->
@@ -1080,6 +1117,7 @@ class VoiceRoomFragment : BaseFragment() {
                 speakingIds = emptySet()
                 controlBar.setMicEnabled(false)
                 controlBar.setCameraEnabled(false)
+                controlBar.setScreenShareEnabled(false)
                 headerView.setSwitchCameraVisible(false)
                 doUpdateParticipantList()
                 connectionFailurePending = true
@@ -1528,9 +1566,7 @@ class VoiceRoomFragment : BaseFragment() {
     }
 
     private fun resolvePipShareParticipant(): ParticipantInfo? {
-        val availableShares = participants.filter { it.isScreenShare && it.videoTrack != null }
-        if (availableShares.isEmpty()) return null
-        return availableShares.firstOrNull { it.deviceId != LOCAL_DEVICE_ID } ?: availableShares.first()
+        return participants.firstOrNull { it.isScreenShare && it.videoTrack != null && it.deviceId != LOCAL_DEVICE_ID }
     }
 
     private fun openParticipantModerationSheet(participant: ParticipantInfo) {
@@ -1947,6 +1983,9 @@ class VoiceRoomFragment : BaseFragment() {
         isRaiseHandActive = active
         if (::controlBar.isInitialized) {
             controlBar.setRaiseHandActive(active)
+        }
+        if (::headerView.isInitialized) {
+            headerView.setRaiseHandActive(active)
         }
         if (!active) {
             raiseHandCooldownJob?.cancel()
