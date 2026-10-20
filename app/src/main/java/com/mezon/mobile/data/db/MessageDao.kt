@@ -38,6 +38,14 @@ interface MessageDao {
     @Upsert
     suspend fun upsert(message: MessageEntity)
 
+    @Transaction
+    suspend fun upsertPreservingReactions(message: MessageEntity): MessageEntity {
+        val existing = getById(message.channelId, message.id)
+        val stored = message.copy(reactionsJson = existing?.reactionsJson ?: message.reactionsJson)
+        upsert(stored)
+        return stored
+    }
+
     @Query("DELETE FROM messages WHERE channelId = :channelId AND id NOT IN (SELECT id FROM messages WHERE channelId = :channelId ORDER BY timestampSeconds DESC LIMIT :keep)")
     suspend fun trimToLatest(channelId: Long, keep: Int = 50)
 
@@ -88,11 +96,13 @@ interface MessageDao {
     suspend fun updateReactions(channelId: Long, messageId: Long, reactionsJson: String)
 
     @Transaction
-    suspend fun applyReaction(channelId: Long, reaction: MessageReaction): String? {
-        val existing = getById(channelId, reaction.messageId) ?: return null
+    suspend fun applyReaction(channelId: Long, reaction: MessageReaction, resolveCount: (String?) -> Int?): String? {
+        val existing = getById(channelId, reaction.messageId)
+        val count = resolveCount(existing?.reactionsJson)
+        if (existing == null) return null
         val updatedJson = applyReactionEvent(
             existing.reactionsJson, reaction.emojiId, reaction.emoji,
-            reaction.senderId, reaction.action
+            reaction.senderId, reaction.action, count
         )
         updateReactions(channelId, reaction.messageId, updatedJson)
         return updatedJson

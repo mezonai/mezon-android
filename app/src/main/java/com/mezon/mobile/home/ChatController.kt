@@ -11,6 +11,8 @@ import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.home.chat.AttachmentPickerItem
 import com.mezon.mobile.home.chat.AttachmentInfo
 import com.mezon.mobile.home.chat.MessageEntity
+import com.mezon.mobile.home.chat.OptimisticReactions
+import com.mezon.mobile.home.chat.reactionCountOf
 import com.mezon.mobile.home.chat.canEditMessage
 import com.mezon.mobile.home.chat.ForwardDestination
 import com.mezon.mobile.home.chat.mergeChannelContentMentionsAndRefs
@@ -107,6 +109,9 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -180,6 +185,9 @@ class ChatController @Inject constructor(
 
     val dialogMessage = LongSparseArray<MessageEntity>()
     private val initialFetchDone = HashSet<Long>()
+    private val reactionMutex = Mutex()
+    @Volatile private var optimisticReactions = OptimisticReactions()
+    private data class PendingReaction(val state: OptimisticReactions, val operation: OptimisticReactions.Operation)
     private val lastMessageByChannel = LongSparseArray<Long>()
     private val pendingTempMessageByChannel = LongSparseArray<Long>()
     private val topicRootByTopicId = LongSparseArray<TopicRootRef>()
@@ -372,6 +380,7 @@ class ChatController @Inject constructor(
     }
 
     fun cleanup() {
+        optimisticReactions = OptimisticReactions()
         pendingOnlineMessageRefreshJobs.values.forEach { it.cancel() }
         pendingOnlineMessageRefreshJobs.clear()
         synchronized(this) {
@@ -431,7 +440,7 @@ class ChatController @Inject constructor(
                 lastMessageByChannel.put(channelId, messageId)
             }
         }
-        appScope.launch(ioDispatcher) { messageDao.upsert(optimistic) }
+        appScope.launch(ioDispatcher) { messageDao.upsertPreservingReactions(optimistic) }
         notificationCenter.postNotificationOnMainThread(
             NotificationCenter.didReceiveNewMessages, channelId, optimistic
         )
@@ -656,11 +665,21 @@ class ChatController @Inject constructor(
                     ) response.lastSentMessage.id else 0L
                     updateLastMessageByChannel(cacheKey, messages, serverLastSentId)
                     val serverLastSeenId = if (response.hasLastSeenMessage()) response.lastSeenMessage.id else 0L
-                    messageDao.upsertAll(messages)
-                    messageDao.trimToLatest(cacheKey, PAGE_SIZE * 4)
-                    notificationCenter.postNotificationOnMainThread(
-                        NotificationCenter.messagesDidLoad, cacheKey, ArrayList(messages), hasMoreTop, false, false, serverLastSeenId
-                    )
+                    reactionMutex.withLock {
+                        notificationCenter.postNotificationOnMainThread(
+                            NotificationCenter.messagesDidLoad, cacheKey, ArrayList(messages), hasMoreTop, false, false, serverLastSeenId
+                        )
+                     
+                        try {
+                            messageDao.upsertAll(messages)
+                            messageDao.trimToLatest(cacheKey, PAGE_SIZE * 4)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to cache messages for channel $cacheKey", e)
+                            sentryReporter.logChatFailure("cacheMessages", cacheKey, clanId, e)
+                        }
+                    }
                     cacheTracker.markCalled(cacheTrackerKey)
                 }
             } catch (e: Exception) {
@@ -2861,7 +2880,7 @@ class ChatController @Inject constructor(
     private suspend fun applyLocalBackgroundUploadFailure(cacheKey: Long, messageId: Long) {
         val existing = withContext(ioDispatcher) { messageDao.getById(cacheKey, messageId) } ?: return
         val updated = existing.copy(isError = true)
-        appScope.launch(ioDispatcher) { messageDao.upsert(updated) }
+        appScope.launch(ioDispatcher) { messageDao.upsertPreservingReactions(updated) }
         synchronized(this) {
             val last = dialogMessage.get(cacheKey)
             if (last != null && last.id == messageId) {
@@ -3044,7 +3063,7 @@ class ChatController @Inject constructor(
             hideEditted = true,
             updateTimeSeconds = if (presignOnly) 0L else existing.updateTimeSeconds,
         )
-        appScope.launch(ioDispatcher) { messageDao.upsert(updated) }
+        appScope.launch(ioDispatcher) { messageDao.upsertPreservingReactions(updated) }
         synchronized(this) {
             val last = dialogMessage.get(cacheKey)
             if (last != null && last.id == messageId) {
@@ -3103,7 +3122,7 @@ class ChatController @Inject constructor(
             hideEditted = true,
             isError = hasError,
         )
-        appScope.launch(ioDispatcher) { messageDao.upsert(updated) }
+        appScope.launch(ioDispatcher) { messageDao.upsertPreservingReactions(updated) }
         synchronized(this) {
             pendingAttachmentEntityByTempId.put(tempId, updated)
             if (realMessageId > lastMessageByChannel.get(cacheKey, 0L)) {
@@ -3139,7 +3158,7 @@ class ChatController @Inject constructor(
             sendState = MessageEntity.SEND_STATE_SENT,
             isError = hasError,
         )
-        appScope.launch(ioDispatcher) { messageDao.upsert(updated) }
+        appScope.launch(ioDispatcher) { messageDao.upsertPreservingReactions(updated) }
         synchronized(this) {
             val last = dialogMessage.get(cacheKey)
             if (last != null && last.id == messageId) {
@@ -3190,7 +3209,7 @@ class ChatController @Inject constructor(
             messageType = fields.messageType,
             sendState = MessageEntity.SEND_STATE_SENT,
         )
-        appScope.launch(ioDispatcher) { messageDao.upsert(updated) }
+        appScope.launch(ioDispatcher) { messageDao.upsertPreservingReactions(updated) }
         synchronized(this) {
             pendingAttachmentEntityByTempId.put(tempId, updated)
             if (realMessageId > lastMessageByChannel.get(cacheKey, 0L)) {
@@ -3221,7 +3240,7 @@ class ChatController @Inject constructor(
             messageType = fields.messageType,
             sendState = MessageEntity.SEND_STATE_SENT,
         )
-        appScope.launch(ioDispatcher) { messageDao.upsert(updated) }
+        appScope.launch(ioDispatcher) { messageDao.upsertPreservingReactions(updated) }
         synchronized(this) {
             val last = dialogMessage.get(cacheKey)
             if (last != null && last.id == messageId) {
@@ -3539,7 +3558,7 @@ class ChatController @Inject constructor(
         appScope.launch(ioDispatcher) {
             val existing = messageDao.getById(parentChannelId, messageId) ?: return@launch
             val updated = existing.withTopicCreated(topicId, creatorId)
-            messageDao.upsert(updated)
+            messageDao.upsertPreservingReactions(updated)
             notificationCenter.postNotificationOnMainThread(
                 NotificationCenter.messageDidUpdate, parentChannelId, updated, NotificationCenter.UPDATE_MASK_TOPIC
             )
@@ -3587,7 +3606,7 @@ class ChatController @Inject constructor(
         }
         if (meta.rpl == root.rplCount && meta.lsnt == root.lastSentSeconds) return
         val updated = root.withTopicStats(meta.rpl, meta.lsnt)
-        messageDao.upsert(updated)
+        messageDao.upsertPreservingReactions(updated)
         notificationCenter.postNotificationOnMainThread(
             NotificationCenter.messageDidUpdate, parentChannelId, updated, NotificationCenter.UPDATE_MASK_TOPIC
         )
@@ -3615,7 +3634,7 @@ class ChatController @Inject constructor(
             val newLastSent = if (event.lsnt > 0L) event.lsnt else root.lastSentSeconds
             if (newRpl == root.rplCount && newLastSent == root.lastSentSeconds) return@launch
             val updated = root.withTopicStats(newRpl, newLastSent)
-            messageDao.upsert(updated)
+            messageDao.upsertPreservingReactions(updated)
             notificationCenter.postNotificationOnMainThread(
                 NotificationCenter.messageDidUpdate, root.channelId, updated, NotificationCenter.UPDATE_MASK_TOPIC
             )
@@ -3644,7 +3663,7 @@ class ChatController @Inject constructor(
                     appScope.launch(ioDispatcher) {
                         val existing = messageDao.getById(notifyEntity.channelId, notifyEntity.id)
                         if (existing == null) {
-                            messageDao.upsert(notifyEntity)
+                            messageDao.upsertPreservingReactions(notifyEntity)
                             notificationCenter.postNotificationOnMainThread(
                                 NotificationCenter.didReceiveNewMessages, notifyEntity.channelId, notifyEntity
                             )
@@ -3695,7 +3714,7 @@ class ChatController @Inject constructor(
                         if (!entity.isRenderable) return@collect
                         val topicEntity = remapForCache(entity, msg.topicId)
                         appScope.launch(ioDispatcher) {
-                            messageDao.upsert(topicEntity)
+                            messageDao.upsertPreservingReactions(topicEntity)
                             updateTopicRootStats(msg.topicId, msg.channelId, 1, topicEntity.timestampSeconds)
                         }
                         if (topicEntity.canAdvanceServerTimeline()) {
@@ -3725,8 +3744,7 @@ class ChatController @Inject constructor(
                     }
                     appScope.launch(ioDispatcher) {
                         val existing = messageDao.getById(entity.channelId, entity.id)
-                        val merged = mergeIncomingAttachmentEntity(existing, entity)
-                        messageDao.upsert(merged)
+                        val merged = messageDao.upsertPreservingReactions(mergeIncomingAttachmentEntity(existing, entity))
                         if (merged.canAdvanceServerTimeline()) {
                             synchronized(this@ChatController) {
                                 dialogMessage.put(merged.channelId, merged)
@@ -3789,9 +3807,9 @@ class ChatController @Inject constructor(
             incomingForStore,
             forceContentReplace = true,
         )
-        val stored = if (topicId != 0L) merged.copy(channelId = cacheKey) else merged
+        var stored = if (topicId != 0L) merged.copy(channelId = cacheKey) else merged
         if (existing != null) {
-            messageDao.upsert(stored)
+            stored = messageDao.upsertPreservingReactions(stored)
         }
         synchronized(this@ChatController) {
             val last = dialogMessage.get(cacheKey)
@@ -3849,9 +3867,9 @@ class ChatController @Inject constructor(
             )
         }
         val merged = mergeIncomingAttachmentEntity(existing, incoming, forceContentReplace = true)
-        val stored = if (update.topicId != 0L) merged.copy(channelId = cacheKey) else merged
+        var stored = if (update.topicId != 0L) merged.copy(channelId = cacheKey) else merged
         if (existing != null) {
-            messageDao.upsert(stored)
+            stored = messageDao.upsertPreservingReactions(stored)
         }
         synchronized(this@ChatController) {
             val last = dialogMessage.get(cacheKey)
@@ -3886,9 +3904,9 @@ class ChatController @Inject constructor(
     }
 
     private suspend fun observeReactionEvents() {
-        socketEventDispatcher.messageReactions.collect { reaction ->
-            handleReactionEvent(reaction)
-        }
+        socketEventDispatcher.messageReactions
+            .buffer(Channel.UNLIMITED)
+            .collect { reaction -> handleReactionEvent(reaction) }
     }
 
     private fun reactionCacheKey(reaction: com.mezon.mezon.api.MessageReaction): Long =
@@ -3898,16 +3916,81 @@ class ChatController @Inject constructor(
         val cacheKey = reactionCacheKey(reaction)
         if (cacheKey == 0L || reaction.messageId == 0L) return
         try {
-            val updatedJson = withContext(ioDispatcher) {
-                messageDao.applyReaction(cacheKey, reaction)
-            } ?: return
-            notificationCenter.postNotificationOnMainThread(
-                NotificationCenter.reactionDidUpdate, cacheKey, reaction.messageId, updatedJson
-            )
+            reactionMutex.withLock {
+                val state = optimisticReactions
+                publishReactionUpdate(reaction, state) { state.receive(reaction) }
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             Log.e(TAG, "Failed to persist reaction", e)
+        }
+    }
+
+    private suspend fun publishReactionUpdate(
+        reaction: MessageReaction,
+        state: OptimisticReactions,
+        resolveCount: (String?) -> Int?
+    ) {
+        val cacheKey = reactionCacheKey(reaction)
+        var count: Int? = null
+        val updatedJson = withContext(ioDispatcher) {
+            if (optimisticReactions !== state) return@withContext null
+            messageDao.applyReaction(cacheKey, reaction) { currentJson ->
+                resolveCount(currentJson).also { count = it }
+            }
+        }
+        if (optimisticReactions !== state) return
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.reactionDidUpdate, cacheKey, reaction.messageId, updatedJson, reaction, count
+        )
+    }
+
+    private suspend fun beginOptimisticReaction(
+        reaction: MessageReaction, fallbackJson: String?, state: OptimisticReactions
+    ): PendingReaction? =
+        reactionMutex.withLock {
+            if (optimisticReactions !== state) return@withLock null
+            val stored = withContext(ioDispatcher) {
+                messageDao.getById(reactionCacheKey(reaction), reaction.messageId)
+            }
+            val currentJson = stored?.reactionsJson ?: fallbackJson ?: return@withLock null
+            if (optimisticReactions !== state) return@withLock null
+            val operation = OptimisticReactions.Operation(reaction)
+            val pending = PendingReaction(state, operation)
+            try {
+                publishReactionUpdate(reaction, state) { latestJson ->
+                    state.begin(
+                        operation, reactionCountOf(latestJson ?: currentJson, reaction.emojiId, reaction.senderId)
+                    )
+                }
+            } catch (e: Exception) {
+                finishOptimisticReactionLocked(pending, success = false)
+                throw e
+            }
+            pending
+        }
+
+    private suspend fun finishOptimisticReaction(pending: PendingReaction?, success: Boolean) {
+        if (pending == null) return
+        withContext(NonCancellable) {
+            reactionMutex.withLock { finishOptimisticReactionLocked(pending, success) }
+        }
+    }
+
+    private suspend fun finishOptimisticReactionLocked(pending: PendingReaction, success: Boolean) {
+        if (optimisticReactions !== pending.state) return
+        val reaction = pending.operation.reaction
+        if (!pending.state.contains(pending.operation)) return
+        try {
+            withContext(NonCancellable) {
+                publishReactionUpdate(reaction, pending.state) {
+                    pending.state.finish(pending.operation, success)
+                }
+            }
+        } catch (e: Exception) {
+            if (!success) pending.state.finish(pending.operation, success = false)
+            Log.e(TAG, "Failed to settle reaction", e)
         }
     }
 
@@ -3920,7 +4003,9 @@ class ChatController @Inject constructor(
         emojiId: Long,
         emoji: String,
         actionDelete: Boolean,
-        topicId: Long = 0L
+        messageSenderId: Long,
+        topicId: Long = 0L,
+        reactionsJson: String? = null
     ) {
         appScope.launch {
             sendReactionAwait(
@@ -3932,7 +4017,9 @@ class ChatController @Inject constructor(
                 emojiId = emojiId,
                 emoji = emoji,
                 actionDelete = actionDelete,
-                topicId = topicId
+                messageSenderId = messageSenderId,
+                topicId = topicId,
+                reactionsJson = reactionsJson
             )
         }
     }
@@ -3946,46 +4033,96 @@ class ChatController @Inject constructor(
         emojiId: Long,
         emoji: String,
         actionDelete: Boolean,
-        topicId: Long = 0L
+        messageSenderId: Long,
+        topicId: Long = 0L,
+        reactionsJson: String? = null,
+        httpOnly: Boolean = false,
+        retryDelaysMs: LongArray = longArrayOf()
     ): Boolean {
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
+        val reactionState = optimisticReactions
+        var pending: PendingReaction? = null
+        var beganOptimistic = false
         return try {
             sessionManager.withAutoRefresh { session ->
-                val messageSenderId = session.userId.toLong()
-                api.channelMessageReact(
-                    session.apiUrl,
-                    session.token,
-                    clanId = clanId,
-                    channelId = channelId,
-                    mode = mode,
-                    isPublic = isPublic,
-                    messageId = messageId,
-                    emojiId = emojiId,
-                    emoji = emoji,
-                    count = 1,
-                    messageSenderId = messageSenderId,
-                    actionDelete = actionDelete,
-                    topicId = topicId
-                )
+                val currentUserId = session.userId.toLongOrNull()?.takeIf { it != 0L }
+                if (!beganOptimistic && currentUserId != null) {
+                    beganOptimistic = true
+                    val reaction = MessageReaction.newBuilder()
+                        .setChannelId(channelId).setClanId(clanId).setTopicId(topicId)
+                        .setMessageId(messageId).setEmojiId(emojiId).setEmoji(emoji)
+                        .setSenderId(currentUserId).setAction(actionDelete).build()
+                    pending = beginOptimisticReaction(reaction, reactionsJson, reactionState)
+                }
+                if (channelType == CHANNEL_TYPE_THREAD && clanId != 0L && currentUserId != null) {
+                    ensureThreadMembershipForReaction(
+                        session.apiUrl, session.token, channelId, clanId, currentUserId, httpOnly
+                    )
+                }
+                retryOnTransientSendFailure(
+                    delaysMs = if (httpOnly) retryDelaysMs else longArrayOf(),
+                    isRetryable = { it !is HttpRpcStatusException && isTransientSendFailure(it) }
+                ) {
+                    api.channelMessageReact(
+                        session.apiUrl,
+                        session.token,
+                        clanId = clanId,
+                        channelId = channelId,
+                        mode = mode,
+                        isPublic = isPublic,
+                        messageId = messageId,
+                        emojiId = emojiId,
+                        emoji = emoji,
+                        count = 1,
+                        messageSenderId = messageSenderId,
+                        actionDelete = actionDelete,
+                        topicId = topicId,
+                        httpOnly = httpOnly
+                    )
+                }
             }
+            finishOptimisticReaction(pending, success = true)
             true
         } catch (e: CancellationException) {
+            finishOptimisticReaction(pending, success = false)
             throw e
         } catch (e: Exception) {
+            finishOptimisticReaction(pending, success = false)
             Log.e(TAG, "Failed to send reaction", e)
             false
         }
     }
 
-    private suspend fun <T> retryOnTransientSendFailure(delaysMs: LongArray, block: suspend () -> T): T {
+    private suspend fun ensureThreadMembershipForReaction(
+        apiUrl: String,
+        token: String,
+        channelId: Long,
+        clanId: Long,
+        userId: Long,
+        httpOnly: Boolean
+    ) {
+        val members = userClanController.get()
+        if (members.getChannelMembers(channelId).any { it.userId == userId }) return
+        val response = api.listChannelUsers(apiUrl, token, clanId, channelId, CHANNEL_TYPE_THREAD, httpOnly = httpOnly)
+        if (response.channelUsersList.any { it.userId == userId }) return
+
+        api.addChannelUsers(apiUrl, token, channelId, listOf(userId), httpOnly = httpOnly)
+        members.loadChannelMembers(clanId, channelId, CHANNEL_TYPE_THREAD, noCache = true)
+    }
+
+    private suspend fun <T> retryOnTransientSendFailure(
+        delaysMs: LongArray,
+        isRetryable: (Exception) -> Boolean = ::isTransientSendFailure,
+        block: suspend () -> T
+    ): T {
         for (delayMs in delaysMs) {
             try {
                 return block()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                if (!isTransientSendFailure(e)) throw e
+                if (!isRetryable(e)) throw e
                 Log.w(TAG, "Transient send failure, retrying in ${delayMs}ms", e)
                 delay(delayMs)
             }

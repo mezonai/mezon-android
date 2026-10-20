@@ -391,6 +391,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private class ReactionEmojiImage {
         var drawable: android.graphics.drawable.Drawable? = null
         var cancellable: MezonImageLoader.Cancellable? = null
+        var loadFailed = false
     }
     private val reactionEmojiImages = LinkedHashMap<Long, ReactionEmojiImage>()
     private var reactionRowHeight = 0
@@ -433,16 +434,16 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         avatarDrawable.startAnimation()
         replyAvatarDrawable.startAnimation()
 
+        pendingMessage?.let { msg ->
+            pendingMessage = null
+            update(0, msg)
+        }
+        syncReactionEmojiImages(reactionGroups)
         reactionEmojiImages.values.forEach { image ->
             image.drawable?.let {
                 it.callback = this
                 if (it is android.graphics.drawable.AnimatedImageDrawable) it.start()
             }
-        }
-        syncReactionEmojiImages(reactionGroups)
-        pendingMessage?.let { msg ->
-            pendingMessage = null
-            update(0, msg)
         }
         messageEntity?.let { resolveAudioDurationIfNeeded(it) }
     }
@@ -459,16 +460,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         linkInviteBlock.onDetachedFromWindow()
         embedMessage.onDetachedFromWindow()
         
-        reactionEmojiImages.values.forEach { image ->
-            val drawable = image.drawable
-            if (drawable is android.graphics.drawable.AnimatedImageDrawable) {
-                drawable.stop()
-            }
-            drawable?.callback = null
-            image.cancellable?.cancel()
-            image.cancellable = null
-        }
-        reactionEmojiImages.entries.removeAll { it.value.drawable == null }
+        reactionEmojiImages.values.forEach(::releaseReactionEmojiImage)
+        reactionEmojiImages.entries.removeAll { it.value.drawable == null && !it.value.loadFailed }
         topicButtonLayout.cancelAvatarLoad()
         avatarDrawable.stopAnimation()
         replyAvatarDrawable.stopAnimation()
@@ -4322,7 +4315,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                                 }
                             }
                             image.cancellable = null
-                            reactionEmojiImages.remove(group.emojiId)
+                            image.loadFailed = true
                             invalidate()
                         }
                     }

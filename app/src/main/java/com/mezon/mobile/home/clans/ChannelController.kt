@@ -1007,7 +1007,7 @@ class ChannelController @Inject constructor(
         notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
     }
 
-    suspend fun findOrFetchChannelLabel(channelId: Long, clanId: Long = 0L): String {
+    suspend fun findOrFetchChannelLabel(channelId: Long, clanId: Long = 0L, httpOnly: Boolean = false): String {
         val cached = findChannelById(channelId)
         if (cached != null && cached.channelLabel.isNotBlank()) {
             return cached.channelLabel
@@ -1026,7 +1026,7 @@ class ChannelController @Inject constructor(
             val accessRevision = channelAccessRevisions[clanId] ?: 0L
             val result = runCatching {
                 sessionManager.withAutoRefresh { session ->
-                    withContext(ioDispatcher) { api.listChannelsByClan(session.apiUrl, session.token, clanId) }
+                    withContext(ioDispatcher) { api.listChannelsByClan(session.apiUrl, session.token, clanId, httpOnly = httpOnly) }
                 }
             }.getOrNull()
             if (result == null || result.channeldescList.isEmpty()) {

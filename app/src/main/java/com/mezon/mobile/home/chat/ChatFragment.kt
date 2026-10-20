@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.chat
 
+import com.mezon.mezon.api.MessageReaction
 import android.Manifest
 import android.content.ClipboardManager
 import android.content.Context
@@ -1349,12 +1350,13 @@ open class ChatFragment : BaseFragment() {
             val eventChannelId = args[0] as? Long ?: return@observe
             if (eventChannelId != messageListKey) return@observe
             val messageId = args[1] as? Long ?: return@observe
-            val updatedJson = args[2] as? String ?: return@observe
 
             val idx = messages.indexOfFirst { it.id == messageId }
             if (idx >= 0) {
                 val old = messages[idx]
-                val updated = old.copy(reactionsJson = updatedJson)
+                val updated = old.withReactionUpdate(
+                    args[2] as? String, args.getOrNull(3) as? MessageReaction, args.getOrNull(4) as? Int
+                ) ?: return@observe
                 messages[idx] = updated
                 messagesDict.put(messageId, updated)
                 updateVisibleRows(NotificationCenter.UPDATE_MASK_REACTIONS)
@@ -6957,7 +6959,8 @@ open class ChatFragment : BaseFragment() {
         chatController.sendReaction(
             channelId, clanId, channelType, resolveChannelPrivate(),
             msg.id, group.emojiId, group.emoji,
-            actionDelete = false, topicId = topicId
+            actionDelete = false, messageSenderId = msg.senderId, topicId = topicId,
+            reactionsJson = messagesDict[msg.id]?.reactionsJson ?: msg.reactionsJson
         )
     }
 
@@ -6969,7 +6972,8 @@ open class ChatFragment : BaseFragment() {
             chatController.sendReaction(
                 channelId, clanId, channelType, resolveChannelPrivate(),
                 msg.id, emojiId, emojiShortname,
-                actionDelete = false, topicId = topicId
+                actionDelete = false, messageSenderId = msg.senderId, topicId = topicId,
+                reactionsJson = messagesDict[msg.id]?.reactionsJson ?: msg.reactionsJson
             )
         }
         sheet.show()
@@ -6994,11 +6998,12 @@ open class ChatFragment : BaseFragment() {
             clanId = clanId,
             channelId = channelId,
             parentChannelId = channelController.findChannelById(channelId)?.parentId ?: routeParentId,
-            onRemoveReaction = { emojiId, emoji, _ ->
+            onRemoveReaction = { emojiId, emoji ->
                 chatController.sendReaction(
                     channelId, clanId, channelType, resolveChannelPrivate(),
                     msg.id, emojiId, emoji,
-                    actionDelete = true, topicId = topicId
+                    actionDelete = true, messageSenderId = msg.senderId, topicId = topicId,
+                    reactionsJson = messagesDict[msg.id]?.reactionsJson ?: msg.reactionsJson
                 )
             }
         )
@@ -7142,7 +7147,8 @@ open class ChatFragment : BaseFragment() {
                     chatController.sendReaction(
                         channelId, clanId, channelType, resolveChannelPrivate(),
                         message.id, emojiId, emoji, actionDelete = false,
-                        topicId = topicId
+                        messageSenderId = message.senderId, topicId = topicId,
+                        reactionsJson = messagesDict[message.id]?.reactionsJson ?: message.reactionsJson
                     )
                 }
                 override fun onOpenEmojiPicker(message: MessageEntity) {
@@ -7898,7 +7904,9 @@ open class ChatFragment : BaseFragment() {
                     emojiId = GIVE_COFFEE_EMOJI_ID,
                     emoji = GIVE_COFFEE_EMOJI,
                     actionDelete = false,
-                    topicId = topicId
+                    messageSenderId = msg.senderId,
+                    topicId = topicId,
+                    reactionsJson = messagesDict[msg.id]?.reactionsJson ?: msg.reactionsJson
                 )
 
                 val dmChannelId = withContext(ioDispatcher) {

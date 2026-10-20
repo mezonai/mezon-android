@@ -391,6 +391,8 @@ class MezonApi @Inject constructor(
             "SessionRefresh",
             "SendChannelMessage"
         )
+      
+        private val SINGLE_TRANSPORT_API_NAMES = setOf("ReactChannelMessage")
         private val READ_RETRYABLE_API_NAMES = setOf(
             "GetAccount",
             "GetListEmojisByUserId",
@@ -597,7 +599,7 @@ class MezonApi @Inject constructor(
     ): ByteArray {
         val retryableRead = method in READ_RETRYABLE_API_NAMES
         if (retryableRead) {
-            val key = readRpcKey(apiUrl, token, method, body)
+            val key = "${readRpcKey(apiUrl, token, method, body)}|httpOnly=$httpOnly"
             val flight = startOrJoinReadRpc(key)
             if (!flight.owner) return flight.entry.deferred.await()
             try {
@@ -625,6 +627,7 @@ class MezonApi @Inject constructor(
         if (httpOnly || method in HTTP_ONLY_API_NAMES || isSocketDegraded()) {
             return rpcOverHttpWithRetry(apiUrl, token, method, body, retryableRead)
         }
+        val singleTransportOnly = method in SINGLE_TRANSPORT_API_NAMES
         return try {
             val bytes = rpcOverSocket(method, body, token)
             if (method == "GenerateMeetToken") {
@@ -635,7 +638,7 @@ class MezonApi @Inject constructor(
         } catch (e: UnauthorizedException) {
             throw e
         } catch (e: SocketRpcServerException) {
-            if (e.code != SOCKET_UNKNOWN_API_CODE || e.message?.contains(SOCKET_UNKNOWN_API_MESSAGE) != true) throw e
+            if (singleTransportOnly || e.code != SOCKET_UNKNOWN_API_CODE || e.message?.contains(SOCKET_UNKNOWN_API_MESSAGE) != true) throw e
             Log.w("MezonApi", "SOCKET does not serve method=$method, falling back to HTTP")
             rpcOverHttpWithRetry(apiUrl, token, method, body, retryable = retryableRead)
         } catch (e: com.google.protobuf.InvalidProtocolBufferException) {
@@ -647,6 +650,7 @@ class MezonApi @Inject constructor(
             sentryReporter.logRpcWarning(method, "socket", "fallback to HTTP: ${e.message}")
             rpcOverHttpWithRetry(apiUrl, token, method, body, retryable = retryableRead)
         } catch (e: IllegalArgumentException) {
+            if (singleTransportOnly) throw e
             Log.w("MezonApi", "SOCKET rejected method=$method, falling back to HTTP: ${e.message}")
             sentryReporter.logRpcWarning(method, "socket", "fallback to HTTP: ${e.message}")
             rpcOverHttpWithRetry(apiUrl, token, method, body, retryable = retryableRead)
@@ -729,7 +733,7 @@ class MezonApi @Inject constructor(
                 socket.probeLiveness("rpc transport failure method=$method")
                 throw SocketRpcTransportException(
                     "WebSocket transport failed for '$method': ${e.message}",
-                    retryOverHttp = true,
+                    retryOverHttp = method !in SINGLE_TRANSPORT_API_NAMES,
                     cause = e
                 )
             }
@@ -1428,7 +1432,8 @@ class MezonApi @Inject constructor(
         apiUrl: String,
         token: String,
         clanId: Long,
-        limit: Int = 500
+        limit: Int = 500,
+        httpOnly: Boolean = false
     ): ChannelDescList {
         val request = listChannelDescsRequest {
             this.clanId = clanId
@@ -1438,7 +1443,7 @@ class MezonApi @Inject constructor(
             this.channelType = CHANNEL_TYPE_CHANNEL
             this.isMobile = true
         }
-        val bytes = rpc(apiUrl, token, "ListChannelDescs", request.toByteArray())
+        val bytes = rpc(apiUrl, token, "ListChannelDescs", request.toByteArray(), httpOnly = httpOnly)
         val result = ChannelDescList.parseFrom(bytes)
         return result
     }
@@ -1856,7 +1861,8 @@ class MezonApi @Inject constructor(
         count: Int,
         messageSenderId: Long,
         actionDelete: Boolean,
-        topicId: Long = 0L
+        topicId: Long = 0L,
+        httpOnly: Boolean = false
     ) {
         val request = messageReaction {
             this.clanId = clanId
@@ -1871,7 +1877,7 @@ class MezonApi @Inject constructor(
             this.action = actionDelete
             this.topicId = topicId
         }
-        rpc(apiUrl, token, "ReactChannelMessage", request.toByteArray())
+        rpc(apiUrl, token, "ReactChannelMessage", request.toByteArray(), httpOnly = httpOnly)
     }
 
     suspend fun activeArchivedThread(
@@ -2411,7 +2417,8 @@ class MezonApi @Inject constructor(
         token: String,
         clanId: Long,
         channelId: Long,
-        channelType: Int
+        channelType: Int,
+        httpOnly: Boolean = false
     ): ChannelUserList {
         val request = listChannelUsersRequest {
             this.clanId = clanId
@@ -2420,7 +2427,7 @@ class MezonApi @Inject constructor(
             this.limit = 2000
             this.state = 1
         }
-        val bytes = rpc(apiUrl, token, "ListChannelUsers", request.toByteArray())
+        val bytes = rpc(apiUrl, token, "ListChannelUsers", request.toByteArray(), httpOnly = httpOnly)
         return ChannelUserList.parseFrom(bytes)
     }
 
@@ -2442,13 +2449,14 @@ class MezonApi @Inject constructor(
         apiUrl: String,
         token: String,
         channelId: Long,
-        userIds: List<Long>
+        userIds: List<Long>,
+        httpOnly: Boolean = false
     ) {
         val request = addChannelUsersRequest {
             this.channelId = channelId
             this.userIds.addAll(userIds)
         }
-        rpc(apiUrl, token, "AddChannelUsers", request.toByteArray())
+        rpc(apiUrl, token, "AddChannelUsers", request.toByteArray(), httpOnly = httpOnly)
     }
 
     suspend fun removeChannelUsers(
