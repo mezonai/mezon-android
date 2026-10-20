@@ -1,8 +1,10 @@
 package com.mezon.mobile.home.chat
 
+import com.mezon.mezon.api.MessageReaction
 import android.content.Context
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
+import android.graphics.drawable.AnimatedImageDrawable
 import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.Gravity
@@ -26,7 +28,7 @@ import com.mezon.mobile.ui.cells.MezonIcon
 
 class ReactionDetailBottomSheet(
     context: Context,
-    message: MessageEntity,
+    private var message: MessageEntity,
     selectedEmojiId: Long,
     private val currentUserId: Long,
     private val themeColors: ThemeColors,
@@ -35,7 +37,7 @@ class ReactionDetailBottomSheet(
     private val clanId: Long,
     private val channelId: Long,
     private val parentChannelId: Long,
-    private val onRemoveReaction: (emojiId: Long, emoji: String, count: Int) -> Unit
+    private val onRemoveReaction: (emojiId: Long, emoji: String) -> Unit
 ) : BottomSheet(context), NotificationCenter.NotificationCenterDelegate {
 
     private lateinit var senderList: RecyclerView
@@ -63,7 +65,8 @@ class ReactionDetailBottomSheet(
         return handled
     }
 
-    private val memberEvents = intArrayOf(
+    private val observedEvents = intArrayOf(
+        NotificationCenter.reactionDidUpdate,
         NotificationCenter.clanMembersDidLoad,
         NotificationCenter.channelMembersDidLoad,
         NotificationCenter.userClansDidLoad,
@@ -72,15 +75,39 @@ class ReactionDetailBottomSheet(
 
     override fun onStart() {
         super.onStart()
-        memberEvents.forEach { notificationCenter.addObserver(this, it) }
+        tabImagesActive = true
+        loadTabEmojis()
+        observedEvents.forEach { notificationCenter.addObserver(this, it) }
     }
 
     override fun onStop() {
-        memberEvents.forEach { notificationCenter.removeObserver(this, it) }
+        observedEvents.forEach { notificationCenter.removeObserver(this, it) }
+        tabImagesActive = false
+        stopTabEmojiLoads()
         super.onStop()
     }
 
     override fun didReceivedNotification(id: Int, account: Int, vararg args: Any?) {
+        if (id == NotificationCenter.reactionDidUpdate) {
+            if (args.getOrNull(0) as? Long != message.channelId ||
+                args.getOrNull(1) as? Long != message.id) return
+            val updated = message.withReactionUpdate(
+                args.getOrNull(2) as? String, args.getOrNull(3) as? MessageReaction, args.getOrNull(4) as? Int
+            ) ?: return
+            message = updated
+            val updatedGroups = updated.combineReactions()
+            if (updatedGroups == groups) return
+            val sameTabs = groups.map { it.emojiId } == updatedGroups.map { it.emojiId }
+            val selectedEmojiId = groups.getOrNull(selectedTabIndex)?.emojiId
+            groups = updatedGroups
+            val retainedIndex = groups.indexOfFirst { it.emojiId == selectedEmojiId }
+            selectedTabIndex = if (retainedIndex >= 0) retainedIndex else {
+                selectedTabIndex.coerceAtMost(groups.lastIndex).coerceAtLeast(0)
+            }
+            if (sameTabs) updateTabCounts() else buildTabs()
+            updateContent()
+            return
+        }
         val target = args.firstOrNull() as? Long
         when (id) {
             NotificationCenter.clanMembersDidLoad -> {
@@ -98,12 +125,18 @@ class ReactionDetailBottomSheet(
         senderAdapter.refreshProfiles()
     }
 
-    private val groups = message.combineReactions()
+    private var groups = message.combineReactions()
     private var selectedTabIndex = groups.indexOfFirst { it.emojiId == selectedEmojiId }.coerceAtLeast(0)
     private lateinit var senderAdapter: SenderAdapter
     private lateinit var titleView: TextView
     private lateinit var deleteButton: FrameLayout
     private lateinit var tabContainer: LinearLayout
+    private class TabEmoji(val emojiId: Long, val imageView: ImageView) {
+        var cancellable: MezonImageLoader.Cancellable? = null
+        var loadToken: Any? = null
+    }
+    private val tabEmojis = mutableListOf<TabEmoji>()
+    private var tabImagesActive = false
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         val sheetHeight = (AndroidUtilities.displaySize.y * 0.6f).toInt()
@@ -195,8 +228,9 @@ class ReactionDetailBottomSheet(
     }
 
     private fun buildTabs() {
+        stopTabEmojiLoads()
+        tabEmojis.clear()
         tabContainer.removeAllViews()
-        val loader = MezonImageLoader.getInstance(context)
         for (i in groups.indices) {
             val group = groups[i]
             val tab = LinearLayout(context).apply {
@@ -213,28 +247,7 @@ class ReactionDetailBottomSheet(
             val emojiIv = ImageView(context).apply {
                 scaleType = ImageView.ScaleType.FIT_CENTER
             }
-            val url = com.mezon.mobile.util.getEmojiUrl(group.emojiId.toString(), context)
-            val emojiSize = LayoutHelper.dp(24)
-            if (url != null) {
-                fun loadTabEmoji(loadUrl: String, isRetry: Boolean) {
-                    loader.loadDrawable(loadUrl, emojiSize, emojiSize,
-                        onSuccess = { drawable ->
-                            emojiIv.setImageDrawable(drawable)
-                            if (drawable is android.graphics.drawable.AnimatedImageDrawable) {
-                                drawable.start()
-                            }
-                        },
-                        onError = {
-                            if (!isRetry) {
-                                val direct = com.mezon.mobile.util.getEmojiDirectUrl(group.emojiId.toString(), context)
-                                if (direct != null && direct != loadUrl) {
-                                    loadTabEmoji(direct, true)
-                                }
-                            }
-                        })
-                }
-                loadTabEmoji(url, false)
-            }
+            tabEmojis.add(TabEmoji(group.emojiId, emojiIv))
             tab.addView(emojiIv, LinearLayout.LayoutParams(LayoutHelper.dp(24), LayoutHelper.dp(24)))
 
             val countTv = TextView(context).apply {
@@ -259,6 +272,64 @@ class ReactionDetailBottomSheet(
             ).apply { rightMargin = LayoutHelper.dp(7) }
             tabContainer.addView(tab, lp)
         }
+        if (tabImagesActive) loadTabEmojis()
+    }
+
+    private fun updateTabCounts() {
+        for (i in groups.indices) {
+            val tab = tabContainer.getChildAt(i) as? LinearLayout ?: continue
+            val countView = tab.getChildAt(1) as? TextView ?: continue
+            val count = groups[i].totalCount.toString()
+            if (countView.text.toString() != count) countView.text = count
+        }
+    }
+
+    private fun stopTabEmojiLoads() {
+        for (tab in tabEmojis) {
+            tab.loadToken = null
+            tab.cancellable?.cancel()
+            tab.cancellable = null
+            (tab.imageView.drawable as? AnimatedImageDrawable)?.stop()
+        }
+    }
+
+    private fun loadTabEmojis() {
+        for (tab in tabEmojis) {
+            val drawable = tab.imageView.drawable
+            if (drawable != null) {
+                (drawable as? AnimatedImageDrawable)?.start()
+            } else if (tab.loadToken == null) {
+                val url = com.mezon.mobile.util.getEmojiUrl(tab.emojiId.toString(), context) ?: continue
+                loadTabEmoji(tab, url, false)
+            }
+        }
+    }
+
+    private fun loadTabEmoji(tab: TabEmoji, url: String, isRetry: Boolean) {
+        val token = Any()
+        tab.loadToken = token
+        val size = LayoutHelper.dp(24)
+        tab.cancellable = MezonImageLoader.getInstance(context).loadDrawable(url, size, size,
+            onSuccess = { drawable ->
+                tab.imageView.post {
+                    if (tab.loadToken !== token) return@post
+                    tab.loadToken = null
+                    tab.cancellable = null
+                    tab.imageView.setImageDrawable(drawable)
+                    (drawable as? AnimatedImageDrawable)?.start()
+                }
+            },
+            onError = {
+                tab.imageView.post {
+                    if (tab.loadToken !== token) return@post
+                    tab.loadToken = null
+                    tab.cancellable = null
+                    if (!isRetry) {
+                        val direct = com.mezon.mobile.util.getEmojiDirectUrl(tab.emojiId.toString(), context)
+                        if (direct != null && direct != url) loadTabEmoji(tab, direct, true)
+                    }
+                }
+            })
     }
 
     private fun updateTabHighlights() {
@@ -270,8 +341,13 @@ class ReactionDetailBottomSheet(
     }
 
     private fun updateContent() {
-        if (groups.isEmpty()) return
-        val group = groups.getOrNull(selectedTabIndex) ?: return
+        val group = groups.getOrNull(selectedTabIndex)
+        if (group == null) {
+            titleView.text = ""
+            deleteButton.visibility = View.GONE
+            senderAdapter.setSenders(emptyList())
+            return
+        }
         titleView.text = group.emoji
 
         val hasMyReaction = group.senders.any { it.senderId == currentUserId && it.count > 0 }
@@ -282,8 +358,8 @@ class ReactionDetailBottomSheet(
 
     private fun deleteMyReaction() {
         val group = groups.getOrNull(selectedTabIndex) ?: return
-        val myCount = group.senders.find { it.senderId == currentUserId }?.count ?: return
-        onRemoveReaction(group.emojiId, group.emoji, myCount)
+        if (group.senders.none { it.senderId == currentUserId }) return
+        onRemoveReaction(group.emojiId, group.emoji)
         dismiss()
     }
 

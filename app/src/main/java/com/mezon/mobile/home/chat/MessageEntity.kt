@@ -5,6 +5,7 @@ import androidx.room.Index
 import com.mezon.mezon.api.ChannelMessage
 import com.mezon.mezon.api.MessageAttachmentList
 import com.mezon.mezon.api.MessageMentionList
+import com.mezon.mezon.api.MessageReaction
 import com.mezon.mezon.api.MessageReactionList
 import com.mezon.mezon.api.MessageRefList
 import org.json.JSONArray
@@ -798,13 +799,20 @@ private fun parseReactionsToJson(bytes: com.google.protobuf.ByteString): String 
     }
 }
 
+fun MessageEntity.withReactionUpdate(persistedJson: String?, reaction: MessageReaction?, count: Int? = null): MessageEntity? {
+    val updatedJson = persistedJson ?: reaction?.let {
+        applyReactionEvent(reactionsJson, it.emojiId, it.emoji, it.senderId, it.action, count)
+    } ?: return null
+    return copy(reactionsJson = updatedJson)
+}
+
 fun applyReactionEvent(
     currentJson: String,
     emojiId: Long,
     emoji: String,
     senderId: Long,
-    count: Int,
-    actionRemove: Boolean
+    actionRemove: Boolean,
+    count: Int? = null
 ): String {
     val arr = if (currentJson.isNotEmpty()) {
         try { JSONArray(currentJson) } catch (_: Exception) { JSONArray() }
@@ -814,21 +822,18 @@ fun applyReactionEvent(
     for (i in 0 until arr.length()) {
         val obj = arr.getJSONObject(i)
         if (obj.optLong("emoji_id") == emojiId && obj.optLong("sender_id") == senderId) {
-            if (actionRemove) {
-                obj.put("count", 0)
-            } else {
-                obj.put("count", obj.optInt("count", 0) + 1)
-            }
+            obj.put("count", count ?: if (actionRemove) 0 else obj.optInt("count", 0) + 1)
             found = true
             break
         }
     }
-    if (!found && !actionRemove) {
+    val newCount = count ?: if (actionRemove) 0 else 1
+    if (!found && newCount > 0) {
         val obj = JSONObject()
         obj.put("emoji_id", emojiId)
         obj.put("emoji", emoji)
         obj.put("sender_id", senderId)
-        obj.put("count", count.coerceAtLeast(1))
+        obj.put("count", newCount)
         arr.put(obj)
     }
     return arr.toString()

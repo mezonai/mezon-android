@@ -128,7 +128,7 @@ class NotificationReplyReceiver : BroadcastReceiver() {
             var sent = false
             try {
                 sent = withTimeout(SEND_TIMEOUT_MS) {
-                    val target = resolveTarget(entryPoint, channelId, clanId, channelType)
+                    val target = resolveTarget(entryPoint, channelId, clanId, channelType, httpOnly = isLike)
                     if (contentJson != null) {
                         entryPoint.chatController().sendRawChannelMessage(
                             channelId = target.channelId,
@@ -148,7 +148,6 @@ class NotificationReplyReceiver : BroadcastReceiver() {
                             messageId = messageId,
                             emojiId = LIKE_EMOJI_ID,
                             emoji = LIKE_EMOJI_SHORTNAME,
-                            count = 1,
                             actionDelete = false,
                             messageSenderId = messageSenderId,
                             topicId = topicId,
@@ -203,11 +202,12 @@ class NotificationReplyReceiver : BroadcastReceiver() {
         entryPoint: FragmentEntryPoint,
         channelId: Long,
         clanId: Long,
-        channelType: Int
+        channelType: Int,
+        httpOnly: Boolean
     ): ReplyTarget {
         val channelController = entryPoint.channelController()
         val meta = channelController.findChannelById(channelId) ?: run {
-            channelController.findOrFetchChannelLabel(channelId, clanId)
+            channelController.findOrFetchChannelLabel(channelId, clanId, httpOnly = httpOnly)
             channelController.findChannelById(channelId)
         }
         if (meta != null && meta.type != 0) {

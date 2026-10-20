@@ -35,6 +35,11 @@ import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
 import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.ui.MezonToast
+import com.mezon.mobile.ui.cells.ToastOverlay
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 private data class TabDef(val category: Int, val labelRes: Int, val icon: MezonIcon)
@@ -59,6 +64,8 @@ class NotificationsFragment : BaseFragment() {
     private lateinit var emptyView: TextView
     private lateinit var adapter: NotificationAdapter
     private lateinit var topicAdapter: TopicNotificationAdapter
+    private var topicOpeningJob: Job? = null
+    private var topicOpeningProgress: ProgressBar? = null
 
     private val tabs = listOf(
         TabDef(NOTIF_CATEGORY_MENTIONS, R.string.notif_tab_mentions, MezonIcon.notificationTabMention),
@@ -224,6 +231,9 @@ class NotificationsFragment : BaseFragment() {
         loadingView = ProgressBar(context).apply { visibility = View.GONE }
         contentFrame.addView(loadingView, LayoutHelper.createFrame(48, 48, Gravity.CENTER))
 
+        topicOpeningProgress = ProgressBar(context).apply { visibility = View.GONE }
+        contentFrame.addView(topicOpeningProgress, LayoutHelper.createFrame(48, 48, Gravity.CENTER))
+
         emptyView = TextView(context).apply {
             text = getString(R.string.notif_empty)
             setTextColor(themeColors.onSurfaceVariant)
@@ -367,6 +377,7 @@ class NotificationsFragment : BaseFragment() {
 
     private fun applyClanContext(clanId: Long) {
         if (clanId == 0L) return
+        topicOpeningJob?.cancel()
         store.setCurrentClan(clanId)
         topicController.resetForClan(clanId)
         ensureMembersLoaded(clanId)
@@ -496,14 +507,48 @@ class NotificationsFragment : BaseFragment() {
     }
 
     private fun openTopicFromSdTopic(item: SdTopicEntity) {
-        openTopicDiscussion(
-            topicId = item.id,
-            rootMessageId = item.messageId,
-            targetMessageId = 0L,
-            clanId = item.clanId,
-            parentChannelId = item.channelId,
-            channelType = CHANNEL_TYPE_THREAD
-        )
+        if (isPaused || isFinished || topicOpeningJob?.isActive == true) return
+        topicOpeningJob = fragmentScope.launch(Dispatchers.Main) {
+            try {
+                val parentChannel = channelController.findChannelById(item.channelId, item.clanId)
+                    ?.takeIf { it.type != 0 }
+                    ?: run {
+                        topicOpeningProgress?.visibility = View.VISIBLE
+                        channelController.resolveLinkedChannelForNavigation(item.channelId, item.clanId)
+                            ?.takeIf { it.type != 0 }
+                            ?.also { channelController.upsertChannel(it) }
+                    }
+                if (isPaused || isFinished || currentCategory != NOTIF_TAB_TOPICS_UI) return@launch
+                if (parentChannel == null) {
+                    showTopicOpenError()
+                    return@launch
+                }
+                openTopicDiscussion(
+                    topicId = item.id,
+                    rootMessageId = item.messageId,
+                    targetMessageId = 0L,
+                    clanId = item.clanId,
+                    parentChannelId = item.channelId,
+                    channelType = parentChannel.type,
+                    isChannelPrivate = parentChannel.isPrivate
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                if (!isPaused && !isFinished) showTopicOpenError()
+            } finally {
+                topicOpeningProgress?.visibility = View.GONE
+            }
+        }
+    }
+
+    private fun showTopicOpenError() {
+        MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.common_something_went_wrong))
+    }
+
+    override fun onPause() {
+        topicOpeningJob?.cancel()
+        super.onPause()
     }
 
     private fun tryLoadMore(recyclerView: androidx.recyclerview.widget.RecyclerView) {
@@ -528,13 +573,14 @@ class NotificationsFragment : BaseFragment() {
         targetMessageId: Long,
         clanId: Long,
         parentChannelId: Long,
-        channelType: Int
+        channelType: Int,
+        isChannelPrivate: Boolean? = null
     ) {
         if (topicId == 0L || rootMessageId == 0L || parentChannelId == 0L) return
         if (clanId != 0L) {
             clansController.selectClan(clanId)
         }
-        val isPrivate = channelController.findChannelById(parentChannelId)?.isPrivate ?: false
+        val isPrivate = isChannelPrivate ?: channelController.findChannelById(parentChannelId)?.isPrivate ?: false
         chatController.openChannel(
             channelId = parentChannelId,
             clanId = clanId,
@@ -640,6 +686,7 @@ class NotificationsFragment : BaseFragment() {
     }
 
     private fun selectTab(category: Int, forceRefresh: Boolean = false) {
+        if (category != currentCategory) topicOpeningJob?.cancel()
         if (category == NOTIF_TAB_TOPICS_UI) {
             val isTabChanged = currentCategory != category
             if (isTabChanged) {
