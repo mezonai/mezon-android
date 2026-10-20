@@ -539,7 +539,7 @@ class VoiceRoomFragment : BaseFragment() {
         participantAdapter = VoiceParticipantAdapter(
             themeColors = themeColors,
             getParticipants = { getGridParticipants() },
-            onScreenShareClick = { showFocusedShare(it) },
+            onScreenShareClick = { if (it.deviceId != LOCAL_DEVICE_ID) showFocusedShare(it) },
             onParticipantLongPress = { openParticipantModerationSheet(it) },
             itemKeyProvider = { participantKey(it) },
             isCompactMode = { isInPipMode },
@@ -1566,9 +1566,7 @@ class VoiceRoomFragment : BaseFragment() {
     }
 
     private fun resolvePipShareParticipant(): ParticipantInfo? {
-        val availableShares = participants.filter { it.isScreenShare && it.videoTrack != null }
-        if (availableShares.isEmpty()) return null
-        return availableShares.firstOrNull { it.deviceId != LOCAL_DEVICE_ID } ?: availableShares.first()
+        return participants.firstOrNull { it.isScreenShare && it.videoTrack != null && it.deviceId != LOCAL_DEVICE_ID }
     }
 
     private fun openParticipantModerationSheet(participant: ParticipantInfo) {
