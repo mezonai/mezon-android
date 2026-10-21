@@ -55,6 +55,7 @@ enum class MezonIcon(@DrawableRes val resId: Int) {
     arrowAngleRightUpIcon(R.drawable.ic_arrowanglerightuplight),
     copyIcon(R.drawable.ic_copy_icon),
     pinIcon(R.drawable.ic_pin_icon),
+    unpinIcon(R.drawable.ic_unpin_icon),
     markUnreadIcon(R.drawable.ic_chat_mark_unread_icon),
     downloadIcon(R.drawable.ic_download_icon),
     linkIcon(R.drawable.ic_link_icon),
