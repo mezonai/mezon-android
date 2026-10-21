@@ -86,6 +86,7 @@ import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.session.ThemeManager
 import com.mezon.mobile.ui.theme.ThemeMode
 import com.mezon.mobile.ui.OfflineNetworkBannerView
+import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.update.AppUpdateGateManager
 import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.EntryPointAccessors
@@ -438,6 +439,7 @@ class MainActivity : BasePermissionsActivity(),
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         val fragment = voiceRoomFragment ?: return
         if (isInPictureInPictureMode) {
+            ToastOverlay.hideVisible()
             fragment.enterPipMode()
         } else {
             fragment.exitPipMode()
@@ -1080,10 +1082,11 @@ class MainActivity : BasePermissionsActivity(),
         if (focused != null) {
             manager.minimize(
                 focused.videoTrack,
-                focused.name, focused.username, focused.avatarUrl, focused.isMuted, focused.userId
+                focused.name, focused.username, focused.avatarUrl, focused.isMuted, focused.userId,
+                focused.isScreenShare
             )
         } else {
-            manager.minimize(null, fragment.getChannelLabel(), "", null, false, 0L)
+            manager.minimize(null, fragment.getChannelLabel(), "", null, false, 0L, false)
         }
     }
 

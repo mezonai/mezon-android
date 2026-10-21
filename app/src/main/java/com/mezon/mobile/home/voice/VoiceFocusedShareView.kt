@@ -64,6 +64,20 @@ class VoiceFocusedShareView(
             return performClick()
         }
     }).apply { setIsLongpressEnabled(false) }
+    private var frameAspectRatio = 0f
+    private val frameEvents = object : RendererCommon.RendererEvents {
+        override fun onFirstFrameRendered() = Unit
+
+        override fun onFrameResolutionChanged(videoWidth: Int, videoHeight: Int, rotation: Int) {
+            if (videoWidth <= 0 || videoHeight <= 0) return
+            val aspect = if (rotation % 180 == 0) {
+                videoWidth.toFloat() / videoHeight
+            } else {
+                videoHeight.toFloat() / videoWidth
+            }
+            post { applyFrameAspectRatio(aspect) }
+        }
+    }
 
     var onContentTap: (() -> Unit)? = null
     var onEmojiClick: (() -> Unit)? = null
@@ -193,7 +207,8 @@ class VoiceFocusedShareView(
         visibility = View.VISIBLE
         val renderer = textureRenderer ?: return false
         val videoTrack = participant.videoTrack
-        contentAspectRatio = participant.contentAspectRatio.coerceIn(MIN_ASPECT_RATIO, MAX_ASPECT_RATIO)
+        val knownAspect = if (frameAspectRatio > 0f) frameAspectRatio else participant.contentAspectRatio
+        contentAspectRatio = knownAspect.coerceIn(MIN_ASPECT_RATIO, MAX_ASPECT_RATIO)
         updateZoomContentLayout()
         pendingVideoTrack = videoTrack
         maybeAttachPending()
@@ -274,7 +289,7 @@ class VoiceFocusedShareView(
             return
         }
         if (!rendererInitialized) {
-            renderer.init(EglBaseProvider.acquire(), null)
+            renderer.init(EglBaseProvider.acquire(), frameEvents)
             rendererInitialized = true
             frameReplay = VideoSurfaceFrameReplay(renderer) { currentVideoTrack }
         }
@@ -329,6 +344,7 @@ class VoiceFocusedShareView(
 
     override fun onVisibilityChanged(changedView: View, visibility: Int) {
         super.onVisibilityChanged(changedView, visibility)
+        textureRenderer?.visibility = if (isShown) View.VISIBLE else View.INVISIBLE
         if (isShown) frameReplay?.request() else frameReplay?.cancel()
         currentVideoTrack?.let { onVideoVisibilityChanged?.invoke(it, isShown) }
     }
@@ -348,6 +364,13 @@ class VoiceFocusedShareView(
         super.onAttachedToWindow()
         maybeAttachPending()
         currentVideoTrack?.let { onVideoVisibilityChanged?.invoke(it, isShown) }
+    }
+
+    private fun applyFrameAspectRatio(aspect: Float) {
+        frameAspectRatio = aspect
+        if (currentVideoTrack == null) return
+        contentAspectRatio = aspect.coerceIn(MIN_ASPECT_RATIO, MAX_ASPECT_RATIO)
+        updateZoomContentLayout()
     }
 
     private fun updateZoomContentLayout() {
