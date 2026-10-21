@@ -369,20 +369,28 @@ class ClansController @Inject constructor(
         channelController.requestMarkAsRead(clanId)
     }
 
-    fun mergeClanFromDesc(desc: ClanDesc, trustedBanner: String? = null, knownClanId: Long = 0L) {
-        val list = _clans.value
-        val mergeKey = when {
-            desc.clanId != 0L -> desc.clanId
-            knownClanId != 0L -> knownClanId
-            else -> return
+    private fun mergeClanOverviewFromDesc(
+        desc: ClanDesc,
+        clanId: Long,
+        clanName: String,
+        clanBannerUrl: String?,
+        preventAnonymous: Boolean,
+        welcomeChannelId: Long?,
+        isOnboarding: Boolean?,
+    ) {
+        _clans.update { clans ->
+            clans.map { existing ->
+                if (existing.clanId != clanId) existing else desc.mergeOverviewUpdateOnto(
+                    existing,
+                    requestedName = clanName,
+                    requestedBanner = clanBannerUrl,
+                    requestedPreventAnonymous = preventAnonymous,
+                    requestedWelcomeChannelId = welcomeChannelId,
+                    requestedIsOnboarding = isOnboarding,
+                )
+            }
         }
-        val idx = list.indexOfFirst { it.clanId == mergeKey }
-        if (idx < 0) return
-        var merged = desc.mergeOnto(list[idx])
-        if (trustedBanner != null) {
-            merged = merged.copy(banner = trustedBanner)
-        }
-        _clans.value = list.toMutableList().also { it[idx] = merged }
+        val merged = _clans.value.find { it.clanId == clanId } ?: return
         appScope.launch(ioDispatcher) { clanDao.upsert(merged) }
         cacheTracker.invalidate(apiCacheKey("listClanDescs"))
         notificationCenter.postNotificationOnMainThread(NotificationCenter.clanInfoUpdated, merged.clanId)
@@ -439,7 +447,7 @@ class ClansController @Inject constructor(
         if (!invalidateBannerSources.isNullOrEmpty()) {
             invalidateBannerImageCaches(invalidateBannerSources, bannerExtraWidthPx)
         }
-        mergeClanFromDesc(desc, trustedBanner = clanBannerUrl, knownClanId = clanId)
+        mergeClanOverviewFromDesc(desc, clanId, clanName, clanBannerUrl, preventAnonymous, welcomeChannelId, isOnboarding)
         return desc
     }
 
@@ -915,6 +923,19 @@ class ClansController @Inject constructor(
     }
 
     private fun observeSocketEvents() {
+        appScope.launch {
+            dispatcher.allowAnonymousEvents.collect { event ->
+                if (event.clanId == 0L) return@collect
+                _clans.update { clans ->
+                    clans.map { clan ->
+                        if (clan.clanId == event.clanId) clan.copy(preventAnonymous = !event.allow) else clan
+                    }
+                }
+                val updated = _clans.value.find { it.clanId == event.clanId } ?: return@collect
+                appScope.launch(ioDispatcher) { clanDao.upsert(updated) }
+                notificationCenter.postNotificationOnMainThread(NotificationCenter.clanInfoUpdated, event.clanId)
+            }
+        }
         appScope.launch {
             dispatcher.userClanRemovedEvents.collect { event ->
                 val uid = userController.userId

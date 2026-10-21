@@ -2,7 +2,8 @@ package com.mezon.mobile.home
 
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.di.ApplicationScope
-import com.mezon.mobile.network.SocketEventDispatcher
+import com.mezon.mobile.home.clans.ClansController
+import dagger.Lazy
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -10,55 +11,53 @@ import javax.inject.Singleton
 
 @Singleton
 class AnonymousController @Inject constructor(
-    private val socketEventDispatcher: SocketEventDispatcher,
+    private val clansController: Lazy<ClansController>,
     private val notificationCenter: NotificationCenter,
     @ApplicationScope private val appScope: CoroutineScope
 ) {
 
     private val anonymousStates = HashMap<Long, Boolean>()
-    private val allowedClans = HashSet<Long>()
 
     init {
-        appScope.launch { observeAllowAnonymousEvents() }
+        appScope.launch {
+            clansController.get().clans.collect { clans ->
+                val allowedClanIds = clans.filterNot { it.preventAnonymous }.map { it.clanId }.toSet()
+                val disabledClanIds = synchronized(this@AnonymousController) {
+                    anonymousStates.keys.filter { it !in allowedClanIds }.also { ids ->
+                        ids.forEach { anonymousStates.remove(it) }
+                    }
+                }
+                disabledClanIds.forEach { clanId ->
+                    notificationCenter.postNotificationOnMainThread(NotificationCenter.anonymousModeChanged, clanId)
+                }
+            }
+        }
     }
 
-    fun toggleAnonymous(clanId: Long) {
+    fun toggleAnonymous(clanId: Long): Boolean {
         synchronized(this) {
             val current = anonymousStates[clanId] == true
+            if (!current && !isAllowed(clanId)) return false
             if (current) anonymousStates.remove(clanId)
             else anonymousStates[clanId] = true
         }
         notificationCenter.postNotificationOnMainThread(NotificationCenter.anonymousModeChanged, clanId)
+        return true
     }
 
     fun isAnonymous(clanId: Long): Boolean {
-        return synchronized(this) { anonymousStates[clanId] == true }
+        return synchronized(this) { anonymousStates[clanId] == true && isAllowed(clanId) }
     }
 
     fun isAllowed(clanId: Long): Boolean {
-        return synchronized(this) { allowedClans.contains(clanId) }
+        return clanId != 0L && clansController.get().clans.value.any {
+            it.clanId == clanId && !it.preventAnonymous
+        }
     }
 
     fun clearAll() {
         synchronized(this) {
             anonymousStates.clear()
-            allowedClans.clear()
-        }
-    }
-
-    private suspend fun observeAllowAnonymousEvents() {
-        socketEventDispatcher.allowAnonymousEvents.collect { event ->
-            val clanId = event.clanId
-            if (clanId == 0L) return@collect
-            val allowed = event.allow
-            synchronized(this) {
-                if (allowed) allowedClans.add(clanId)
-                else {
-                    allowedClans.remove(clanId)
-                    anonymousStates.remove(clanId)
-                }
-            }
-            notificationCenter.postNotificationOnMainThread(NotificationCenter.anonymousModeChanged, clanId)
         }
     }
 }

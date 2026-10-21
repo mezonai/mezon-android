@@ -5874,7 +5874,13 @@ open class ChatFragment : BaseFragment() {
                         showBuzzConfirmDialog()
                     }
                     override fun onAnonymousToggled() {
-                        anonymousController.toggleAnonymous(clanId)
+                        if (!anonymousController.toggleAnonymous(clanId)) {
+                            MezonToast.show(
+                                this@ChatFragment,
+                                ToastOverlay.ToastType.INFO,
+                                getString(R.string.advanced_anonymous_not_allowed)
+                            )
+                        }
                     }
                     override fun onCreatePollRequested() {
                         openCreatePollScreen()

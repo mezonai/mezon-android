@@ -50,3 +50,24 @@ fun ClanDesc.mergeOnto(existing: ClanEntity): ClanEntity {
         welcomeChannelId = if (p.welcomeChannelId != 0L) p.welcomeChannelId else existing.welcomeChannelId,
     )
 }
+
+internal fun ClanDesc.mergeOverviewUpdateOnto(
+    existing: ClanEntity,
+    requestedName: String,
+    requestedBanner: String?,
+    requestedPreventAnonymous: Boolean,
+    requestedWelcomeChannelId: Long?,
+    requestedIsOnboarding: Boolean?,
+): ClanEntity {
+    val merged = if (clanId == 0L) {
+        existing.copy(
+            clanName = requestedName,
+            preventAnonymous = requestedPreventAnonymous,
+            welcomeChannelId = requestedWelcomeChannelId ?: existing.welcomeChannelId,
+            isOnboarding = requestedIsOnboarding ?: existing.isOnboarding,
+        )
+    } else {
+        mergeOnto(existing)
+    }
+    return if (requestedBanner != null) merged.copy(banner = requestedBanner) else merged
+}

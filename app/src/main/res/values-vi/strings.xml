@@ -1716,6 +1716,7 @@
     <string name="sticker_delete_confirm_msg">Bạn có chắc muốn xóa \"%1$s\"?</string>
     <string name="sticker_add_label">Thêm nhãn dán</string>
     <string name="advanced_anonymous_off">Tắt ẩn danh</string>
+    <string name="advanced_anonymous_not_allowed">Không cho phép dùng ẩn danh trên clan này</string>
     <string name="profile_history_transaction_all">Tất cả</string>
     <string name="profile_history_transaction_incoming">Tiền vào</string>
     <string name="profile_history_transaction_outgoing">Tiền ra</string>
