@@ -194,6 +194,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var hasLocationCard = false
     private val locationHitRect = RectF()
     private var locationCardDrawTopY = Float.NaN
+    private val sendTokenCardLayout = SendTokenCardLayout(context)
+    private var hasSendTokenCard = false
+    private val sendTokenButtonRect = RectF()
+    private var pressedOnSendTokenButton = false
     var loadLinkInvitePreview: (suspend (Long) -> com.mezon.mobile.network.LinkInvitePreview?)?
         get() = linkInviteBlock.loadLinkInvitePreview
         set(v) {
@@ -619,6 +623,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         locationHitRect.setEmpty()
         locationCardDrawTopY = Float.NaN
         locationCardLayout.clear()
+        hasSendTokenCard = false
+        sendTokenButtonRect.setEmpty()
+        pressedOnSendTokenButton = false
+        sendTokenCardLayout.clear()
     }
 
     private var emojiRenderRevision = 0
@@ -1539,7 +1547,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private fun buildContentLayout(msg: MessageEntity, textWidth: Int): StaticLayout? {
         val editedText = context.getString(R.string.message_edited)
         val hasEmbedPayload = !hasCallLogCard && !hasShareContactCard && isEmbedOrComponentsPayload(msg.content)
-        val hasActualText = !hasCallLogCard && !msg.isPollMessage && !hasLocationCard &&
+        val hasActualText = !hasCallLogCard && !msg.isPollMessage && !hasLocationCard && !hasSendTokenCard &&
             parsedContent.isNotBlank() && parsedContent != "[file]" && parsedContent != "[embed]" &&
             parsedContent != "[Contact]" &&
             (!hasEmbedPayload || hasExplicitTextBody)
@@ -1676,6 +1684,12 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             locationCardLayout.prepare(locData, msg.senderId, msg.senderUsername, msg.senderAvatar, title, theme, bubbleMaxW)
         } else {
             locationCardLayout.clear()
+        }
+        hasSendTokenCard = msg.code == MessageEntity.CODE_SEND_TOKEN
+        if (hasSendTokenCard) {
+            sendTokenCardLayout.prepare(msg.content, theme, bubbleMaxW)
+        } else {
+            sendTokenCardLayout.clear()
         }
         val hasEmbedPayload = !hasCallLogCard && !hasShareContactCard && isEmbedOrComponentsPayload(msg.content)
         contentLayout = buildContentLayout(msg, textWidth)
@@ -1858,6 +1872,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val inviteW = if (linkInviteBlock.isVisible) linkInviteBlock.cachedWidth else 0f
         val shareContactW = if (hasShareContactCard) shareContactLayout.cardWidth.toFloat() else 0f
         val locationW = if (hasLocationCard) locationCardLayout.cardWidth.toFloat() else 0f
+        val sendTokenW = if (hasSendTokenCard) sendTokenCardLayout.cardWidth.toFloat() else 0f
         cachedInnerWidth = if (drawPhotoImage) {
             photoWidth
         } else if (hasCodeFence) {
@@ -1865,7 +1880,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         } else {
             val allW = maxOf(
                 cachedSenderW, cachedContentW, cachedTimeW, replyW, ogpW, cachedForwardW,
-                fileW, audioW, cachedEphW, embedW, inviteW, shareContactW, locationW, reactionRowContentWidth,
+                fileW, audioW, cachedEphW, embedW, inviteW, shareContactW, locationW, sendTokenW, reactionRowContentWidth,
                 botCommandLayout.width.toFloat(),
             )
             var w = allW.toInt().coerceAtMost(bubbleMaxW)
@@ -1877,6 +1892,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             }
             if (hasLocationCard) {
                 w = maxOf(w, locationCardLayout.cardWidth)
+            }
+            if (hasSendTokenCard) {
+                w = maxOf(w, sendTokenCardLayout.cardWidth)
             }
             w
         }
@@ -2031,12 +2049,15 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         if (hasLocationCard) {
             y += locationCardLayout.blockHeight + GAP_V_INNER
         }
+        if (hasSendTokenCard) {
+            y += sendTokenCardLayout.blockHeight + GAP_V_INNER
+        }
         return y
     }
 
     private fun hasBlocksBelowText(): Boolean =
         (messageEntity?.isPollMessage == true && pollParsed != null) ||
-            hasShareContactCard || hasLocationCard || hasCallLogCard ||
+            hasShareContactCard || hasLocationCard || hasSendTokenCard || hasCallLogCard ||
             drawPhotoImage || drawFileAttachment || drawAudioAttachment ||
             hasEmbedContent || drawEphemeral || botCommandLayout.isVisible ||
             reactionGroups.isNotEmpty() || topicButtonLayout.visible || drawError
@@ -2116,6 +2137,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
         if (hasLocationCard) {
             h += locationCardLayout.blockHeight + GAP_V_INNER
+        }
+        if (hasSendTokenCard) {
+            h += sendTokenCardLayout.blockHeight + GAP_V_INNER
         }
 
         h += mainContentStackHeight()
@@ -2721,6 +2745,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         fun didChangeEmbedSelect(cell: ChatMessageCell, msg: MessageEntity, componentId: String, value: String) {}
         fun isDmPeerBlockedForCallLog(): Boolean = false
         fun didTapCallLogCallBack(cell: ChatMessageCell, msg: MessageEntity) {}
+        fun didTapSendTokenTransfer(cell: ChatMessageCell, msg: MessageEntity) {}
         fun didTapShareContactProfile(cell: ChatMessageCell, msg: MessageEntity, data: ShareContactData) {}
         fun didTapShareContactMessage(cell: ChatMessageCell, msg: MessageEntity, data: ShareContactData) {}
         fun didTapShareContactCall(cell: ChatMessageCell, msg: MessageEntity, data: ShareContactData) {}
@@ -2780,6 +2805,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         pressedOnAvatar = false
         pressedOnReply = false
         pressedOnCallLogCallback = false
+        pressedOnSendTokenButton = false
         pressedOnInviteJoin = false
         pressedEmbedButtonHit = null
         embedMessage.setPressedButton(null)
@@ -2800,6 +2826,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 pressedOnAvatar = false
                 pressedOnReply = false
                 pressedOnCallLogCallback = false
+                pressedOnSendTokenButton = false
                 pressedOnInviteJoin = false
                 pressedReactionIndex = -1
                 pressedEmbedButtonHit = null
@@ -2856,6 +2883,11 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                         scheduleLongPress()
                         return true
                     }
+                }
+                if (hasSendTokenCard && sendTokenButtonRect.contains(x, y)) {
+                    pressedOnSendTokenButton = true
+                    scheduleLongPress()
+                    return true
                 }
 
                 if (!isCombined) {
@@ -2968,6 +3000,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     }
                     if (hasLocationCard) {
                         reacBaseY += locationCardLayout.blockHeight + GAP_V_INNER
+                    }
+                    if (hasSendTokenCard) {
+                        reacBaseY += sendTokenCardLayout.blockHeight + GAP_V_INNER
                     }
                     if (hasCallLogCard) {
                         reacBaseY += callLogCardHeight + GAP_V_INNER
@@ -3088,6 +3123,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     pressedOnAvatar = false
                     pressedOnReply = false
                     pressedOnCallLogCallback = false
+                    pressedOnSendTokenButton = false
                     pressedOnInviteJoin = false
                     pressedReactionIndex = -1
                     pressedEmbedButtonHit = null
@@ -3181,6 +3217,12 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     if (msg != null) delegate?.didTapCallLogCallBack(this, msg)
                     return true
                 }
+                if (pressedOnSendTokenButton) {
+                    pressedOnSendTokenButton = false
+                    val msg = messageEntity
+                    if (msg != null && sendTokenButtonRect.contains(x, y)) delegate?.didTapSendTokenTransfer(this, msg)
+                    return true
+                }
                 if (pressedOnAvatar) {
                     pressedOnAvatar = false
                     val msg = messageEntity
@@ -3260,6 +3302,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 pressedOnAvatar = false
                 pressedOnReply = false
                 pressedOnCallLogCallback = false
+                pressedOnSendTokenButton = false
                 pressedOnInviteJoin = false
                 pressedEmbedButtonHit = null
                 embedMessage.setPressedButton(null)
@@ -3677,6 +3720,14 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         } else {
             locationHitRect.setEmpty()
             locationCardDrawTopY = Float.NaN
+        }
+
+        if (hasSendTokenCard) {
+            sendTokenCardLayout.draw(canvas, contentLeft.toFloat(), yOff)
+            sendTokenCardLayout.buttonBounds(sendTokenButtonRect, contentLeft.toFloat(), yOff)
+            yOff += sendTokenCardLayout.blockHeight + GAP_V_INNER
+        } else {
+            sendTokenButtonRect.setEmpty()
         }
 
         if (hasCallLogCard) {

@@ -23,6 +23,7 @@ import com.mezon.mobile.util.absoluteResourceUrl
 import com.mezon.mobile.util.avatarImgproxyUrl
 import com.mezon.mobile.util.createImgproxyUrl
 import com.mezon.mobile.home.call.EglBaseProvider
+import org.webrtc.RendererCommon
 import org.webrtc.SurfaceViewRenderer
 import org.webrtc.VideoTrack
 
@@ -134,12 +135,13 @@ class VoiceOverlayView(
         username: String,
         avatarUrl: String?,
         isMuted: Boolean,
-        userId: Long
+        userId: Long,
+        isScreenShare: Boolean
     ) {
         backgroundImageView.visibility = GONE
         backgroundImageView.setImageDrawable(null)
         if (videoTrack != null) {
-            showVideoContent(videoTrack)
+            showVideoContent(videoTrack, isScreenShare)
             avatarView.visibility = GONE
         } else {
             detachVideo()
@@ -204,7 +206,7 @@ class VoiceOverlayView(
         )
     }
 
-    private fun showVideoContent(videoTrack: VideoTrack) {
+    private fun showVideoContent(videoTrack: VideoTrack, isScreenShare: Boolean) {
         if (currentVideoTrack == videoTrack && surfaceRenderer != null) return
         detachVideo()
 
@@ -213,6 +215,13 @@ class VoiceOverlayView(
         }.also {
             surfaceRenderer = it
             addView(it, 0, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        }
+        if (isScreenShare) {
+            renderer.setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FIT)
+            renderer.layoutParams = LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.CENTER)
+        } else {
+            renderer.setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FILL)
+            renderer.layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
         }
 
         if (!rendererInitialized) {
