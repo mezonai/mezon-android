@@ -251,7 +251,7 @@
     <string name="dm_unpin_confirm_title">Bỏ ghim cuộc trò chuyện?</string>
     <string name="dm_unpin_confirm_message">Cuộc trò chuyện này sẽ trở về vị trí bình thường trong danh sách tin nhắn.</string>
     <string name="dm_unpin_confirm_action">Bỏ ghim</string>
-    <string name="dm_pin_max_reached">Bạn chỉ có thể ghim tối đa %1$d cuộc trò chuyện.</string>
+    <string name="dm_pin_max_reached">Bạn chỉ có thể ghim tối đa %1$d cuộc trò chuyện. Vui lòng bỏ ghim cuộc trò chuyện khác để ghim cuộc trò chuyện này</string>
     <string name="dm_leave_group_confirm_title">Rời %1$s</string>
     <string name="dm_leave_group_confirm_message">Bạn có chắc muốn rời %1$s? Bạn sẽ không thể tham gia lại nhóm này trừ khi được mời lại.</string>
     <string name="dm_delete_group_confirm_title">Xóa %1$s</string>
@@ -1780,7 +1780,8 @@
     <string name="voice_room_connection_failed_message">Không thể khôi phục kết nối thoại. Hãy kiểm tra kết nối và thử tham gia lại.</string>
     <string name="voice_room_connection_exit">Thoát</string>
     <string name="voice_room_connection_rejoin">Tham gia lại</string>
-    <string name="voice_room_network_warning">Kết nối mạng của bạn không ổn định.</string>
+    <string name="voice_room_network_warning_title">Kết nối mạng của bạn không ổn định</string>
+    <string name="voice_room_network_warning_body">Hãy kiểm tra lại đường truyền mạng của bạn.</string>
     <string name="voice_room_hide_controls">Ẩn điều khiển chia sẻ màn hình</string>
     <string name="voice_room_show_controls">Hiện điều khiển chia sẻ màn hình</string>
 </resources>

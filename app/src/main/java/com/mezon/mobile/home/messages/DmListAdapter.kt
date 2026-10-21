@@ -240,12 +240,7 @@ fun buildSectionedDmEntries(
         return messages.map { DmListEntry.Message(it) }
     }
     val pinnedSet = pinnedIds.toHashSet()
-    val pinned = ArrayList<DirectMessage>(pinnedIds.size)
-    for (id in pinnedIds) {
-        val dm = messages.firstOrNull { it.channelId == id } ?: continue
-        pinned.add(dm)
-    }
-    val unpinned = messages.filter { it.channelId !in pinnedSet }
+    val (pinned, unpinned) = messages.partition { it.channelId in pinnedSet }
     val result = ArrayList<DmListEntry>(pinned.size + unpinned.size + 2)
     if (pinned.isNotEmpty()) {
         result.add(DmListEntry.Header(pinnedSectionTitle, DmListAdapter.HEADER_ID_PINNED))

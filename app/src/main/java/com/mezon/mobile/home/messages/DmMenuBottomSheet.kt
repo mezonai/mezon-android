@@ -58,6 +58,7 @@ class DmMenuBottomSheet(
         val newOriginalColorIcons = setOf(
             MezonIcon.markUnreadIcon,
             MezonIcon.pinIcon,
+            MezonIcon.unpinIcon,
             MezonIcon.bellIcon,
             MezonIcon.bellSlashIcon,
             MezonIcon.userFriendIcon,
@@ -223,15 +224,10 @@ class DmMenuBottomSheet(
                 } else {
                     context.getString(R.string.dm_menu_pin_conversation)
                 }
-                val pinIcon = if (options.isPinned) {
-                    com.mezon.mobile.ui.cells.MezonIcon.emptyPinIcon
-                } else {
-                    com.mezon.mobile.ui.cells.MezonIcon.pinIcon
-                }
                 add(
                     buildRow(
                         pinLabel,
-                        pinIcon,
+                        if (options.isPinned) MezonIcon.unpinIcon else MezonIcon.pinIcon,
                         onClick = onTogglePin,
                     )
                 )

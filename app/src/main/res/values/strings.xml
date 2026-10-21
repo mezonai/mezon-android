@@ -232,7 +232,7 @@
     <string name="dm_unpin_confirm_title">Unpin Conversation?</string>
     <string name="dm_unpin_confirm_message">This conversation will be returned to its normal position in the messages list.</string>
     <string name="dm_unpin_confirm_action">Unpin</string>
-    <string name="dm_pin_max_reached">You can only pin up to %1$d conversations.</string>
+    <string name="dm_pin_max_reached">You can only pin up to %1$d conversations. Please unpin another conversation to pin this one</string>
     <string name="dm_leave_group_confirm_title">Leave %1$s</string>
     <string name="dm_leave_group_confirm_message">Please confirm if you would like to leave %1$s? You won\'t be able to rejoin this group unless you are re-invited.</string>
     <string name="dm_delete_group_confirm_title">Delete %1$s</string>
@@ -1885,7 +1885,8 @@
     <string name="voice_room_connection_failed_message">The voice connection could not be restored. Check your connection and try joining again.</string>
     <string name="voice_room_connection_exit">Exit</string>
     <string name="voice_room_connection_rejoin">Rejoin</string>
-    <string name="voice_room_network_warning">Your internet connection is unstable.</string>
+    <string name="voice_room_network_warning_title">Your internet connection is unstable</string>
+    <string name="voice_room_network_warning_body">Please check your network connection.</string>
     <string name="voice_room_hide_controls">Hide screen share controls</string>
     <string name="voice_room_show_controls">Show screen share controls</string>
 </resources>

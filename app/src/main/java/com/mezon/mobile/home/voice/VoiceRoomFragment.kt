@@ -1871,8 +1871,9 @@ class VoiceRoomFragment : BaseFragment() {
             return
         }
         if (networkWarningHint != null) return
-        val message = getString(R.string.voice_room_network_warning)
-        val hint = VoiceNetworkWarningHintView(root.context, message).apply {
+        val warningTitle = getString(R.string.voice_room_network_warning_title)
+        val warningBody = getString(R.string.voice_room_network_warning_body)
+        val hint = VoiceNetworkWarningHintView(root.context, warningTitle, warningBody).apply {
             alpha = 0f
             onDismiss = {
                 networkWarningDismissed = true
@@ -1887,7 +1888,7 @@ class VoiceRoomFragment : BaseFragment() {
         root.viewTreeObserver.addOnGlobalLayoutListener(networkWarningLayoutListener)
         positionNetworkWarningHint()
         hint.animate().alpha(1f).setDuration(100L).start()
-        hint.announceForAccessibility(message)
+        hint.announceForAccessibility("$warningTitle. $warningBody")
     }
 
     private fun hideNetworkWarningHint() {
