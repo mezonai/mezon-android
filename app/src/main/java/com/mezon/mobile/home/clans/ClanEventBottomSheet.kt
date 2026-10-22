@@ -51,6 +51,7 @@ class ClanEventBottomSheet(
     private val onOpenChannel: (ClanChannelEntity) -> Unit,
     private val onEditEvent: (ClanEventEntity) -> Unit,
     private val onInviteExternalEvent: (String) -> Unit,
+    private val onOpenExternalMeeting: (String) -> Boolean,
 ) : BottomSheet(context) {
 
     private val logoLoadTokens = ArrayList<MezonImageLoader.Cancellable>()
@@ -633,6 +634,15 @@ class ClanEventBottomSheet(
     }
 
     private fun openExternalEvent(url: String) {
+        val path = Uri.parse(url).pathSegments
+        if (path.size == 2 && path[0] == "meeting" && path[1].isNotBlank()) {
+            if (onOpenExternalMeeting(path[1])) {
+                dismiss()
+            } else {
+                Toast.makeText(context, R.string.qr_external_link_open_failed, Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
         runCatching {
             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
         }.onFailure {

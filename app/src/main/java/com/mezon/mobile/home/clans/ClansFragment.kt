@@ -53,6 +53,7 @@ import com.mezon.mobile.home.friends.FriendController
 import com.mezon.mobile.home.profile.AccountController
 import com.mezon.mobile.MainActivity
 import com.mezon.mobile.home.voice.JoinVoiceBottomSheet
+import com.mezon.mobile.home.voice.ExternalMeetingFragment
 import com.mezon.mobile.home.voice.VoiceController
 import com.mezon.mobile.home.stream.JoinMediaSheetKind
 import com.mezon.mobile.home.stream.StreamingController
@@ -1075,6 +1076,9 @@ class ClansFragment : BaseFragment() {
                 if (clan != null) {
                     openInvitePeopleSheet(clanId, clan.clanName, clan.logo, url)
                 }
+            },
+            onOpenExternalMeeting = { code ->
+                presentFragment(ExternalMeetingFragment.create(code))
             },
         ).apply {
             setDrawNavigationBar(true)

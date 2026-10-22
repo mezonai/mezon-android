@@ -1889,4 +1889,17 @@
     <string name="voice_room_network_warning_body">Please check your network connection.</string>
     <string name="voice_room_hide_controls">Hide screen share controls</string>
     <string name="voice_room_show_controls">Show screen share controls</string>
+
+    <string name="external_meeting_title">External Meeting Room</string>
+    <string name="external_meeting_description">Anyone with the link can join this meeting, even without a Mezon account.</string>
+    <string name="external_meeting_join_speaker">Join as Speaker</string>
+    <string name="external_meeting_join_audience">Join as Audience</string>
+    <string name="external_meeting_join_role">Choose how to join</string>
+    <string name="external_meeting_chat">Meeting chat</string>
+    <string name="external_meeting_message">Message</string>
+    <string name="external_meeting_send">Send</string>
+    <string name="external_meeting_sending">Sending…</string>
+    <string name="external_meeting_sent">Delivered</string>
+    <string name="external_meeting_failed">Not sent</string>
+    <string name="external_meeting_copy_link">Copy meeting link</string>
 </resources>

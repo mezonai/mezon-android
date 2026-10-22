@@ -1784,4 +1784,17 @@
     <string name="voice_room_network_warning_body">Hãy kiểm tra lại đường truyền mạng của bạn.</string>
     <string name="voice_room_hide_controls">Ẩn điều khiển chia sẻ màn hình</string>
     <string name="voice_room_show_controls">Hiện điều khiển chia sẻ màn hình</string>
+
+    <string name="external_meeting_title">Phòng họp bên ngoài</string>
+    <string name="external_meeting_description">Bất kỳ ai có liên kết đều có thể tham gia cuộc họp, kể cả khi không có tài khoản Mezon.</string>
+    <string name="external_meeting_join_speaker">Tham gia với vai trò người nói</string>
+    <string name="external_meeting_join_audience">Tham gia với vai trò người nghe</string>
+    <string name="external_meeting_join_role">Chọn vai trò tham gia</string>
+    <string name="external_meeting_chat">Trò chuyện trong cuộc họp</string>
+    <string name="external_meeting_message">Tin nhắn</string>
+    <string name="external_meeting_send">Gửi</string>
+    <string name="external_meeting_sending">Đang gửi…</string>
+    <string name="external_meeting_sent">Đã gửi</string>
+    <string name="external_meeting_failed">Chưa gửi được</string>
+    <string name="external_meeting_copy_link">Sao chép liên kết cuộc họp</string>
 </resources>
