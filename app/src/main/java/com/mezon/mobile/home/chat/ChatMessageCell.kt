@@ -167,6 +167,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var hasPollCard = false
     var pollBridge: ChatPollBridge? = null
     var shareContactOnlineResolver: ((Long) -> Boolean)? = null
+    var senderUsernameResolver: ((Long) -> String)? = null
     private val shareContactLayout = ShareContactCardLayout(context).also {
         it.invalidateCallback = { invalidate() }
     }
@@ -659,6 +660,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var lastBoundId = 0L
     private var lastBoundContentHash = 0
     private var lastBoundCombined = false
+    private var lastBoundAvatarLabel = ""
     private var sendingVisualMessageId = 0L
     private var sendingVisualStartedAtMs = 0L
     private var sendingDimTickScheduled = false
@@ -696,6 +698,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         var needInvalidate = false
 
         if (mask == 0) {
+            val avatarLabel = senderAvatarLabel(msg)
             val snapshot = msg.displayAttachmentSnapshot()
             val presignHash = snapshot.filter.contentFingerprint()
             val contentHash = msg.content.hashCode() xor msg.timestampSeconds.hashCode() xor
@@ -703,10 +706,12 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 msg.updateTimeSeconds.hashCode() xor (if (msg.hideEditted) 2 else 0) xor
                 msg.rplCount xor msg.topicId.hashCode() xor presignHash xor
                 msg.attachmentUrl.hashCode() xor msg.extraAttachmentsJson.hashCode() xor
-                msg.senderName.hashCode() xor msg.senderAvatar.hashCode() xor
+                msg.senderName.hashCode() xor msg.senderUsername.hashCode() xor msg.senderAvatar.hashCode() xor
                 (pollBridge?.stateFingerprint(msg.id) ?: 0) xor
                 (botCommandResolver?.invoke(msg.id)?.hashCode() ?: 0)
-            if (msg.id == lastBoundId && contentHash == lastBoundContentHash && isCombined == lastBoundCombined) {
+            if (msg.id == lastBoundId && contentHash == lastBoundContentHash && isCombined == lastBoundCombined &&
+                avatarLabel == lastBoundAvatarLabel) {
+                refreshTopicAvatarPlaceholder(msg)
                 if (messageEntity?.reactionsJson != msg.reactionsJson) {
                     update(NotificationCenter.UPDATE_MASK_REACTIONS, msg)
                 }
@@ -715,6 +720,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             lastBoundId = msg.id
             lastBoundContentHash = contentHash
             lastBoundCombined = isCombined
+            lastBoundAvatarLabel = avatarLabel
 
             if (newMsg != null) messageEntity = newMsg
             parsedContent = parseContentText(msg.content)
@@ -798,10 +804,13 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
 
         if ((mask and NotificationCenter.UPDATE_MASK_NAME) != 0) {
+            refreshTopicAvatarPlaceholder(msg)
+            val avatarLabel = senderAvatarLabel(msg)
             val nameChanged = messageEntity?.senderName != msg.senderName
-            if (nameChanged || senderDisplayRoleChanged(msg.senderId)) {
+            if (nameChanged || senderDisplayRoleChanged(msg.senderId) || lastBoundAvatarLabel != avatarLabel) {
                 rebuildLayout = true
             }
+            lastBoundAvatarLabel = avatarLabel
             if (hasReply) {
                 val oldReplyName = replySenderName
                 val oldReplyAvatar = replySenderAvatarUrl
@@ -810,7 +819,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     rebuildLayout = true
                 }
             }
-            avatarDrawable.setInfo(msg.senderId, senderAvatarLabel(msg))
+            avatarDrawable.setInfo(msg.senderId, avatarLabel)
             needInvalidate = true
         }
 
@@ -1277,8 +1286,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     }
 
     private fun senderAvatarLabel(msg: MessageEntity): String {
-        val name = msg.senderName.ifBlank { msg.senderUsername }
-        return if (msg.senderId == ANONYMOUS_USER_ID) name.ifBlank { "Anonymous" } else name
+        return msg.avatarPlaceholderKey(senderUsernameResolver?.invoke(msg.senderId), ANONYMOUS_USER_ID)
     }
 
     private fun showsAnonymousPlaceholderAvatar(msg: MessageEntity): Boolean =
@@ -1681,7 +1689,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             } else {
                 context.getString(R.string.location_card_location_of, msg.senderName.ifBlank { msg.senderUsername })
             }
-            locationCardLayout.prepare(locData, msg.senderId, msg.senderUsername, msg.senderAvatar, title, theme, bubbleMaxW)
+            locationCardLayout.prepare(locData, msg.senderId, senderAvatarLabel(msg), msg.senderAvatar, title, theme, bubbleMaxW)
         } else {
             locationCardLayout.clear()
         }
@@ -1926,6 +1934,18 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         syncPollHitRect()
     }
 
+    private fun topicCreatorAvatarLabel(msg: MessageEntity, fallbackName: String): String {
+        return if (msg.topicCreatorId == ANONYMOUS_USER_ID) fallbackName else {
+            senderUsernameResolver?.invoke(msg.topicCreatorId).orEmpty().ifBlank { fallbackName }
+        }
+    }
+
+    private fun refreshTopicAvatarPlaceholder(msg: MessageEntity) {
+        if (!topicButtonEnabled || !msg.isTopicRootMessage || !topicButtonLayout.visible) return
+        val creatorName = topicCreatorResolver?.invoke(msg.topicCreatorId)?.first ?: msg.senderName
+        topicButtonLayout.updateAvatarPlaceholder(msg.topicCreatorId, topicCreatorAvatarLabel(msg, creatorName))
+    }
+
     private fun buildTopicButton(msg: MessageEntity, width: Int) {
         if (!topicButtonEnabled || !msg.isTopicRootMessage) {
             topicButtonLayout.clear()
@@ -1933,6 +1953,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
         val creator = topicCreatorResolver?.invoke(msg.topicCreatorId)
         val creatorName = creator?.first ?: msg.senderName
+        val creatorAvatarLabel = topicCreatorAvatarLabel(msg, creatorName)
         val creatorAvatar = creator?.second ?: msg.senderAvatar
         val lastTopicMessageId = topicLastMessageIdResolver?.invoke(msg.effectiveTopicId) ?: 0L
         val count = resolveTopicReplyCount(msg.rplCount, lastTopicMessageId)
@@ -1944,7 +1965,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val topicBadgeCount = topicBadgeResolver?.invoke(msg.effectiveTopicId) ?: 0
         topicButtonLayout.bind(
             msg,
-            creatorName,
+            creatorAvatarLabel,
             creatorAvatar,
             context.getString(R.string.topic_creator),
             context.getString(R.string.topic_view),
@@ -2398,6 +2419,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 ?.groupValues?.getOrNull(1)
                 ?.replace("\\\"", "\"")
                 ?: ""
+            val referenceNamesMissing = refClanNick.isEmpty() && refDisplayName.isEmpty() && replySenderUsername.isEmpty()
             replySenderName = refClanNick.ifBlank {
                 refDisplayName.ifBlank { replySenderUsername }
             }
@@ -2420,11 +2442,14 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 (replySenderName.isBlank() || replySenderAvatarUrl.isNullOrBlank())
             ) {
                 val cachedIdentity = delegate?.resolveReplyIdentity(replySenderId)
+                if (referenceNamesMissing) {
+                    replySenderUsername = cachedIdentity?.username.orEmpty()
+                }
                 if (replySenderName.isBlank()) {
-                    replySenderName = cachedIdentity?.first.orEmpty().ifBlank { replySenderId.toString() }
+                    replySenderName = cachedIdentity?.name.orEmpty().ifBlank { replySenderId.toString() }
                 }
                 if (replySenderAvatarUrl.isNullOrBlank()) {
-                    replySenderAvatarUrl = cachedIdentity?.second
+                    replySenderAvatarUrl = cachedIdentity?.avatarUrl
                 }
             }
             replyHasAttachment = content.contains("\"has_attachment\":true")
@@ -2727,6 +2752,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     var delegate: ChatMessageCellDelegate? = null
 
+    data class ReplyIdentity(val name: String, val avatarUrl: String, val username: String)
+
     interface ChatMessageCellDelegate {
         fun didClickMedia(cell: ChatMessageCell, msg: MessageEntity, attachmentIndex: Int) {}
         fun didClickFile(cell: ChatMessageCell, msg: MessageEntity) {}
@@ -2736,7 +2763,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         fun didLongPress(cell: ChatMessageCell, msg: MessageEntity) {}
         fun didClickAvatar(cell: ChatMessageCell, msg: MessageEntity) {}
         fun didPressReply(cell: ChatMessageCell, replyMessageId: Long) {}
-        fun resolveReplyIdentity(senderId: Long): Pair<String, String>? = null
+        fun resolveReplyIdentity(senderId: Long): ReplyIdentity? = null
         fun didTapReaction(cell: ChatMessageCell, msg: MessageEntity, group: ReactionGroup) {}
         fun didLongPressReaction(cell: ChatMessageCell, msg: MessageEntity, group: ReactionGroup) {}
         fun didTapAddReaction(cell: ChatMessageCell, msg: MessageEntity) {}

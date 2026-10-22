@@ -649,7 +649,9 @@ class InvitePeopleBottomSheet(
                 holder.avatar?.visibility = View.VISIBLE
                 holder.groupIcon?.visibility = View.GONE
                 val avatarKey = target.userId ?: target.channelId ?: 0L
-                holder.avatar?.setInfo(avatarKey, target.title)
+               
+                val placeholderKey = if (isGroup) target.title else target.subtitle.orEmpty().ifBlank { target.title }
+                holder.avatar?.setInfo(avatarKey, placeholderKey)
                 holder.avatar?.setImageUrl(target.avatarUrl)
             }
 

@@ -67,10 +67,10 @@ class SharingTargetCell(context: Context, private val theme: ThemeColors) : View
 
     private fun loadAvatar(t: SharingTarget) {
         val url = t.avatarUrl.ifEmpty { t.clanLogo }
-        val placeholderKey = if (t.isGroup || t.isDm) {
-            t.channelLabel.ifEmpty { t.username }
-        } else {
-            t.channelLabel
+        val placeholderKey = when {
+            t.isDm -> t.username.ifBlank { t.channelLabel }
+            t.isGroup -> t.channelLabel.ifEmpty { t.username }
+            else -> t.channelLabel
         }
         loadChannelAvatar(
             this,

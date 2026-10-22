@@ -9,6 +9,7 @@ import android.text.TextPaint
 import android.text.TextUtils
 import android.view.View
 import android.widget.LinearLayout
+import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
@@ -23,6 +24,9 @@ class TopicRootHeaderView(
 ) : LinearLayout(context) {
 
     private val metaView = TopicRootMetaView(context, theme)
+    var senderUsernameResolver: ((Long) -> String)?
+        get() = metaView.senderUsernameResolver
+        set(value) { metaView.senderUsernameResolver = value }
     private val messageCell = ChatMessageCell(context, theme).apply {
         isCombined = true
         isInPinMode = true
@@ -79,6 +83,10 @@ class TopicRootHeaderView(
         metaView.refreshDisplayRole()
     }
 
+    fun refreshAvatarPlaceholder() {
+        metaView.refreshAvatarPlaceholder()
+    }
+
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         if (visibility == GONE) {
             setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), 0)
@@ -112,6 +120,7 @@ private class TopicRootMetaView(
 ) : View(context) {
 
     var displayRoleResolver: ((Long) -> UserDisplayRole?)? = null
+    var senderUsernameResolver: ((Long) -> String)? = null
 
     private val avatarDrawable = AvatarDrawable()
     private val namePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -131,6 +140,7 @@ private class TopicRootMetaView(
     private var roleIconUrl: String? = null
     private var reserveRoleIcon = false
     private var currentAvatarUrl: String? = null
+    private var isAvatarLoading = false
     private var layoutWidth = 0
     private var boundMessage: MessageEntity? = null
     private var boundName: String = ""
@@ -138,28 +148,32 @@ private class TopicRootMetaView(
     fun setInfo(message: MessageEntity, name: String) {
         boundMessage = message
         boundName = name
-        avatarDrawable.setInfo(message.senderId, name)
+        refreshAvatarPlaceholder()
         if (currentAvatarUrl != message.senderAvatar) {
             currentAvatarUrl = message.senderAvatar
             avatarDisposable?.cancel()
             if (message.senderAvatar.isNotBlank()) {
                 val proxy = avatarImgproxyUrl(message.senderAvatar, AVATAR_SIZE)
+                isAvatarLoading = true
                 avatarDrawable.setLoadingPlaceholder(true)
                 avatarDisposable = MezonImageLoader.getInstance(context).load(
                     proxy,
                     AVATAR_SIZE,
                     AVATAR_SIZE,
                     onSuccess = { bmp ->
+                        isAvatarLoading = false
                         avatarDrawable.setLoadingPlaceholder(false)
                         avatarDrawable.setPhoto(bmp)
                         invalidate()
                     },
                     onError = {
+                        isAvatarLoading = false
                         avatarDrawable.setLoadingPlaceholder(false)
                         invalidate()
                     }
                 )
             } else {
+                isAvatarLoading = false
                 avatarDrawable.setLoadingPlaceholder(false)
                 avatarDrawable.setPhoto(null)
             }
@@ -168,6 +182,14 @@ private class TopicRootMetaView(
         loadRoleIcon(message.senderId)
         rebuildTextLayouts()
         requestLayout()
+        invalidate()
+    }
+
+    fun refreshAvatarPlaceholder() {
+        val message = boundMessage ?: return
+        val key = message.avatarPlaceholderKey(senderUsernameResolver?.invoke(message.senderId), ANONYMOUS_USER_ID)
+        avatarDrawable.setInfo(message.senderId, key)
+        if (isAvatarLoading) avatarDrawable.setLoadingPlaceholder(true)
         invalidate()
     }
 
@@ -183,6 +205,11 @@ private class TopicRootMetaView(
     fun onDetach() {
         avatarDisposable?.cancel()
         avatarDisposable = null
+        if (isAvatarLoading) {
+            isAvatarLoading = false
+            currentAvatarUrl = null
+            avatarDrawable.setLoadingPlaceholder(false)
+        }
         roleIconDisposable?.cancel()
         roleIconDisposable = null
     }
@@ -314,6 +341,7 @@ private class TopicRootMetaView(
     }
 
     companion object {
+        private val ANONYMOUS_USER_ID = BuildConfig.MEZON_ANONYMOUS_USER_ID.toLongOrNull() ?: 0L
         private val AVATAR_SIZE = LayoutHelper.dp(40)
         private val AVATAR_TEXT_GAP = LayoutHelper.dp(10)
         private val ROLE_ICON_SIZE = LayoutHelper.dp(20)

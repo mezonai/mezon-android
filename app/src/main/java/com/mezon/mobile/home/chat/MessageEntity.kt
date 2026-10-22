@@ -490,6 +490,14 @@ data class MessageEntity(
     }
 }
 
+internal fun MessageEntity.avatarPlaceholderKey(resolvedUsername: String?, anonymousUserId: Long): String {
+    return if (senderId == anonymousUserId) {
+        senderName.ifBlank { senderUsername }.ifBlank { "Anonymous" }
+    } else {
+        resolvedUsername ?: senderUsername
+    }
+}
+
 fun ChannelMessage.toMessageEntity(currentUserId: Long): MessageEntity {
     val allAttachments = parseAllAttachments(attachments)
     val firstAttachment = allAttachments.firstOrNull()

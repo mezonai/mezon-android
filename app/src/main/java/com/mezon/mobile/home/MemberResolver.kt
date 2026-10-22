@@ -4,6 +4,7 @@ import com.mezon.mobile.home.chat.input.InputSuggestionsController
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.messages.DmParticipant
 import com.mezon.mobile.home.profile.UserController
+import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.network.STREAM_MODE_CHANNEL
 import com.mezon.mobile.network.STREAM_MODE_THREAD
 import com.mezon.mobile.network.channelTypeToStreamMode
@@ -17,6 +18,18 @@ class MemberResolver @Inject constructor(
     private val dialogsController: DialogsController,
     private val channelController: ChannelController
 ) {
+
+    fun resolveAvatarUsername(userId: Long, clanId: Long, channelId: Long, channelType: Int): String {
+        if (userId == 0L) return ""
+        if (userId == userController.userId) return userController.username.trim()
+        userClanController.getUserById(userId)?.username?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
+        resolveMember(userId, clanId, channelId, channelType)?.username?.trim()
+            ?.takeIf { it.isNotEmpty() }?.let { return it }
+       
+        return dialogsController.getDialog(channelId)
+            ?.takeIf { it.type == CHANNEL_TYPE_DM && it.otherUserId == userId }
+            ?.username?.trim().orEmpty()
+    }
 
     fun resolveMember(
         userId: Long,

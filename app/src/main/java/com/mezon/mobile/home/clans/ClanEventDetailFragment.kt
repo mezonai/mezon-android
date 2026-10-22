@@ -865,7 +865,7 @@ class ClanEventDetailFragment : BaseFragment() {
                 buildInfoAvatarLeading(
                     context,
                     creator?.userId ?: 0L,
-                    memberDisplayName(creator),
+                    creator?.username.orEmpty(),
                     memberAvatarUrl(creator),
                 ),
                 context.getString(R.string.clan_event_created_by, memberDisplayName(creator)),

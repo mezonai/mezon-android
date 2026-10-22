@@ -760,8 +760,7 @@ class ClanEventBottomSheet(
             AvatarView(context).apply {
                 setSizeDp(24)
                 setRoundRadius(12f)
-                val name = creator?.displayName.orEmpty().ifBlank { creator?.username.orEmpty() }
-                setInfo(creator?.userId ?: 0L, name)
+                setInfo(creator?.userId ?: 0L, creator?.username.orEmpty())
                 val avatar = creator?.clanAvatar?.ifBlank { creator.avatarUrl }.orEmpty()
                 if (avatar.isNotEmpty()) setImageUrl(avatar)
             },

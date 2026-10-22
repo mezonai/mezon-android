@@ -100,7 +100,8 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
         val width: Int = 0,
         val height: Int = 0,
         val size: Int = 0,
-        val duration: Int = 0
+        val duration: Int = 0,
+        val senderUsername: String = ""
     )
 
     private val backgroundDrawable = ColorDrawable(Color.BLACK)
@@ -521,6 +522,8 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
             dateLabel.visibility = View.GONE
         }
 
+        val avatarLabel = if (item.uploaderId == VIDEO_ANONYMOUS_USER_ID) item.senderName
+            else item.senderUsername.ifBlank { item.senderName }
         when {
             item.uploaderId == VIDEO_ANONYMOUS_USER_ID && item.senderAvatarUrl.isNullOrEmpty() -> {
                 avatarView.setImageDrawable(com.mezon.mobile.ui.cells.MezonIcon.anonymousAvatar.getDrawable(context))
@@ -529,10 +532,10 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
                 avatarView.setImage(
                     avatarImgproxyUrl(item.senderAvatarUrl, LayoutHelper.dp(40)),
                     item.uploaderId,
-                    item.senderName
+                    avatarLabel
                 )
             }
-            else -> avatarView.setImage(null, item.uploaderId, item.senderName)
+            else -> avatarView.setImage(null, item.uploaderId, avatarLabel)
         }
     }
 

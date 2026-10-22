@@ -34,6 +34,8 @@ internal class TopicMessageButtonLayout(
     }
     private val topicBadgeRect = RectF()
     private val topicAvatarDrawable = AvatarDrawable()
+    private var boundCreatorId = 0L
+    private var boundAvatarLabel = ""
     private var topicCreatorLayout: StaticLayout? = null
     private var topicViewLayout: StaticLayout? = null
     private var topicRepliesLayout: StaticLayout? = null
@@ -101,11 +103,22 @@ internal class TopicMessageButtonLayout(
         useTwoTextRows = false
         badgeCount = 0
         badgeLabelText = ""
+        boundCreatorId = 0L
+        boundAvatarLabel = ""
+    }
+
+    fun updateAvatarPlaceholder(creatorId: Long, avatarLabel: String) {
+        if (!visible || creatorId != boundCreatorId || avatarLabel == boundAvatarLabel) return
+        val wasLoading = topicAvatarDrawable.isLoadingPlaceholder()
+        topicAvatarDrawable.setInfo(creatorId, avatarLabel)
+        topicAvatarDrawable.setLoadingPlaceholder(wasLoading)
+        boundAvatarLabel = avatarLabel
+        invalidateCallback?.invoke()
     }
 
     fun bind(
         msg: MessageEntity,
-        creatorName: String,
+        creatorAvatarLabel: String,
         creatorAvatarUrl: String,
         creatorLabel: String,
         viewLabel: String,
@@ -129,7 +142,9 @@ internal class TopicMessageButtonLayout(
             badgeCount > 99 -> "99+"
             else -> badgeCount.toString()
         }
-        topicAvatarDrawable.setInfo(msg.topicCreatorId, creatorName)
+        topicAvatarDrawable.setInfo(msg.topicCreatorId, creatorAvatarLabel)
+        boundCreatorId = msg.topicCreatorId
+        boundAvatarLabel = creatorAvatarLabel
         if (topicAvatarUrl != creatorAvatarUrl) {
             topicAvatarUrl = creatorAvatarUrl
             topicAvatarDisposable?.cancel()

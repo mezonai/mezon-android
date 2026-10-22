@@ -14,10 +14,12 @@ import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.drawable.Animatable
 import android.graphics.drawable.Drawable
+import android.icu.text.BreakIterator
 import android.os.SystemClock
 import android.text.TextPaint
 import android.view.View
 import java.lang.ref.WeakReference
+import java.util.Locale
 
 class AvatarDrawable : Drawable() {
 
@@ -33,20 +35,13 @@ class AvatarDrawable : Drawable() {
             0xFF22e2b3.toInt()
         )
 
-        fun avatarPlaceholderChar(name: String): Char? {
-            if (name.isEmpty()) return null
-            val first = name.firstOrNull { it.isLetterOrDigit() } ?: name.first()
-            return first.uppercaseChar()
-        }
-
         fun getColorForName(name: String): Int {
-            val upper = avatarPlaceholderChar(name) ?: return avatarColors[0]
-            return avatarColors[upper.code % avatarColors.size]
+            return avatarColors[getColorIndexForName(name)]
         }
 
         fun getColorIndexForName(name: String): Int {
-            val upper = avatarPlaceholderChar(name) ?: return 0
-            return upper.code % avatarColors.size
+            val upper = name.trim().uppercase(Locale.ROOT)
+            return if (upper.isEmpty()) 0 else upper.codePointAt(0) % avatarColors.size
         }
 
         fun getColorForId(id: Long): Int {
@@ -62,8 +57,7 @@ class AvatarDrawable : Drawable() {
         fun getNameColorNameForId(id: Long): Int = getColorIndex(id)
 
         fun normalizeUsername(username: String?): String {
-            if (username.isNullOrBlank()) return ""
-            return username.trim().removePrefix("@")
+            return username?.trim().orEmpty()
         }
     }
 
@@ -128,15 +122,16 @@ class AvatarDrawable : Drawable() {
 
     fun setInfo(id: Long, username: String?) {
         val normalized = normalizeUsername(username)
+        val color = getColorForName(normalized)
         if (id == currentUserId && (photoBitmap != null || animatedDrawable != null)) {
-            bgColor = getColorForName(normalized)
+            bgColor = color
             bgColor2 = bgColor
             initial = getAvatarSymbols(normalized)
             invalidateSelf()
             return
         }
         currentUserId = id
-        bgColor = getColorForName(normalized)
+        bgColor = color
         bgColor2 = bgColor
         hasGradient = false
         initial = getAvatarSymbols(normalized)
@@ -166,8 +161,10 @@ class AvatarDrawable : Drawable() {
     }
 
     private fun getAvatarSymbols(username: String): String {
-        val upper = avatarPlaceholderChar(username) ?: return ""
-        return upper.toString()
+        if (username.isEmpty()) return ""
+        val characters = BreakIterator.getCharacterInstance(Locale.ROOT)
+        characters.setText(username)
+        return username.substring(0, characters.next()).uppercase(Locale.ROOT)
     }
 
     fun setColor(color: Int) {
@@ -219,6 +216,8 @@ class AvatarDrawable : Drawable() {
     }
 
     fun hasPhoto(): Boolean = photoBitmap != null || animatedDrawable != null
+
+    fun isLoadingPlaceholder(): Boolean = loadingPlaceholder
 
     fun attachToView(view: View) {
         hostViewRef = WeakReference(view)

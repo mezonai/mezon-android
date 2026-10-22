@@ -109,7 +109,11 @@ class DmMenuBottomSheet(
                 setSizeDp(60)
                 setRoundRadius(if (dm.type == CHANNEL_TYPE_GROUP) 10f else 30f)
                 setInfo(dm.channelId, dm.avatarPlaceholderKey())
-                setImageUrl(dm.avatarUrl.ifBlank { "" })
+                if (dm.type == CHANNEL_TYPE_GROUP && isDefaultGroupAvatarUrl(dm.avatarUrl)) {
+                    setPhoto(GroupAvatar.bitmap(context))
+                } else {
+                    setImageUrl(dm.avatarUrl.ifBlank { "" })
+                }
             },
             FrameLayout.LayoutParams(LayoutHelper.dp(60), LayoutHelper.dp(60))
         )

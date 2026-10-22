@@ -68,7 +68,8 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
         val senderAvatarUrl: String?,
         val timestamp: Long,
         val isVideo: Boolean = false,
-        val uploaderId: Long = 0L
+        val uploaderId: Long = 0L,
+        val senderUsername: String = ""
     )
 
     private val backgroundDrawable = ColorDrawable(Color.BLACK)
@@ -425,6 +426,7 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
             thumbnailRecyclerView?.adapter?.notifyDataSetChanged()
             viewPager.setCurrentItem(currentIndex, false)
         }
+        updateHeader()
         updateCounter()
     }
 
@@ -470,14 +472,16 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
             }
         }
 
+        val avatarLabel = if (item.uploaderId == ANONYMOUS_USER_ID) item.senderName
+            else item.senderUsername.ifBlank { item.senderName }
         avatarView?.let { view ->
             if (item.uploaderId == ANONYMOUS_USER_ID && item.senderAvatarUrl.isNullOrEmpty()) {
                 view.setImageDrawable(com.mezon.mobile.ui.cells.MezonIcon.anonymousAvatar.getDrawable(context))
             } else if (!item.senderAvatarUrl.isNullOrEmpty()) {
                 val proxyUrl = com.mezon.mobile.util.avatarImgproxyUrl(item.senderAvatarUrl, LayoutHelper.dp(40))
-                view.setImage(proxyUrl, item.uploaderId, item.senderName)
+                view.setImage(proxyUrl, item.uploaderId, avatarLabel)
             } else {
-                view.setImage(null, item.uploaderId, item.senderName)
+                view.setImage(null, item.uploaderId, avatarLabel)
             }
         }
     }

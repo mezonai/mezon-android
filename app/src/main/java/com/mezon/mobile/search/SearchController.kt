@@ -51,7 +51,7 @@ data class SearchMember(
 )
 
 fun SearchMember.avatarPlaceholderKey(): String = when {
-    isDm -> displayName.ifEmpty { username }
+    isDm && channelType == CHANNEL_TYPE_GROUP -> displayName.ifEmpty { username }
     else -> username.ifEmpty { displayName }
 }
 

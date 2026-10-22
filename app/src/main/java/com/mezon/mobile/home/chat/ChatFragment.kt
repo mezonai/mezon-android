@@ -654,8 +654,12 @@ open class ChatFragment : BaseFragment() {
         observe(NotificationCenter.clanMembersDidLoad) { _, _, args ->
             val changedClanId = args.getOrNull(0) as? Long ?: return@observe
             if (changedClanId != clanId || !::adapter.isInitialized) return@observe
+            refreshSystemMessageMemberGateCache()
             adapter.currentUserRoleIds = resolveSelfRoleIds()
             updateVisibleRows(NotificationCenter.UPDATE_MASK_NAME)
+        }
+        observe(NotificationCenter.userClansDidLoad) { _, _, _ ->
+            if (fragmentView != null) updateVisibleRows(NotificationCenter.UPDATE_MASK_NAME)
         }
         observe(NotificationCenter.selectedClanChanged) { _, _, _ ->
             if (isPaused) return@observe
@@ -1478,12 +1482,13 @@ open class ChatFragment : BaseFragment() {
         }
 
         observe(NotificationCenter.channelMembersDidLoad) { _, _, args ->
-            if (isPaused) return@observe
             val loadedChannelId = args.firstOrNull() as? Long ?: return@observe
             val ch = channelController.findChannelById(channelId)
             val targetChannelId = if (ch?.parentId != 0L && ch?.parentId != null) ch.parentId else channelId
             if (loadedChannelId == targetChannelId) {
-                checkSuggestionTrigger()
+                refreshSystemMessageMemberGateCache()
+                if (fragmentView != null) updateVisibleRows(NotificationCenter.UPDATE_MASK_NAME)
+                if (!isPaused) checkSuggestionTrigger()
             }
         }
 
@@ -1534,6 +1539,7 @@ open class ChatFragment : BaseFragment() {
                 refreshDmHeaderTitleFromDialog()
                 actionBar?.let { applyDmVoicePresenceSubtitle(it) }
                 refreshWelcomeFromDialog()
+                updateVisibleRows(NotificationCenter.UPDATE_MASK_NAME)
             }
             if (clanId != 0L || channelType != CHANNEL_TYPE_DM) return@observe
             actionBar?.let { setupDmHeaderCallMenu(it) }
@@ -2367,7 +2373,8 @@ open class ChatFragment : BaseFragment() {
                             width = att.width,
                             height = att.height,
                             size = att.size,
-                            duration = att.duration
+                            duration = att.duration,
+                            senderUsername = memberResolver.resolveAvatarUsername(uploaderId, clanId, channelId, channelType)
                         )
                     )
                 } else {
@@ -2413,14 +2420,18 @@ open class ChatFragment : BaseFragment() {
             override fun didPressReply(cell: ChatMessageCell, replyMessageId: Long) {
                 scrollToReplyMessage(replyMessageId)
             }
-            override fun resolveReplyIdentity(senderId: Long): Pair<String, String>? {
+            override fun resolveReplyIdentity(senderId: Long): ChatMessageCell.ReplyIdentity? {
                 val member = memberResolver.resolveMember(senderId, clanId, channelId, channelType)
                     ?: return null
                 val name = member.clanNick.ifBlank {
                     member.displayName.ifBlank { member.username }
                 }
                 val avatar = member.clanAvatar.ifBlank { member.avatarUrl }
-                return if (name.isBlank() && avatar.isBlank()) null else name to avatar
+                val username = member.username.ifEmpty {
+                    userClanController.getUserById(senderId)?.username.orEmpty()
+                }
+                return if (name.isBlank() && avatar.isBlank() && username.isBlank()) null
+                else ChatMessageCell.ReplyIdentity(name = name, avatarUrl = avatar, username = username)
             }
             override fun didTapReaction(cell: ChatMessageCell, msg: MessageEntity, group: ReactionGroup) {
                 handleReactionTap(msg, group)
@@ -2642,6 +2653,9 @@ open class ChatFragment : BaseFragment() {
             friendController.friends.value.find { it.user.id == userId }?.user?.online == true ||
                 userClanController.getUserById(userId)?.isOnline == true
         }
+        adapter.senderUsernameResolver = { userId ->
+            memberResolver.resolveAvatarUsername(userId, clanId, channelId, channelType)
+        }
         refreshSystemMessageMemberGateCache()
         recyclerView.adapter = adapter
 
@@ -2809,6 +2823,7 @@ open class ChatFragment : BaseFragment() {
         } else if (!isTopicMode) {
             refreshClanHeaderFromChannel()
         }
+        updateVisibleRows(NotificationCenter.UPDATE_MASK_NAME)
         if (pausedFromAppBackground) {
             pausedFromAppBackground = false
             rejoinChannelOnSocket()
@@ -4323,7 +4338,9 @@ open class ChatFragment : BaseFragment() {
                     senderAvatarUrl = senderAvatarUrl,
                     timestamp = mediaItem.createTimeSeconds.toLong(),
                     isVideo = mediaItem.isVideo,
-                    uploaderId = uploaderId
+                    uploaderId = uploaderId,
+                    senderUsername = memberResolver.resolveAvatarUsername(uploaderId, clanId, channelId, channelType)
+                        .ifBlank { mediaItem.senderUsername }
                 )
             }
             .distinctBy { it.url }
@@ -4338,15 +4355,16 @@ open class ChatFragment : BaseFragment() {
             msg?.senderAvatar
         )
         val fallbackTimestamp = msg?.timestampSeconds ?: 0L
+        val fallbackSenderUsername = memberResolver.resolveAvatarUsername(uploaderId, clanId, channelId, channelType)
 
         if (base.isEmpty()) {
             return when {
-                seedUrls.isNotEmpty() -> seedUrls.map { PhotoViewer.GalleryItem(url = it, senderName = fallbackSenderName, senderAvatarUrl = fallbackSenderAvatar, timestamp = fallbackTimestamp, uploaderId = uploaderId) }
+                seedUrls.isNotEmpty() -> seedUrls.map { PhotoViewer.GalleryItem(url = it, senderName = fallbackSenderName, senderAvatarUrl = fallbackSenderAvatar, timestamp = fallbackTimestamp, uploaderId = uploaderId, senderUsername = fallbackSenderUsername) }
                 selectedUrl.isEmpty() -> emptyList()
-                else -> listOf(PhotoViewer.GalleryItem(url = selectedUrl, senderName = fallbackSenderName, senderAvatarUrl = fallbackSenderAvatar, timestamp = fallbackTimestamp, uploaderId = uploaderId))
+                else -> listOf(PhotoViewer.GalleryItem(url = selectedUrl, senderName = fallbackSenderName, senderAvatarUrl = fallbackSenderAvatar, timestamp = fallbackTimestamp, uploaderId = uploaderId, senderUsername = fallbackSenderUsername))
             }
         }
-        return if (selectedUrl.isEmpty() || base.any { it.url == selectedUrl }) base else listOf(PhotoViewer.GalleryItem(url = selectedUrl, senderName = fallbackSenderName, senderAvatarUrl = fallbackSenderAvatar, timestamp = fallbackTimestamp, uploaderId = uploaderId)) + base
+        return if (selectedUrl.isEmpty() || base.any { it.url == selectedUrl }) base else listOf(PhotoViewer.GalleryItem(url = selectedUrl, senderName = fallbackSenderName, senderAvatarUrl = fallbackSenderAvatar, timestamp = fallbackTimestamp, uploaderId = uploaderId, senderUsername = fallbackSenderUsername)) + base
     }
 
     private fun openChannelPhotoViewer(context: Context, url: String, thumbBmp: Bitmap?, seedUrls: List<String>, msg: MessageEntity? = null) {
@@ -4373,7 +4391,11 @@ open class ChatFragment : BaseFragment() {
         )
         val fallbackTimestamp = msg?.timestampSeconds ?: 0L
 
-        val item = initial.getOrNull(idx) ?: PhotoViewer.GalleryItem(url = url, senderName = fallbackSenderName, senderAvatarUrl = fallbackSenderAvatar, timestamp = fallbackTimestamp, uploaderId = uploaderId)
+        val item = initial.getOrNull(idx) ?: PhotoViewer.GalleryItem(
+            url = url, senderName = fallbackSenderName, senderAvatarUrl = fallbackSenderAvatar,
+            timestamp = fallbackTimestamp, uploaderId = uploaderId,
+            senderUsername = memberResolver.resolveAvatarUsername(uploaderId, clanId, channelId, channelType)
+        )
         viewer.show(item = item, gallery = initial, index = idx, thumbBitmap = thumbBmp)
         
         if (channelGalleryController.isInitialLoadFinished(channelId)) {
@@ -4424,6 +4446,11 @@ open class ChatFragment : BaseFragment() {
         val count = recyclerView.childCount
         for (i in 0 until count) {
             when (val child = recyclerView.getChildAt(i)) {
+                is TopicRootHeaderView -> {
+                    if (mask == 0 || (mask and NotificationCenter.UPDATE_MASK_NAME) != 0) {
+                        child.refreshAvatarPlaceholder()
+                    }
+                }
                 is ChatMessageCell -> {
                     val msg = child.messageEntity ?: continue
                     val updated = messagesDict.get(msg.id) ?: continue
@@ -5084,7 +5111,12 @@ open class ChatFragment : BaseFragment() {
     }
 
     private fun refreshSystemMessageMemberGateCache() {
-        systemMessageMemberIds = resolveMentionMembers().map { it.userId.toString() }.toSet()
+        val memberIds = resolveMentionMembers().map { it.userId.toString() }.toSet()
+        val changed = memberIds != systemMessageMemberIds
+        systemMessageMemberIds = memberIds
+        if (changed && ::adapter.isInitialized) {
+            adapter.refreshSystemMessageMentions()
+        }
     }
 
     private fun adjustMentionTrackersForChange(editStart: Int, removedLen: Int, addedLen: Int) {
@@ -8297,12 +8329,18 @@ open class ChatFragment : BaseFragment() {
 
     private fun buildReplyReferences(): List<com.mezon.mezon.api.MessageRef>? {
         val target = replyingToMessage ?: return null
+        // History messages can contain a display name in senderUsername.
+        val referenceUsername = if (target.senderId == ANONYMOUS_USER_ID || target.senderId == 0L || target.isSystemMessage) {
+            target.senderUsername.ifBlank { target.senderName }
+        } else {
+            memberResolver.resolveAvatarUsername(target.senderId, clanId, channelId, channelType)
+        }
         val ref = com.mezon.mezon.api.messageRef {
             messageId = 0L
             messageRefId = target.id
             refType = 0
             messageSenderId = target.senderId
-            messageSenderUsername = target.senderUsername.ifBlank { target.senderName }
+            messageSenderUsername = referenceUsername
             messageSenderAvatar = target.senderAvatar
             messageSenderClanNick = if (clanId != 0L) target.senderName else ""
             messageSenderDisplayName = target.senderName

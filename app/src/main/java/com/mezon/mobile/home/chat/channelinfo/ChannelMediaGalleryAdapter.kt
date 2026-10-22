@@ -447,7 +447,8 @@ internal class ChannelMediaGalleryAdapter(
                         senderAvatarUrl = resolvedAvatar,
                         timestamp = mediaItem.createTimeSeconds.toLong(),
                         isVideo = mediaItem.isVideo,
-                        uploaderId = mediaItem.uploaderId
+                        uploaderId = mediaItem.uploaderId,
+                        senderUsername = m?.username.orEmpty().ifBlank { mediaItem.senderUsername }
                     )
                 }
 
@@ -484,7 +485,8 @@ internal class ChannelMediaGalleryAdapter(
                         width = tapped.width,
                         height = tapped.height,
                         size = tapped.size,
-                        duration = tapped.duration
+                        duration = tapped.duration,
+                        senderUsername = member?.username.orEmpty().ifBlank { tapped.senderUsername }
                     )
                 )
             }

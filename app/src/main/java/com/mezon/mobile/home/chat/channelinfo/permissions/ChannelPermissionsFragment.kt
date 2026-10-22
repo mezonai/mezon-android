@@ -390,7 +390,7 @@ class ChannelPermissionsFragment : BaseFragment() {
         row.addView(
             AvatarView(context).apply {
                 setSizeDp(34)
-                setInfo(member.userId, displayName)
+                setInfo(member.userId, member.username)
                 setImageUrl(member.clanAvatar.ifBlank { member.avatarUrl })
             },
             LayoutHelper.createLinear(34, 34, 0f, Gravity.CENTER_VERTICAL)

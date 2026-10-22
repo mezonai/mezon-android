@@ -30,6 +30,7 @@ class ChatAdapter(
         }
     var pollBridge: com.mezon.mobile.home.chat.poll.ChatPollBridge? = null
     var shareContactOnlineResolver: ((Long) -> Boolean)? = null
+    var senderUsernameResolver: ((Long) -> String)? = null
     var displayRoleResolver: ((Long) -> UserDisplayRole?)? = null
     var onTopicClick: ((topicId: Long, rootMessageId: Long) -> Unit)? = null
     var topicCreatorResolver: ((Long) -> Pair<String, String>?)? = null
@@ -365,6 +366,15 @@ class ChatAdapter(
         }
     }
 
+    fun refreshSystemMessageMentions() {
+        for (position in messagesStartRow until messagesEndRow) {
+            val message = messages[position - messagesStartRow]
+            if (message.isSystemMessage && !message.isWelcomeMessage) {
+                notifyItemChanged(position)
+            }
+        }
+    }
+
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int, payloads: MutableList<Any>) {
         if (payloads.isNotEmpty() && payloads.all { it === EmojiResourcesPayload || it === LinkedChannelLabelsPayload }) {
             if (holder is MessageViewHolder) {
@@ -378,6 +388,7 @@ class ChatAdapter(
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         if (holder is TopicRootViewHolder) {
+            holder.header.senderUsernameResolver = senderUsernameResolver
             val resolver = displayRoleResolver
             if (resolver != null) {
                 holder.header.configure(clanId, resolver)
@@ -393,6 +404,7 @@ class ChatAdapter(
                 holder.cell.delegate = cellDelegate
                 holder.cell.pollBridge = pollBridge
                 holder.cell.shareContactOnlineResolver = shareContactOnlineResolver
+                holder.cell.senderUsernameResolver = senderUsernameResolver
                 holder.cell.loadLinkInvitePreview = loadLinkInvitePreview
                 holder.cell.isCombined = cachedIsCombined(idx)
                 holder.cell.currentUserId = currentUserId.toLongOrNull() ?: 0L
