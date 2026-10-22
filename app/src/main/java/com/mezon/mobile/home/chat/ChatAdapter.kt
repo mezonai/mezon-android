@@ -47,7 +47,6 @@ class ChatAdapter(
         private const val TYPE_LOADING_DOWN = 3
         private const val TYPE_SYSTEM = 4
         private const val TYPE_WELCOME = 5
-        private const val TYPE_SEND_TOKEN = 6
         private const val TYPE_TOPIC_ROOT = 7
 
         private fun optimisticStableId(messageId: Long): Long = messageId xor Long.MIN_VALUE
@@ -289,7 +288,6 @@ class ChatAdapter(
                 when {
                     msg.isWelcomeMessage -> TYPE_WELCOME
                     msg.isSystemMessage -> TYPE_SYSTEM
-                    msg.code == MessageEntity.CODE_SEND_TOKEN -> TYPE_SEND_TOKEN
                     msg.isMe -> TYPE_SENT
                     else -> TYPE_RECEIVED
                 }
@@ -325,15 +323,6 @@ class ChatAdapter(
                     )
                 }
                 SystemViewHolder(cell)
-            }
-            TYPE_SEND_TOKEN -> {
-                val cell = SendTokenMessageCell(parent.context, themeColors).apply {
-                    layoutParams = RecyclerView.LayoutParams(
-                        RecyclerView.LayoutParams.MATCH_PARENT,
-                        RecyclerView.LayoutParams.WRAP_CONTENT
-                    )
-                }
-                SendTokenViewHolder(cell)
             }
             TYPE_TOPIC_ROOT -> {
                 val header = TopicRootHeaderView(parent.context, themeColors).apply {
@@ -443,10 +432,6 @@ class ChatAdapter(
                 holder.cell.creatorNameResolver = systemMessageCreatorResolver
                 holder.cell.update(0, messages[idx])
             }
-            is SendTokenViewHolder -> {
-                holder.cell.delegate = sendTokenDelegate
-                holder.cell.update(messages[idx])
-            }
         }
     }
 
@@ -512,7 +497,6 @@ class ChatAdapter(
     var welcomePeerUsername: String = ""
     var welcomeCreatorName: String = ""
     var loadLinkInvitePreview: (suspend (Long) -> LinkInvitePreview?)? = null
-    var sendTokenDelegate: SendTokenMessageCell.Delegate? = null
     var systemMessageDelegate: SystemMessageCell.Delegate? = null
     var systemMessageMentionGate: ((userId: String?, roleId: String?, segmentText: String) -> Boolean)? = null
     var systemMessageCreatorResolver: ((Long) -> String)? = null
@@ -520,7 +504,6 @@ class ChatAdapter(
     class MessageViewHolder(val cell: ChatMessageCell) : RecyclerView.ViewHolder(cell)
     class WelcomeViewHolder(val cell: WelcomeMessageCell) : RecyclerView.ViewHolder(cell)
     class SystemViewHolder(val cell: SystemMessageCell) : RecyclerView.ViewHolder(cell)
-    class SendTokenViewHolder(val cell: SendTokenMessageCell) : RecyclerView.ViewHolder(cell)
     class TopicRootViewHolder(val header: TopicRootHeaderView) : RecyclerView.ViewHolder(header)
     class LoadingViewHolder(view: android.view.View) : RecyclerView.ViewHolder(view)
 }

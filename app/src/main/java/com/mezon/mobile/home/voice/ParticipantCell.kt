@@ -338,12 +338,14 @@ class ParticipantCell(
                 RendererCommon.ScalingType.SCALE_ASPECT_FIT
             )
             renderer.setEnableHardwareScaler(false)
+            renderer.layoutParams = LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.CENTER)
         } else {
             renderer.setScalingType(
                 RendererCommon.ScalingType.SCALE_ASPECT_FILL,
                 RendererCommon.ScalingType.SCALE_ASPECT_FILL
             )
             renderer.setEnableHardwareScaler(true)
+            renderer.layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
         }
         updateVideoMirror(mirror)
         renderer.requestLayout()

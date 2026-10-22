@@ -68,7 +68,8 @@ class VoiceOverlayManager(
         username: String,
         avatarUrl: String?,
         isMuted: Boolean,
-        userId: Long
+        userId: Long,
+        isScreenShare: Boolean
     ) {
         if (state != State.EXPANDED) return
         currentAnimator?.cancel()
@@ -80,7 +81,7 @@ class VoiceOverlayManager(
             it.onVideoVisibilityChanged = { track, visible -> onVideoVisibilityChanged?.invoke(track, visible) }
             miniOverlay = it
         }
-        overlay.setContent(videoTrack, name, username, avatarUrl, isMuted, userId)
+        overlay.setContent(videoTrack, name, username, avatarUrl, isMuted, userId, isScreenShare)
 
         val anim = ValueAnimator.ofFloat(1f, 0f)
         anim.duration = ANIM_DURATION
@@ -196,8 +197,9 @@ class VoiceOverlayManager(
         username: String,
         avatarUrl: String?,
         isMuted: Boolean,
-        userId: Long
+        userId: Long,
+        isScreenShare: Boolean
     ) {
-        miniOverlay?.setContent(videoTrack, name, username, avatarUrl, isMuted, userId)
+        miniOverlay?.setContent(videoTrack, name, username, avatarUrl, isMuted, userId, isScreenShare)
     }
 }

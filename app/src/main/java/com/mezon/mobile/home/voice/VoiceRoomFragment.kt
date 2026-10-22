@@ -290,10 +290,10 @@ class VoiceRoomFragment : BaseFragment() {
         if (focused != null) {
             manager.updateMiniContent(
                 focused.videoTrack, focused.name, focused.username,
-                focused.avatarUrl, focused.isMuted, focused.userId
+                focused.avatarUrl, focused.isMuted, focused.userId, focused.isScreenShare
             )
         } else {
-            manager.updateMiniContent(null, channelLabel, "", null, false, 0L)
+            manager.updateMiniContent(null, channelLabel, "", null, false, 0L, false)
         }
     }
 
@@ -1871,8 +1871,9 @@ class VoiceRoomFragment : BaseFragment() {
             return
         }
         if (networkWarningHint != null) return
-        val message = getString(R.string.voice_room_network_warning)
-        val hint = VoiceNetworkWarningHintView(root.context, message).apply {
+        val warningTitle = getString(R.string.voice_room_network_warning_title)
+        val warningBody = getString(R.string.voice_room_network_warning_body)
+        val hint = VoiceNetworkWarningHintView(root.context, warningTitle, warningBody).apply {
             alpha = 0f
             onDismiss = {
                 networkWarningDismissed = true
@@ -1887,7 +1888,7 @@ class VoiceRoomFragment : BaseFragment() {
         root.viewTreeObserver.addOnGlobalLayoutListener(networkWarningLayoutListener)
         positionNetworkWarningHint()
         hint.animate().alpha(1f).setDuration(100L).start()
-        hint.announceForAccessibility(message)
+        hint.announceForAccessibility("$warningTitle. $warningBody")
     }
 
     private fun hideNetworkWarningHint() {
@@ -2033,40 +2034,15 @@ class VoiceRoomFragment : BaseFragment() {
     )
 
     private fun resolveRaiseHandDisplay(senderId: Long, senderName: String, senderAvatar: String): RaiseHandDisplay {
-        if (senderId == userController.userId) {
-            val selfName = senderName.ifBlank {
-                userController.displayName.ifBlank { userController.username }
-            }
-            val selfAvatar = senderAvatar.ifBlank { userController.avatarUrl }
-            return RaiseHandDisplay(
-                displayName = selfName,
-                username = userController.username,
-                avatarUrl = selfAvatar.ifBlank { null }
-            )
+        val identity = senderId.toString()
+        val resolved = resolveMember(identity, senderName.ifBlank { memberFallbackName(identity) })
+        val fallbackAvatar = senderAvatar.ifBlank {
+            if (senderId == userController.userId) userController.avatarUrl else ""
         }
-        val members = userClanController.getClanMembers(clanId)
-        val member = members.firstOrNull { it.userId == senderId }
-        if (member != null) {
-            val name = senderName.ifBlank {
-                member.clanNick.ifBlank {
-                    member.displayName.ifBlank { member.username }
-                }
-            }
-            val avatar = senderAvatar.ifBlank {
-                member.clanAvatar.ifBlank { member.avatarUrl }
-            }
-            return RaiseHandDisplay(
-                displayName = name,
-                username = member.username,
-                avatarUrl = avatar.ifBlank { null }
-            )
-        }
-        val user = userClanController.getUserById(senderId)
-        val fallbackName = senderName.ifBlank { user?.username ?: "User" }
         return RaiseHandDisplay(
-            displayName = fallbackName,
-            username = user?.username.orEmpty(),
-            avatarUrl = senderAvatar.ifBlank { user?.avatarUrl }.orEmpty().ifBlank { null }
+            displayName = resolved.displayName,
+            username = resolved.username,
+            avatarUrl = resolved.avatarUrl ?: fallbackAvatar.ifBlank { null }
         )
     }
 

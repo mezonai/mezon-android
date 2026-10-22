@@ -2512,13 +2512,10 @@ open class ChatFragment : BaseFragment() {
             override fun didTapLocationCard(cell: ChatMessageCell, msg: MessageEntity, data: LocationMessageData) {
                 openLocationInMaps(data)
             }
-        })
-
-        adapter.sendTokenDelegate = object : SendTokenMessageCell.Delegate {
-            override fun onMezonTransferClick() {
+            override fun didTapSendTokenTransfer(cell: ChatMessageCell, msg: MessageEntity) {
                 presentFragment(SendTokenFragment.newInstance())
             }
-        }
+        })
         adapter.systemMessageMentionGate = gate@{ uid, _, segment ->
             val seg = segment.trim()
             if (seg.equals("@here", ignoreCase = true)) return@gate true

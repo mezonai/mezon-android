@@ -9,7 +9,6 @@ import com.mezon.mobile.core.StartupCache
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.home.DialogsController
-import com.mezon.mobile.home.friends.FRIEND_STATE_FRIEND
 import com.mezon.mobile.home.friends.FriendController
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.network.MezonApi
@@ -24,6 +23,9 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 private const val TAG = "MessageActivitiesController"
+private const val ACTIVITY_TYPE_WORK = 1
+private const val ACTIVITY_TYPE_LIVE = 2
+private const val ACTIVITY_TYPE_PLAY = 3
 
 @Singleton
 class MessageActivitiesController @Inject constructor(
@@ -36,7 +38,7 @@ class MessageActivitiesController @Inject constructor(
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) {
 
-    private val activitiesByUserId = HashMap<Long, UserActivity>()
+    private val activities = ArrayList<UserActivity>()
     private val _rows = MutableStateFlow<List<MessageActivityRow>>(emptyList())
     val rows: StateFlow<List<MessageActivityRow>> = _rows.asStateFlow()
 
@@ -50,6 +52,7 @@ class MessageActivitiesController @Inject constructor(
         Handler(Looper.getMainLooper()).post {
             notificationCenter.addObserver(notificationDelegate, NotificationCenter.dialogsNeedReload)
             notificationCenter.addObserver(notificationDelegate, NotificationCenter.friendsLoaded)
+            notificationCenter.addObserver(notificationDelegate, NotificationCenter.blockedUsersLoaded)
         }
     }
 
@@ -58,11 +61,9 @@ class MessageActivitiesController @Inject constructor(
             try {
                 sessionManager.withAutoRefresh { session ->
                     val res = api.listActivities(session.apiUrl, session.token)
-                    synchronized(activitiesByUserId) {
-                        activitiesByUserId.clear()
-                        for (a in res.actsList) {
-                            if (a.userId != 0L) activitiesByUserId[a.userId] = a
-                        }
+                    synchronized(activities) {
+                        activities.clear()
+                        res.actsList.filterTo(activities) { it.userId != 0L }
                     }
                 }
             } catch (e: Exception) {
@@ -74,34 +75,39 @@ class MessageActivitiesController @Inject constructor(
 
     private fun rebuildRows() {
         val me = StartupCache.userId.toLongOrNull() ?: 0L
-        val activityMap = synchronized(activitiesByUserId) {
-            HashMap(activitiesByUserId)
+        val ordered = synchronized(activities) {
+            activities.sortedBy { activitySectionRank(it.activityType) }
         }
-        if (activityMap.isEmpty()) {
+        if (ordered.isEmpty()) {
             _rows.value = emptyList()
             notificationCenter.postNotificationOnMainThread(NotificationCenter.messageActivitiesRowsUpdated)
             return
         }
         val merged = LinkedHashMap<Long, Triple<String, String, String>>()
-        for (f in friendController.friends.value) {
-            if (f.state != FRIEND_STATE_FRIEND) continue
+        val relations = friendController.friends.value +
+            friendController.sentFriendRequests.value +
+            friendController.receivedFriendRequests.value +
+            friendController.blockedUsers.value
+        for (f in relations) {
             val u = f.user
             if (u.id == 0L) continue
-            merged[u.id] = Triple(
+            merged.putIfAbsent(u.id, Triple(
                 u.displayName.ifBlank { u.username },
                 u.username,
                 u.avatarUrl
-            )
+            ))
         }
         for (dm in dialogsController.getDialogs()) {
             if (dm.type != CHANNEL_TYPE_DM || dm.otherUserId == 0L) continue
             val name = dm.displayName.ifBlank { dm.label }
-            merged[dm.otherUserId] = Triple(name, dm.label.ifBlank { name }, dm.avatarUrl)
+            merged.putIfAbsent(dm.otherUserId, Triple(name, dm.label.ifBlank { name }, dm.avatarUrl))
         }
         val out = ArrayList<MessageActivityRow>()
-        for ((uid, t) in merged) {
-            if (uid == me) continue
-            val act = activityMap[uid] ?: continue
+        val shown = HashSet<Long>()
+        for (act in ordered) {
+            val uid = act.userId
+            if (uid == me || uid in shown) continue
+            val t = merged[uid] ?: continue
             val label = if (act.activityDescription.isNotBlank()) {
                 "${act.activityName} - ${act.activityDescription}"
             } else {
@@ -109,6 +115,7 @@ class MessageActivitiesController @Inject constructor(
             }
             val display = t.first
             if (display.isBlank()) continue
+            shown.add(uid)
             out.add(
                 MessageActivityRow(
                     userId = uid,
@@ -121,5 +128,12 @@ class MessageActivitiesController @Inject constructor(
         }
         _rows.value = out
         notificationCenter.postNotificationOnMainThread(NotificationCenter.messageActivitiesRowsUpdated)
+    }
+
+    private fun activitySectionRank(activityType: Int): Int = when (activityType) {
+        ACTIVITY_TYPE_WORK -> 0
+        ACTIVITY_TYPE_LIVE -> 1
+        ACTIVITY_TYPE_PLAY -> 2
+        else -> 3
     }
 }

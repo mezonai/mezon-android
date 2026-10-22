@@ -6,9 +6,11 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.View
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -17,12 +19,15 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.ui.cells.MezonIcon
 import kotlin.math.min
 
-class VoiceNetworkWarningHintView(context: Context, message: String) : LinearLayout(context) {
+class VoiceNetworkWarningHintView(context: Context, title: String, body: String) : LinearLayout(context) {
 
     companion object {
         private const val FILL_COLOR = 0xFFFDE8D7.toInt()
         private const val TEXT_COLOR = 0xFF202124.toInt()
+        private const val BODY_COLOR = 0xBF202124.toInt()
         private const val CLOSE_TINT = 0xB3202124.toInt()
+        private const val ICON_COLOR = 0xFFB45309.toInt()
+        private const val ICON_BADGE_COLOR = 0x26B45309
         private val SHADOW_INSET = LayoutHelper.dp(8)
         private val MAX_BUBBLE_WIDTH = LayoutHelper.dp(360)
         private val ARROW_WIDTH = LayoutHelper.dp(12)
@@ -43,21 +48,48 @@ class VoiceNetworkWarningHintView(context: Context, message: String) : LinearLay
 
         val bubble = LinearLayout(context).apply {
             orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(16).toFloat()
                 setColor(FILL_COLOR)
             }
             elevation = LayoutHelper.dp(6).toFloat()
-            setPadding(LayoutHelper.dp(16), LayoutHelper.dp(16), LayoutHelper.dp(12), LayoutHelper.dp(16))
+            setPadding(LayoutHelper.dp(16), LayoutHelper.dp(12), LayoutHelper.dp(12), LayoutHelper.dp(12))
         }
-        val messageView = TextView(context).apply {
-            text = message
+        val iconBadge = FrameLayout(context).apply {
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(ICON_BADGE_COLOR)
+            }
+        }
+        val iconView = ImageView(context).apply {
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.ic_voice_network_warning, ICON_COLOR))
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        iconBadge.addView(iconView, FrameLayout.LayoutParams(LayoutHelper.dp(18), LayoutHelper.dp(18), Gravity.CENTER))
+        bubble.addView(iconBadge, LayoutParams(LayoutHelper.dp(32), LayoutHelper.dp(32)).apply {
+            marginEnd = LayoutHelper.dp(12)
+        })
+        val textColumn = LinearLayout(context).apply {
+            orientation = VERTICAL
+        }
+        val titleView = TextView(context).apply {
+            text = title
             textSize = 14f
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             setTextColor(TEXT_COLOR)
         }
-        bubble.addView(messageView, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f).apply {
-            gravity = Gravity.CENTER_VERTICAL
+        val bodyView = TextView(context).apply {
+            text = body
+            textSize = 12f
+            setTextColor(BODY_COLOR)
+        }
+        textColumn.addView(titleView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        textColumn.addView(bodyView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
+            topMargin = LayoutHelper.dp(2)
         })
+        bubble.addView(textColumn, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
         val closeButton = ImageView(context).apply {
             setImageDrawable(MezonIcon.closeSmallBold.getDrawable(context).mutate().apply {
                 colorFilter = PorterDuffColorFilter(CLOSE_TINT, PorterDuff.Mode.SRC_IN)
@@ -72,7 +104,6 @@ class VoiceNetworkWarningHintView(context: Context, message: String) : LinearLay
         }
         bubble.addView(closeButton, LayoutParams(LayoutHelper.dp(24), LayoutHelper.dp(24)).apply {
             marginStart = LayoutHelper.dp(12)
-            gravity = Gravity.TOP
         })
         addView(bubble, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         addView(arrowView, LayoutParams(ARROW_WIDTH, ARROW_HEIGHT))
