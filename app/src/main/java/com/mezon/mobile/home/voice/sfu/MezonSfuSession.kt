@@ -161,7 +161,7 @@ private val SCREEN_REFUSAL_ERRORS = setOf(
     "screen_share_not_allowed",
     "invalid_screen_share_active",
 )
-private const val SFU_MEDIA_POOL_VERSION = 1
+internal const val SFU_MEDIA_POOL_VERSION = 1
 private const val SFU_CLOSE_KICKED = 4006
 private const val SFU_CLOSE_ALONE_TIMEOUT = 4011
 private const val SFU_CLOSE_DUPLICATE_SESSION = 4012
