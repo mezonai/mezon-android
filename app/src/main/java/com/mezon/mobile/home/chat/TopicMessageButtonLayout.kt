@@ -105,7 +105,6 @@ internal class TopicMessageButtonLayout(
 
     fun bind(
         msg: MessageEntity,
-        creatorName: String,
         creatorAvatarUrl: String,
         creatorLabel: String,
         viewLabel: String,
@@ -129,7 +128,7 @@ internal class TopicMessageButtonLayout(
             badgeCount > 99 -> "99+"
             else -> badgeCount.toString()
         }
-        topicAvatarDrawable.setInfo(msg.topicCreatorId, creatorName)
+        topicAvatarDrawable.setUserId(msg.topicCreatorId)
         if (topicAvatarUrl != creatorAvatarUrl) {
             topicAvatarUrl = creatorAvatarUrl
             topicAvatarDisposable?.cancel()

@@ -2415,7 +2415,7 @@ open class ChatFragment : BaseFragment() {
             override fun didPressReply(cell: ChatMessageCell, replyMessageId: Long) {
                 scrollToReplyMessage(replyMessageId)
             }
-            override fun resolveReplyIdentity(senderId: Long): Pair<String, String>? {
+            override fun resolveMemberIdentity(senderId: Long): Pair<String, String>? {
                 val member = memberResolver.resolveMember(senderId, clanId, channelId, channelType)
                     ?: return null
                 val name = member.clanNick.ifBlank {
@@ -2491,8 +2491,7 @@ open class ChatFragment : BaseFragment() {
                                 clanId,
                                 channelType,
                                 resolveChannelPrivate(),
-                                isVideo = false,
-                                peerUsername = peer.username
+                                isVideo = false
                             )
                             presentFragment(com.mezon.mobile.home.call.CallFragment())
                         }
@@ -2603,11 +2602,9 @@ open class ChatFragment : BaseFragment() {
                 adapter.notifyTopicRootHeaderChanged()
             }
         }
-        adapter.topicCreatorResolver = { creatorId ->
+        adapter.topicCreatorAvatarResolver = { creatorId ->
             memberResolver.resolveMember(creatorId, clanId, channelId, channelType)?.let { member ->
-                val name = member.clanNick.ifBlank { member.displayName.ifBlank { member.username } }
-                val avatar = member.clanAvatar.ifBlank { member.avatarUrl }
-                name to avatar
+                member.clanAvatar.ifBlank { member.avatarUrl }
             }
         }
         adapter.topicLastMessageIdResolver = { tid ->
@@ -4633,7 +4630,6 @@ open class ChatFragment : BaseFragment() {
     private data class CallPeer(
         val userId: Long,
         val displayName: String,
-        val username: String,
         val avatarUrl: String?
     )
 
@@ -4643,20 +4639,19 @@ open class ChatFragment : BaseFragment() {
         val o = parts.firstOrNull { it.userId != myId }
         if (o != null) {
             val name = o.displayName.ifBlank { o.username.ifBlank { "User" } }
-            return CallPeer(o.userId, name, o.username, o.avatarUrl.ifBlank { null })
+            return CallPeer(o.userId, name, o.avatarUrl.ifBlank { null })
         }
         if (msg.senderId != myId) {
             return CallPeer(
                 msg.senderId,
                 msg.senderName.ifBlank { "User" },
-                msg.senderUsername,
                 msg.senderAvatar.ifBlank { null }
             )
         }
         val dm = dialogsController.getDialog(channelId)
         if (dm != null && dm.otherUserId != 0L && dm.otherUserId != myId) {
             val name = dm.displayName.ifBlank { dm.label.ifBlank { "User" } }
-            return CallPeer(dm.otherUserId, name, dm.username, dm.avatarUrl.ifBlank { null })
+            return CallPeer(dm.otherUserId, name, dm.avatarUrl.ifBlank { null })
         }
         Log.w(
             TAG,
@@ -4920,12 +4915,12 @@ open class ChatFragment : BaseFragment() {
         val o = dialogsController.getParticipants(channelId).firstOrNull { it.userId != myId }
         if (o != null) {
             val name = o.displayName.ifBlank { o.username.ifBlank { "User" } }
-            return CallPeer(o.userId, name, o.username, o.avatarUrl.ifBlank { null })
+            return CallPeer(o.userId, name, o.avatarUrl.ifBlank { null })
         }
         val dm = dialogsController.getDialog(channelId) ?: return null
         if (dm.otherUserId == 0L || dm.otherUserId == myId) return null
         val name = dm.displayName.ifBlank { dm.label.ifBlank { "User" } }
-        return CallPeer(dm.otherUserId, name, dm.username, dm.avatarUrl.ifBlank { null })
+        return CallPeer(dm.otherUserId, name, dm.avatarUrl.ifBlank { null })
     }
 
     private fun setupDmHeaderCallMenu(chatActionBar: ActionBarView) {
@@ -4972,8 +4967,7 @@ open class ChatFragment : BaseFragment() {
                                         clanId,
                                         channelType,
                                         resolveChannelPrivate(),
-                                        isVideo = false,
-                                        peerUsername = peer.username
+                                        isVideo = false
                                     )
                                     presentFragment(com.mezon.mobile.home.call.CallFragment())
                                 }
@@ -7370,8 +7364,7 @@ open class ChatFragment : BaseFragment() {
                             0L,
                             CHANNEL_TYPE_DM,
                             false,
-                            isVideo = false,
-                            peerUsername = username
+                            isVideo = false
                         )
                         presentFragment(CallFragment())
                     }
@@ -8997,7 +8990,7 @@ open class ChatFragment : BaseFragment() {
             val identity = resolveVoiceMemberIdentity(
                 uid, memberMap[uid], userClanController.getUserById(uid), "User"
             )
-            VoiceMemberDisplay(uid, identity.displayName, identity.username, identity.avatarUrl)
+            VoiceMemberDisplay(uid, identity.displayName, identity.avatarUrl)
         }
         val sheet = JoinVoiceBottomSheet(
             activity,
@@ -9034,7 +9027,7 @@ open class ChatFragment : BaseFragment() {
             val identity = resolveVoiceMemberIdentity(
                 uid, memberMap[uid], userClanController.getUserById(uid), "User"
             )
-            VoiceMemberDisplay(uid, identity.displayName, identity.username, identity.avatarUrl)
+            VoiceMemberDisplay(uid, identity.displayName, identity.avatarUrl)
         }
         val sheet = JoinVoiceBottomSheet(
             activity,

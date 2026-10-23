@@ -268,7 +268,7 @@ class FriendRowCell(
         val user = friend.user
         val state = friend.state
         val displayName = user.displayName.ifBlank { user.username }
-        avatarView.setInfo(user.id, user.username)
+        avatarView.setUserId(user.id)
         avatarView.setImageUrl(user.avatarUrl)
 
         val showPendingName = state == FRIEND_STATE_INVITE_SENT || state == FRIEND_STATE_INVITE_RECEIVED

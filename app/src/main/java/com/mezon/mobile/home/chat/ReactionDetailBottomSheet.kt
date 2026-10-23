@@ -442,7 +442,7 @@ class ReactionDetailBottomSheet(
             val proxyUrl = if (profile.avatarUrl.isNotBlank()) {
                 com.mezon.mobile.util.avatarImgproxyUrl(profile.avatarUrl, LayoutHelper.dp(40))
             } else null
-            avatarView.setImage(proxyUrl, sender.senderId, profile.username)
+            avatarView.setImage(proxyUrl, sender.senderId)
         }
     }
 }

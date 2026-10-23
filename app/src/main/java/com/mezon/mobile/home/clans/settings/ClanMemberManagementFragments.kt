@@ -136,7 +136,6 @@ class ClanMemberManageFragment : BaseFragment() {
         row.addView(AvatarView(requireContext()).apply {
             setSizeDp(40)
             setRoundRadius(20f)
-            setInfo(member.userId, displayName)
             setImageUrl(member.clanAvatar.ifBlank { member.avatarUrl })
         }, LayoutHelper.createLinear(40, 40, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, 12f, 0f))
         val labels = LinearLayout(requireContext()).apply { orientation = LinearLayout.VERTICAL }
@@ -337,13 +336,10 @@ class ClanTransferOwnershipFragment : BaseFragment() {
         if (member != null && clan != null) {
             val currentOwner = userClanController.getClanMembers(clanId)
                 .firstOrNull { it.userId == clan.creatorId }
-            val ownerId = currentOwner?.userId ?: userController.userId
-            val ownerName = currentOwner?.displayNameForManagement()
-                ?: userController.displayName.ifBlank { userController.username }
             val ownerAvatarUrl = currentOwner?.let { it.clanAvatar.ifBlank { it.avatarUrl } }
                 ?: userController.avatarUrl
             content.addView(
-                buildTransferParticipants(context, ownerId, ownerName, ownerAvatarUrl, member),
+                buildTransferParticipants(context, ownerAvatarUrl, member),
                 LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, 96, 0f, Gravity.CENTER_HORIZONTAL)
             )
             content.addView(managementText(context, clan.clanName, 24f, themeColors.textStrong, true, Gravity.CENTER),
@@ -378,8 +374,6 @@ class ClanTransferOwnershipFragment : BaseFragment() {
 
     private fun buildTransferParticipants(
         context: Context,
-        ownerId: Long,
-        ownerName: String,
         ownerAvatarUrl: String,
         target: ClanMember
     ): View = LinearLayout(context).apply {
@@ -388,7 +382,7 @@ class ClanTransferOwnershipFragment : BaseFragment() {
         clipChildren = false
 
         addView(
-            transferAvatar(context, ownerId, ownerName, ownerAvatarUrl, showCrown = false),
+            transferAvatar(context, ownerAvatarUrl, showCrown = false),
             LayoutHelper.createLinear(80, 96)
         )
         addView(
@@ -398,8 +392,6 @@ class ClanTransferOwnershipFragment : BaseFragment() {
         addView(
             transferAvatar(
                 context,
-                target.userId,
-                target.displayNameForManagement(),
                 target.clanAvatar.ifBlank { target.avatarUrl },
                 showCrown = true
             ),
@@ -409,8 +401,6 @@ class ClanTransferOwnershipFragment : BaseFragment() {
 
     private fun transferAvatar(
         context: Context,
-        id: Long,
-        name: String,
         avatarUrl: String,
         showCrown: Boolean
     ): View = FrameLayout(context).apply {
@@ -418,7 +408,6 @@ class ClanTransferOwnershipFragment : BaseFragment() {
         addView(AvatarView(context).apply {
             setSizeDp(80)
             setRoundRadius(40f)
-            setInfo(id, name)
             setImageUrl(avatarUrl)
         }, LayoutHelper.createFrame(80, 80, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL))
         if (showCrown) {

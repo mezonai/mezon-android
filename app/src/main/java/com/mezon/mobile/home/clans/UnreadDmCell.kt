@@ -70,10 +70,7 @@ class UnreadDmCell(
             previous.type == dm.type &&
             previous.avatarUrl == dm.avatarUrl &&
             previous.avatarPlaceholderKey() == dm.avatarPlaceholderKey()
-        if (!sameAvatar) {
-            avatar.setInfo(dm.channelId, dm.avatarPlaceholderKey())
-            loadAvatar(dm)
-        }
+        if (!sameAvatar) loadAvatar(dm)
         invalidate()
     }
 

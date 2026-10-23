@@ -1342,7 +1342,7 @@ class ClansFragment : BaseFragment() {
                     uid, memberMap[uid], userClanController.getUserById(uid), "User"
                 )
                 VoiceMemberDisplay(
-                    uid, identity.displayName, identity.username, identity.avatarUrl, uid in sharingIds
+                    uid, identity.displayName, identity.avatarUrl, uid in sharingIds
                 )
             }
             if (displays.isNotEmpty()) result[vc.channelId] = displays
@@ -1741,7 +1741,7 @@ class ClansFragment : BaseFragment() {
             val identity = resolveVoiceMemberIdentity(
                 uid, memberMap[uid], userClanController.getUserById(uid), "User"
             )
-            VoiceMemberDisplay(uid, identity.displayName, identity.username, identity.avatarUrl)
+            VoiceMemberDisplay(uid, identity.displayName, identity.avatarUrl)
         }
 
         val sheet = JoinVoiceBottomSheet(
@@ -1771,7 +1771,7 @@ class ClansFragment : BaseFragment() {
             val identity = resolveVoiceMemberIdentity(
                 uid, memberMap[uid], userClanController.getUserById(uid), "User"
             )
-            VoiceMemberDisplay(uid, identity.displayName, identity.username, identity.avatarUrl)
+            VoiceMemberDisplay(uid, identity.displayName, identity.avatarUrl)
         }
 
         val sheet = JoinVoiceBottomSheet(

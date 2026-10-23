@@ -528,11 +528,10 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
             !item.senderAvatarUrl.isNullOrEmpty() -> {
                 avatarView.setImage(
                     avatarImgproxyUrl(item.senderAvatarUrl, LayoutHelper.dp(40)),
-                    item.uploaderId,
-                    item.senderName
+                    item.uploaderId
                 )
             }
-            else -> avatarView.setImage(null, item.uploaderId, item.senderName)
+            else -> avatarView.setImage(null, item.uploaderId)
         }
     }
 

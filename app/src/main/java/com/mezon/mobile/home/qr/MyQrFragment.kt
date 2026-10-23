@@ -463,7 +463,6 @@ class MyQrFragment : BaseFragment() {
 
         if (!::headerAvatar.isInitialized) return
 
-        headerAvatar.setInfo(info.userId, username)
         headerAvatar.setImageUrl(avatarUrl.takeIf(String::isNotEmpty))
 
         val isProfile = activeTab == Tab.PROFILE

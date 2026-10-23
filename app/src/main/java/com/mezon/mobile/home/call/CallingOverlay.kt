@@ -119,9 +119,9 @@ class CallingOverlay(context: Context) : FrameLayout(context) {
         addView(row, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
     }
 
-    fun setCallerInfo(name: String, username: String, avatarUrl: String?) {
+    fun setCallerInfo(name: String, avatarUrl: String?) {
         nameTv.text = name
-        avatarView.setInfo(0L, username.ifEmpty { name })
+        avatarView.setUserId(0L)
         avatarView.setImageUrl(avatarUrl)
     }
 

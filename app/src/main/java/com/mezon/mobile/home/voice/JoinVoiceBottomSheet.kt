@@ -113,7 +113,7 @@ class JoinVoiceBottomSheet(
         if (displayMembers.isNotEmpty()) {
             for ((i, member) in displayMembers.withIndex()) {
                 val avatarDrawable = AvatarDrawable().apply {
-                    setInfo(member.userId, member.username)
+                    setUserId(member.userId)
                 }
                 val avatarView = ImageView(context).apply {
                     setImageDrawable(avatarDrawable)

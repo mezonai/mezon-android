@@ -58,14 +58,14 @@ class VoiceUserAvatarCell(
     private var isSharingScreen = false
     private var shareScreenDrawable: Drawable? = null
 
-    fun setUser(userId: Long, name: String, username: String, avatarUrl: String?, isSharingScreen: Boolean = false) {
+    fun setUser(userId: Long, name: String, avatarUrl: String?, isSharingScreen: Boolean = false) {
         this.userId = userId
         this.displayName = name
         this.avatarUrl = avatarUrl
         this.isSharingScreen = isSharingScreen
         this.isOverflowItem = false
         this.overflowCount = 0
-        avatarDrawable.setInfo(userId, username)
+        avatarDrawable.setUserId(userId)
         loadAvatar(avatarUrl)
         buildNameLayout()
         invalidate()

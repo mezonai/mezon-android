@@ -50,10 +50,7 @@ data class SearchMember(
     val channelType: Int
 )
 
-fun SearchMember.avatarPlaceholderKey(): String = when {
-    isDm -> displayName.ifEmpty { username }
-    else -> username.ifEmpty { displayName }
-}
+fun SearchMember.avatarPlaceholderKey(): String = displayName.ifEmpty { username }
 
 fun SearchMember.avatarEntityId(): Long =
     if (isDm && channelType == CHANNEL_TYPE_GROUP) channelId else id

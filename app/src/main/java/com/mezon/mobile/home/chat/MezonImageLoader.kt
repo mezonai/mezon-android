@@ -1,6 +1,7 @@
 package com.mezon.mobile.home.chat
 
 import com.mezon.mobile.network.CdnSigner
+import com.mezon.mobile.util.plainSourceUrlFromImgproxy
 import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.res.Configuration
@@ -363,6 +364,7 @@ class MezonImageLoader private constructor(context: Context) {
             override fun onFailure(call: Call, e: IOException) {
                 inflightUrlCalls.remove(logicalUrl, call)
                 if (call.isCanceled()) return
+                if (fetchSourceInsteadOfProxy(fetchUrl, logicalUrl)) return
                 if (attempt < MAX_NETWORK_RETRIES) {
                     mainHandler.postDelayed({
                         ensureNetworkFetch(fetchUrl, logicalUrl, attempt + 1)
@@ -377,6 +379,7 @@ class MezonImageLoader private constructor(context: Context) {
                 if (!response.isSuccessful) {
                     val code = response.code
                     response.close()
+                    if (fetchSourceInsteadOfProxy(fetchUrl, logicalUrl)) return
                     if (code == 403) markForbidden(logicalUrl)
                     if (attempt < MAX_NETWORK_RETRIES && (code == 408 || code == 429 || code >= 500)) {
                         mainHandler.postDelayed({
@@ -403,6 +406,7 @@ class MezonImageLoader private constructor(context: Context) {
                     dispatchAllDecodeSuccess(logicalUrl, urlFile)
                 } catch (e: Exception) {
                     try { tmpFile.delete() } catch (_: Throwable) {}
+                    if (e is IOException && fetchSourceInsteadOfProxy(fetchUrl, logicalUrl)) return
                     val ex = e as? Exception ?: Exception(e)
                     if (attempt < MAX_NETWORK_RETRIES && e is IOException) {
                         mainHandler.postDelayed({
@@ -414,6 +418,12 @@ class MezonImageLoader private constructor(context: Context) {
                 }
             }
         })
+    }
+
+    private fun fetchSourceInsteadOfProxy(fetchUrl: String, logicalUrl: String): Boolean {
+        val sourceUrl = plainSourceUrlFromImgproxy(fetchUrl) ?: return false
+        ensureNetworkFetch(sourceUrl, logicalUrl)
+        return true
     }
 
     private fun dispatchAllDecodeSuccess(logicalUrl: String, file: File) {

@@ -61,11 +61,9 @@ class TopicNotificationCell(
         if (newEntity != null) entity = newEntity
 
         val member = memberResolver?.invoke(item)
-        val displayName = member?.displayLabel().orEmpty()
         val avatarUrl = member?.avatarUrl().orEmpty()
         val senderId = item.senderIdForAvatar()
-        val avatarLabel = displayName.ifBlank { member?.username.orEmpty() }
-        avatarDrawable.setInfo(senderId, avatarLabel)
+        avatarDrawable.setUserId(senderId)
 
         val rebuildText = mask == 0 ||
             (mask and NotificationCenter.UPDATE_MASK_MESSAGE_TEXT) != 0 ||
@@ -223,9 +221,6 @@ class TopicNotificationCell(
             )
         }
     }
-
-    private fun ClanMember.displayLabel(): String =
-        clanNick.ifBlank { displayName.ifBlank { username } }
 
     private fun ClanMember.avatarUrl(): String =
         clanAvatar.ifBlank { avatarUrl }

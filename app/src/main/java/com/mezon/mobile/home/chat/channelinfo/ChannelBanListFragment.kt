@@ -165,7 +165,6 @@ class ChannelBanListFragment : BaseFragment() {
             row.addView(
                 AvatarView(ctx).apply {
                     setSizeDp(40)
-                    setInfo(userId, displayName)
                     setImageUrl(member?.clanAvatar?.ifBlank { member.avatarUrl }.orEmpty())
                 },
                 LayoutHelper.createLinear(40, 40, 0f, Gravity.CENTER_VERTICAL)

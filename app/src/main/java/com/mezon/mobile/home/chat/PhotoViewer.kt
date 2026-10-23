@@ -475,9 +475,9 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
                 view.setImageDrawable(com.mezon.mobile.ui.cells.MezonIcon.anonymousAvatar.getDrawable(context))
             } else if (!item.senderAvatarUrl.isNullOrEmpty()) {
                 val proxyUrl = com.mezon.mobile.util.avatarImgproxyUrl(item.senderAvatarUrl, LayoutHelper.dp(40))
-                view.setImage(proxyUrl, item.uploaderId, item.senderName)
+                view.setImage(proxyUrl, item.uploaderId)
             } else {
-                view.setImage(null, item.uploaderId, item.senderName)
+                view.setImage(null, item.uploaderId)
             }
         }
     }

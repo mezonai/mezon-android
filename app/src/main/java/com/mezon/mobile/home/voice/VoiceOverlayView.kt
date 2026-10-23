@@ -132,7 +132,6 @@ class VoiceOverlayView(
     fun setContent(
         videoTrack: VideoTrack?,
         name: String,
-        username: String,
         avatarUrl: String?,
         isMuted: Boolean,
         userId: Long,
@@ -146,8 +145,8 @@ class VoiceOverlayView(
         } else {
             detachVideo()
             avatarView.visibility = VISIBLE
-            avatarDrawable.setInfo(userId, username)
-            loadAvatar(avatarUrl, userId, username)
+            avatarDrawable.setUserId(userId)
+            loadAvatar(avatarUrl)
         }
 
         val micDrawable = if (isMuted) {
@@ -254,7 +253,7 @@ class VoiceOverlayView(
         surfaceRenderer?.visibility = GONE
     }
 
-    private fun loadAvatar(url: String?, userId: Long, name: String) {
+    private fun loadAvatar(url: String?) {
         if (url == currentAvatarUrl && avatarDrawable.hasPhoto()) return
         currentAvatarUrl = url
         avatarDisposable?.cancel()

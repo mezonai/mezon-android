@@ -14,7 +14,7 @@ import kotlin.math.min
 
 class BackupImageView(context: Context) : View(context) {
 
-    private val avatarDrawable = AvatarDrawable()
+    private val avatarDrawable = AvatarDrawable().apply { setBlankFallback() }
     private var imageUrl: String? = null
     private var loadedDrawable: Drawable? = null
     private var cancellable: MezonImageLoader.Cancellable? = null
@@ -84,11 +84,6 @@ class BackupImageView(context: Context) : View(context) {
         invalidate()
     }
 
-    fun setAvatarInfo(id: Long, username: String) {
-        avatarDrawable.setInfo(id, username)
-        invalidate()
-    }
-
     fun setImage(url: String?, filter: String?, placeholder: Drawable?) {
         if (url != null && url == imageUrl && (cancellable != null || (loadedDrawable != null && loadedDrawable !== placeholder))) return
         imageUrl = url
@@ -98,9 +93,9 @@ class BackupImageView(context: Context) : View(context) {
         invalidate()
     }
 
-    fun setImage(url: String?, id: Long = 0, username: String = "") {
-        if (id != 0L) avatarDrawable.setInfo(id, username)
+    fun setImage(url: String?, id: Long = 0) {
         if (url != null && url == imageUrl && (cancellable != null || loadedDrawable != null)) return
+        if (id != 0L) avatarDrawable.setUserId(id)
         imageUrl = url
         loadedDrawable = null
         if (attached && url != null) loadImage(url)
@@ -133,12 +128,13 @@ class BackupImageView(context: Context) : View(context) {
         cancellable?.cancel()
         val w = if (decodeWidth > 0) decodeWidth else measuredWidth.coerceAtLeast(LayoutHelper.dp(48))
         val h = if (decodeHeight > 0) decodeHeight else measuredHeight.coerceAtLeast(LayoutHelper.dp(48))
-        val proxyUrl = url
-        val absoluteUrlFallback = com.mezon.mobile.util.plainSourceUrlFromImgproxy(proxyUrl) ?: proxyUrl
-        val isAnimated = com.mezon.mobile.util.isAnimatedImageUrl(absoluteUrlFallback)
+        val sourceUrl = com.mezon.mobile.util.plainSourceUrlFromImgproxy(url) ?: url
+        val isAnimated = com.mezon.mobile.util.isAnimatedImageUrl(sourceUrl)
         val loader = MezonImageLoader.getInstance(context)
+        avatarDrawable.setLoadingPlaceholder(true)
 
         val successCallback: (Any) -> Unit = { result ->
+            avatarDrawable.setLoadingPlaceholder(false)
             loadedDrawable?.callback = null
             if (result is android.graphics.drawable.Animatable) {
                 loadedDrawable = result as android.graphics.drawable.Drawable
@@ -155,30 +151,16 @@ class BackupImageView(context: Context) : View(context) {
         }
 
         val errorCallback: (Throwable) -> Unit = {
-            if (absoluteUrlFallback != proxyUrl) {
-                cancellable = loader.loadDrawable(
-                    absoluteUrlFallback, w, h, successCallback,
-                    onError = {
-                        loadedDrawable?.callback = null
-                        loadedDrawable = null
-                        invalidate()
-                    }
-                )
-            } else {
-                loadedDrawable?.callback = null
-                loadedDrawable = null
-                invalidate()
-            }
+            avatarDrawable.setLoadingPlaceholder(false)
+            loadedDrawable?.callback = null
+            loadedDrawable = null
+            invalidate()
         }
 
-        if (isAnimated) {
-            cancellable = loader.loadDrawable(absoluteUrlFallback, w, h, successCallback, {
-                loadedDrawable?.callback = null
-                loadedDrawable = null
-                invalidate()
-            })
+        cancellable = if (isAnimated) {
+            loader.loadDrawable(sourceUrl, w, h, successCallback, errorCallback)
         } else {
-            cancellable = loader.load(proxyUrl, w, h, { bmp -> successCallback(bmp) }, errorCallback)
+            loader.load(url, w, h, { bmp -> successCallback(bmp) }, errorCallback)
         }
     }
 

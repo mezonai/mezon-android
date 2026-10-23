@@ -32,7 +32,7 @@ class ChatAdapter(
     var shareContactOnlineResolver: ((Long) -> Boolean)? = null
     var displayRoleResolver: ((Long) -> UserDisplayRole?)? = null
     var onTopicClick: ((topicId: Long, rootMessageId: Long) -> Unit)? = null
-    var topicCreatorResolver: ((Long) -> Pair<String, String>?)? = null
+    var topicCreatorAvatarResolver: ((Long) -> String?)? = null
     var topicLastMessageIdResolver: ((Long) -> Long)? = null
     var topicBadgeResolver: ((Long) -> Int)? = null
     var botCommandResolver: ((Long) -> com.mezon.mobile.home.chat.botcommand.BotCommandDisplay?)? = null
@@ -402,7 +402,7 @@ class ChatAdapter(
                 val msg = messages[idx]
                 holder.cell.displayRoleResolver = displayRoleResolver
                 holder.cell.onTopicClick = onTopicClick
-                holder.cell.topicCreatorResolver = topicCreatorResolver
+                holder.cell.topicCreatorAvatarResolver = topicCreatorAvatarResolver
                 holder.cell.topicLastMessageIdResolver = topicLastMessageIdResolver
                 holder.cell.topicBadgeResolver = topicBadgeResolver
                 holder.cell.botCommandResolver = botCommandResolver

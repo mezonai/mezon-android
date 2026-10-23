@@ -83,11 +83,7 @@ data class DirectMessage(
     val lastSentMessageTs: Long = 0L,
     val groupCreatorId: Long = 0L,
 ) {
-    fun avatarPlaceholderKey(): String = when (type) {
-        CHANNEL_TYPE_GROUP -> displayName.ifEmpty { label }
-        CHANNEL_TYPE_DM -> username
-        else -> username.ifEmpty { displayName.ifEmpty { label } }
-    }
+    fun avatarPlaceholderKey(): String = displayName.ifEmpty { label }
 }
 
 private const val PREVIEW_MAX_UTF8_BYTES = 32

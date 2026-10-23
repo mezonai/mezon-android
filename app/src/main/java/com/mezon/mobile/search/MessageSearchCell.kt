@@ -63,7 +63,7 @@ class MessageSearchCell(context: Context, private val theme: ThemeColors) : Base
         val doc = newDoc ?: document ?: return
         if (newDoc != null) document = newDoc
         resolvedSenderName = senderName
-        avatarDrawable.setInfo(doc.senderId.hashCode().toLong(), doc.username)
+        avatarDrawable.setUserId(doc.senderId.hashCode().toLong())
         loadAvatar(doc.avatarUrl)
         buildLayouts(measuredWidth)
         requestLayout()
