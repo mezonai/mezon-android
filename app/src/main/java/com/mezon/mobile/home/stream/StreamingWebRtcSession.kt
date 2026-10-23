@@ -6,6 +6,7 @@ import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.MainDispatcher
 import com.mezon.mobile.home.call.WebRtcInfra
+import com.mezon.mobile.home.voice.sfu.SFU_MEDIA_POOL_VERSION
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.net.URLEncoder
 import javax.inject.Inject
@@ -295,7 +296,8 @@ class StreamingWebRtcSession @Inject constructor(
                         .put("type", "join")
                         .put("room", channelId.toString())
                         .put("token", activeToken)
-                        .put("role", "audience"),
+                        .put("role", "audience")
+                        .put("media_pool_version", SFU_MEDIA_POOL_VERSION),
                 )
             }
         }

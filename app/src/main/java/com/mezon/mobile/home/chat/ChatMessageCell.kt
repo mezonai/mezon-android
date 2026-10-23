@@ -75,6 +75,7 @@ import com.mezon.mobile.home.messages.EmbedMessageRenderer
 import com.mezon.mobile.home.messages.EmbedSelectOptionSheet
 import com.mezon.mobile.home.messages.EphemeralMessageUi
 import com.mezon.mobile.network.CdnSigner
+import com.mezon.mobile.home.voice.ExternalMeetingRoom
 import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
@@ -2751,6 +2752,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         fun didTapShareContactCall(cell: ChatMessageCell, msg: MessageEntity, data: ShareContactData) {}
         fun didTapLocationCard(cell: ChatMessageCell, msg: MessageEntity, data: LocationMessageData) {}
         fun didTapBotCommandAction(cell: ChatMessageCell, msg: MessageEntity, action: BotCommandUserAction) {}
+        fun didClickExternalMeetingLink(cell: ChatMessageCell, meeting: ExternalMeetingRoom, url: String): Boolean = false
     }
 
     private var pressedLink: ClickableSpan? = null
@@ -3338,6 +3340,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     }
 
     fun onLinkClicked(url: String) {
+        val meeting = ExternalMeetingRoom.fromMeetingUrl(url)
+        if (meeting != null && delegate?.didClickExternalMeetingLink(this, meeting, url) == true) return
         CdnSigner.requestUrlOnMain(url) { signed ->
             try {
                 val intent = Intent(Intent.ACTION_VIEW, Uri.parse(signed.url).normalizeScheme())

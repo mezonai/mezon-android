@@ -70,6 +70,7 @@ import com.mezon.mobile.home.sharing.SharingFragment
 import com.mezon.mobile.home.sharing.ExistingVideoShareStore
 import com.mezon.mobile.home.sharing.VideoShareRefinementContract
 import com.mezon.mobile.home.stream.StreamingRoomFragment
+import com.mezon.mobile.home.voice.ExternalMeetingRoom
 import com.mezon.mobile.home.voice.VoiceOverlayManager
 import com.mezon.mobile.home.voice.VoiceRoomFragment
 import com.mezon.mobile.home.voice.sfu.MezonSfuSession
@@ -1062,6 +1063,26 @@ class MainActivity : BasePermissionsActivity(),
             dismissVoiceRoom()
         }
         val fragment = VoiceRoomFragment.create(channelId, clanId, channelLabel, role = role)
+        mountVoiceRoomFragment(fragment, manager)
+    }
+
+    fun showExternalMeeting(meeting: ExternalMeetingRoom) {
+        if (isStreamingOverlayVisible()) dismissStreamingRoom()
+        val manager = voiceOverlayManager ?: return
+        val existing = voiceRoomFragment
+        if (existing != null) {
+            if (existing.getExternalMeetingCode() == meeting.code && manager.isVisible()) {
+                manager.expand()
+                return
+            }
+            dismissVoiceRoom()
+        }
+        val label = meeting.title.ifBlank { getString(R.string.external_meeting_call) }
+        val fragment = VoiceRoomFragment.create(meeting.roomId, 0L, label, externalMeetingCode = meeting.code)
+        mountVoiceRoomFragment(fragment, manager)
+    }
+
+    private fun mountVoiceRoomFragment(fragment: VoiceRoomFragment, manager: VoiceOverlayManager) {
         fragment.themeColors = themeColors
         fragment.notificationCenter = notificationCenter
         fragment.parentLayout = actionBarLayout

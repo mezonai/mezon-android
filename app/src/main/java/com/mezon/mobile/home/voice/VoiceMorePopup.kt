@@ -45,6 +45,7 @@ class VoiceMorePopup(private val themeColors: ThemeColors) {
         noiseState: NoiseSuppressionState,
         noiseCaptureConfirmed: Boolean,
         onNoiseClick: () -> Unit,
+        showReactionActions: Boolean = true,
     ) {
         dismiss()
 
@@ -87,7 +88,8 @@ class VoiceMorePopup(private val themeColors: ThemeColors) {
         }
         val width = minOf(LayoutHelper.dp(216), parentActivity.resources.displayMetrics.widthPixels - LayoutHelper.dp(16))
         container.setPadding(LayoutHelper.dp(8), LayoutHelper.dp(8), LayoutHelper.dp(8), LayoutHelper.dp(8))
-        buttons.chunked(2).forEach { pair ->
+        val visibleButtons = if (showReactionActions) buttons else emptyList()
+        visibleButtons.chunked(2).forEach { pair ->
             val row = LinearLayout(anchor.context).apply { orientation = LinearLayout.HORIZONTAL }
             pair.forEachIndexed { index, button ->
                 row.addView(button, LinearLayout.LayoutParams(0, LayoutHelper.dp(40), 1f).apply {
@@ -134,7 +136,7 @@ class VoiceMorePopup(private val themeColors: ThemeColors) {
             visibility = View.GONE
         }.also { noiseRow.addView(it, LinearLayout.LayoutParams(LayoutHelper.dp(16), LayoutHelper.dp(16))) }
         container.addView(noiseRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, LayoutHelper.dp(44)).apply {
-            topMargin = LayoutHelper.dp(8)
+            if (container.childCount > 0) topMargin = LayoutHelper.dp(8)
         })
         updateNoiseState(noiseState, noiseCaptureConfirmed, showApplied = false)
 

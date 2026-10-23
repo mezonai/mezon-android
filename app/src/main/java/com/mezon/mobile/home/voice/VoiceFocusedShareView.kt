@@ -54,6 +54,7 @@ class VoiceFocusedShareView(
     private var pendingVideoTrack: VideoTrack? = null
     private var attachScheduled = false
     private var pipMode = false
+    private var emojiEnabled = true
     private var controlsVisible = true
     private var trackingSingleTouch = false
     private val contentTapDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
@@ -180,8 +181,13 @@ class VoiceFocusedShareView(
         pipMode = enabled
         cancelContentTap()
         setControlsVisible(controlsVisible)
-        emojiButton.visibility = View.VISIBLE
+        emojiButton.visibility = if (emojiEnabled) View.VISIBLE else View.GONE
         fullScreenButton.visibility = View.GONE
+    }
+
+    fun setEmojiEnabled(enabled: Boolean) {
+        emojiEnabled = enabled
+        emojiButton.visibility = if (enabled) View.VISIBLE else View.GONE
     }
 
     fun setControlsVisible(visible: Boolean) {

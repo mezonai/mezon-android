@@ -49,6 +49,7 @@ import com.mezon.mobile.home.clans.ClansController
 import com.mezon.mobile.home.clans.PermissionPolicy
 import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
+import com.mezon.mobile.network.HttpRpcStatusException
 import com.mezon.mobile.home.profile.UserController
 import com.mezon.mobile.ui.MezonToast
 import com.mezon.mobile.ui.cells.ToastOverlay
@@ -60,6 +61,7 @@ import com.mezon.mobile.home.voice.sfu.SfuParticipant
 import com.mezon.mobile.home.voice.sfu.SfuRemovalCause
 import com.mezon.mobile.home.voice.sfu.SfuRole
 import org.webrtc.VideoTrack
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -75,6 +77,7 @@ private const val ARG_CLAN_ID = "clan_id"
 private const val ARG_CHANNEL_LABEL = "channel_label"
 private const val ARG_IS_GROUP_CALL = "is_group_call"
 private const val ARG_ROLE = "join_role"
+private const val ARG_EXTERNAL_MEETING_CODE = "external_meeting_code"
 private const val REQUEST_VOICE_PERMISSIONS = 1401
 private const val REQUEST_MIC_TOGGLE = 1402
 private const val REQUEST_CAMERA_TOGGLE = 1403
@@ -90,7 +93,14 @@ private const val LOCAL_DEVICE_ID = "local"
 class VoiceRoomFragment : BaseFragment() {
 
     companion object {
-        fun create(channelId: Long, clanId: Long, channelLabel: String, isGroupCall: Boolean = false, role: SfuRole = SfuRole.SPEAKER): VoiceRoomFragment {
+        fun create(
+            channelId: Long,
+            clanId: Long,
+            channelLabel: String,
+            isGroupCall: Boolean = false,
+            role: SfuRole = SfuRole.SPEAKER,
+            externalMeetingCode: String? = null
+        ): VoiceRoomFragment {
             return VoiceRoomFragment().apply {
                 arguments = Bundle().apply {
                     putLong(ARG_CHANNEL_ID, channelId)
@@ -98,6 +108,7 @@ class VoiceRoomFragment : BaseFragment() {
                     putString(ARG_CHANNEL_LABEL, channelLabel)
                     putBoolean(ARG_IS_GROUP_CALL, isGroupCall)
                     putString(ARG_ROLE, role.name)
+                    if (externalMeetingCode != null) putString(ARG_EXTERNAL_MEETING_CODE, externalMeetingCode)
                 }
             }
         }
@@ -117,6 +128,8 @@ class VoiceRoomFragment : BaseFragment() {
     private var clanId: Long = 0L
     private var channelLabel: String = ""
     private var isGroupCall: Boolean = false
+    private var externalMeeting: ExternalMeetingRoom? = null
+    private val isExternalMeeting: Boolean get() = externalMeeting != null
 
     private lateinit var sfuSession: MezonSfuSession
     private val audioRecoveryCallback: () -> Unit = { audioManager?.recoverCommunicationAudio() }
@@ -180,6 +193,7 @@ class VoiceRoomFragment : BaseFragment() {
     fun getChannelLabel(): String = channelLabel
     fun getChannelId(): Long = channelId
     fun getClanId(): Long = clanId
+    fun getExternalMeetingCode(): String? = externalMeeting?.code
     fun getParticipantCount(): Int = participants.size
     fun hasActiveSession(): Boolean = sfuConnected
 
@@ -319,6 +333,7 @@ class VoiceRoomFragment : BaseFragment() {
         isGroupCall = arguments?.getBoolean(ARG_IS_GROUP_CALL, clanId == 0L) ?: (clanId == 0L)
         joinRole = runCatching { SfuRole.valueOf(arguments?.getString(ARG_ROLE) ?: SfuRole.SPEAKER.name) }
             .getOrDefault(SfuRole.SPEAKER)
+        externalMeeting = arguments?.getString(ARG_EXTERNAL_MEETING_CODE)?.let { ExternalMeetingRoom.fromCode(it, channelLabel) }
 
         observe(NotificationCenter.voiceRoomDisconnected) { _, _, args ->
             val disconnectedChannelId = args.getOrNull(1) as? Long
@@ -335,7 +350,7 @@ class VoiceRoomFragment : BaseFragment() {
 
         observe(NotificationCenter.voiceReactionReceived) { _, _, args ->
             if (fragmentView == null) return@observe
-            if (isGroupCall) return@observe
+            if (isGroupCall || isExternalMeeting) return@observe
             val reactionChannelId = args.getOrNull(1) as? Long ?: return@observe
             if (reactionChannelId != channelId) return@observe
             @Suppress("UNCHECKED_CAST")
@@ -435,6 +450,7 @@ class VoiceRoomFragment : BaseFragment() {
 
         headerView = VoiceHeaderView(context, themeColors).apply {
             setChannelName(channelLabel)
+            setExternalTag(if (isExternalMeeting) getString(R.string.external_meeting_call) else null)
             setAgentVisible(canManageVoiceChannel())
             setSwitchCameraVisible(false)
             setMinimizeVisible(!isGroupCall)
@@ -481,7 +497,7 @@ class VoiceRoomFragment : BaseFragment() {
                 }
             }
             onSwitchCameraClick = { switchLocalCamera() }
-            setRaiseHandVisible(!isGroupCall && joinRole != SfuRole.AUDIENCE)
+            setRaiseHandVisible(!isGroupCall && !isExternalMeeting && joinRole != SfuRole.AUDIENCE)
             onRaiseHandClick = { sendRaiseHandReaction() }
             onAudioOutputClick = { cycleAudioOutput() }
             onMoreClick = { anchor ->
@@ -499,7 +515,8 @@ class VoiceRoomFragment : BaseFragment() {
                         noiseCaptureConfirmed = sfuSession.noiseCaptureConfirmed,
                         onNoiseClick = {
                             sfuSession.setNoiseSuppressionEnabled(sfuSession.noiseState != NoiseSuppressionState.ON)
-                        }
+                        },
+                        showReactionActions = !isExternalMeeting
                     )
                 }
             }
@@ -540,7 +557,7 @@ class VoiceRoomFragment : BaseFragment() {
             themeColors = themeColors,
             getParticipants = { getGridParticipants() },
             onScreenShareClick = { if (it.deviceId != LOCAL_DEVICE_ID) showFocusedShare(it) },
-            onParticipantLongPress = { openParticipantModerationSheet(it) },
+            onParticipantLongPress = { if (!isExternalMeeting) openParticipantModerationSheet(it) },
             itemKeyProvider = { participantKey(it) },
             isCompactMode = { isInPipMode },
             isSpeaking = { it in speakingIds },
@@ -593,6 +610,7 @@ class VoiceRoomFragment : BaseFragment() {
                 sfuSession.setVideoTrackVisible(track, visible, "focused", focused = true)
             }
             onEmojiClick = { reactionHandler.showEmojiReactionPicker() }
+            setEmojiEnabled(!isExternalMeeting)
             onMinimizeClick = {
                 if (isInPipMode) {
                     minimizeToOverlay()
@@ -609,6 +627,7 @@ class VoiceRoomFragment : BaseFragment() {
 
         controlBar = VoiceControlBar(context, themeColors).apply {
             setGroupCallMode(isGroupCall)
+            setExternalMeetingMode(isExternalMeeting)
             onCameraToggle = { enabled ->
                 if (enabled) {
                     requestCameraToggle()
@@ -992,8 +1011,13 @@ class VoiceRoomFragment : BaseFragment() {
         val targetLabel = channelLabel
         val targetRole = joinRole
         val targetUserId = userController.userId.toString()
+        val meeting = externalMeeting
         roomScope?.launch {
-            var token = voiceController.cachedMeetTokenFor(targetChannelId, targetClanId)
+            var token = if (meeting == null) {
+                voiceController.cachedMeetTokenFor(targetChannelId, targetClanId)
+            } else {
+                joinExternalMeetingToken(meeting, targetLabel) ?: return@launch
+            }
             if (token.isNullOrEmpty()) {
                 token = voiceController.joinVoiceChannel(targetChannelId, targetClanId, targetLabel)
                 if (!isActive || channelId != targetChannelId || clanId != targetClanId) return@launch
@@ -1005,9 +1029,11 @@ class VoiceRoomFragment : BaseFragment() {
             }
 
             if (!isActive || channelId != targetChannelId || clanId != targetClanId) return@launch
-            userClanController.loadClanMembers(targetClanId, noCache = true)
-            if (!userClanController.loaded) {
-                userClanController.loadUsers(noCache = true)
+            if (meeting == null) {
+                userClanController.loadClanMembers(targetClanId, noCache = true)
+                if (!userClanController.loaded) {
+                    userClanController.loadUsers(noCache = true)
+                }
             }
 
             if (!isActive || channelId != targetChannelId || clanId != targetClanId) return@launch
@@ -1034,7 +1060,7 @@ class VoiceRoomFragment : BaseFragment() {
             sfuSession.onRoleChanged = { r ->
                 joinRole = r
                 if (::controlBar.isInitialized) controlBar.setPushToTalkMode(r == SfuRole.AUDIENCE)
-                if (::headerView.isInitialized) headerView.setRaiseHandVisible(!isGroupCall && r != SfuRole.AUDIENCE)
+                if (::headerView.isInitialized) headerView.setRaiseHandVisible(!isGroupCall && !isExternalMeeting && r != SfuRole.AUDIENCE)
                 applyVoiceLayoutForMode()
             }
             sfuSession.onError = { code, _ -> Log.e(TAG, "sfu error: $code") }
@@ -1066,7 +1092,11 @@ class VoiceRoomFragment : BaseFragment() {
             sfuSession.onAudioSendingChanged = { sending ->
                 if (::controlBar.isInitialized) controlBar.setAudioSending(sending)
             }
-            sfuSession.tokenProvider = { callChannelId, callClanId -> voiceController.refreshMeetToken(callChannelId, callClanId) }
+            if (meeting != null) {
+                sfuSession.tokenProvider = { _, _ -> voiceController.refreshExternalMeetToken(meeting) }
+            } else {
+                sfuSession.tokenProvider = { callChannelId, callClanId -> voiceController.refreshMeetToken(callChannelId, callClanId) }
+            }
             sfuSession.onMutedByModerator = { onMutedByModerator() }
             sfuSession.onRemoved = { cause, reason -> onRemovedFromRoom(cause, reason) }
             sfuSession.onNoiseStateChanged = { state ->
@@ -1074,7 +1104,7 @@ class VoiceRoomFragment : BaseFragment() {
             }
 
             voiceController.onRoomConnecting(targetChannelId, targetClanId)
-            sfuSession.join(targetChannelId, targetClanId, targetUserId, token, targetRole, voiceController.meetSfuUrl)
+            sfuSession.join(targetChannelId, targetClanId, targetUserId, token, targetRole, voiceController.meetSfuUrl, meeting?.code)
             if (!sfuSession.isInRoom(targetChannelId, targetClanId)) return@launch
             applyAgentHeaderUi()
             voiceController.isLocalVideoEnabled = false
@@ -1082,6 +1112,49 @@ class VoiceRoomFragment : BaseFragment() {
             doUpdateParticipantList()
             updateAudioOutputIcon()
         }
+    }
+
+    private suspend fun joinExternalMeetingToken(meeting: ExternalMeetingRoom, label: String): String? {
+        val token = try {
+            voiceController.joinExternalMeeting(meeting, label)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get external meet token", e)
+            if (e is HttpRpcStatusException && e.code in 400..499) {
+                showExternalMeetingLinkInvalid()
+            } else {
+                onSfuState(SfuConnectionState.FAILED)
+            }
+            return null
+        }
+        if (token.isNullOrEmpty()) {
+            onSfuState(SfuConnectionState.FAILED)
+            return null
+        }
+        return token
+    }
+
+    private fun showExternalMeetingLinkInvalid() {
+        headerView.setReconnecting(false)
+        val activity = getMainActivity()
+        if (activity == null || activity.isFinishing || activity.isDestroyed || fragmentView == null) {
+            disconnectAndLeave()
+            dismissOverlay()
+            return
+        }
+        activity.expandVoiceRoom()
+        val dialog = AlertDialog.Builder(activity)
+            .setTitle(getString(R.string.voice_room_connection_failed_title))
+            .setMessage(getString(R.string.external_meeting_link_invalid))
+            .setPositiveButton(getString(R.string.common_ok)) { _, _ ->
+                disconnectAndLeave()
+                dismissOverlay()
+            }
+            .create()
+        dialog.setCancelable(false)
+        dialog.show()
+        dialog.setCanceledOnTouchOutside(false)
     }
 
     private fun onSfuState(state: SfuConnectionState) {
@@ -1154,6 +1227,15 @@ class VoiceRoomFragment : BaseFragment() {
     }
 
     private fun resolveMember(identity: String, fallbackName: String): VoiceMemberIdentity {
+        if (isExternalMeeting) {
+            if (identity == userController.userId.toString()) {
+                val name = userController.displayName.ifBlank { userController.username }.ifBlank { fallbackName }
+                return VoiceMemberIdentity(name, userController.username.ifBlank { name }, userController.avatarUrl.ifBlank { null })
+            }
+            val profile = sfuSession.externalPeerProfiles[identity]
+            val name = profile?.name ?: getString(R.string.external_meeting_guest)
+            return VoiceMemberIdentity(name, name, profile?.avatarUrl)
+        }
         memberResolveCache[identity]?.let { return it }
         val userId = identity.toLongOrNull()
             ?: return VoiceMemberIdentity(fallbackName, fallbackName, null)

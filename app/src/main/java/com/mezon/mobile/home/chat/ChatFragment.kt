@@ -113,6 +113,8 @@ import com.mezon.mobile.home.clans.channelapp.ChannelAppController
 import com.mezon.mobile.home.clans.channelapp.ChannelAppFragment
 import com.mezon.mobile.home.stream.JoinMediaSheetKind
 import com.mezon.mobile.home.stream.StreamingController
+import com.mezon.mobile.home.voice.ExternalMeetingLinkBottomSheet
+import com.mezon.mobile.home.voice.ExternalMeetingRoom
 import com.mezon.mobile.home.voice.JoinVoiceBottomSheet
 import com.mezon.mobile.home.voice.VoiceController
 import com.mezon.mobile.home.voice.resolveVoiceMemberIdentity
@@ -2449,6 +2451,9 @@ open class ChatFragment : BaseFragment() {
             }
             override fun didClickInviteJoin(cell: ChatMessageCell, msg: MessageEntity, inviteId: Long) {
                 onLinkInviteJoinClicked(inviteId)
+            }
+            override fun didClickExternalMeetingLink(cell: ChatMessageCell, meeting: ExternalMeetingRoom, url: String): Boolean {
+                return showExternalMeetingLinkSheet(meeting, url)
             }
             override fun isDmPeerBlockedForCallLog(): Boolean {
                 if (clanId != 0L || channelType != CHANNEL_TYPE_DM) return false
@@ -8958,6 +8963,28 @@ open class ChatFragment : BaseFragment() {
                 isMuted = false
             )
         showJoinVoiceBottomSheet(entity, status.clanId)
+    }
+
+    private fun showExternalMeetingLinkSheet(meeting: ExternalMeetingRoom, url: String): Boolean {
+        val activity = getParentActivity() ?: return false
+        val sheet = ExternalMeetingLinkBottomSheet(activity, themeColors, meeting, url)
+        sheet.onJoinInApp = {
+            (activity as? MainActivity)?.showExternalMeeting(meeting)
+        }
+        sheet.onOpenInBrowser = {
+            CdnSigner.requestUrlOnMain(url) { signed ->
+                try {
+                    activity.startActivity(
+                        android.content.Intent(
+                            android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse(signed.url).normalizeScheme()
+                        )
+                    )
+                } catch (_: Exception) {}
+            }
+        }
+        sheet.show()
+        return true
     }
 
     private fun showJoinVoiceBottomSheet(channel: ClanChannelEntity, targetClanId: Long) {

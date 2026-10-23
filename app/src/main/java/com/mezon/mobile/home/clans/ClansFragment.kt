@@ -1078,6 +1078,10 @@ class ClansFragment : BaseFragment() {
             },
         ).apply {
             setDrawNavigationBar(true)
+            onJoinExternalMeeting = { meeting ->
+                dismissClanEventSheet()
+                (getParentActivity() as? MainActivity)?.showExternalMeeting(meeting)
+            }
         }
         clanEventSheet = sheet
         sheet.show()

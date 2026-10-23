@@ -161,7 +161,7 @@ private val SCREEN_REFUSAL_ERRORS = setOf(
     "screen_share_not_allowed",
     "invalid_screen_share_active",
 )
-private const val SFU_MEDIA_POOL_VERSION = 1
+internal const val SFU_MEDIA_POOL_VERSION = 1
 private const val SFU_CLOSE_KICKED = 4006
 private const val SFU_CLOSE_ALONE_TIMEOUT = 4011
 private const val SFU_CLOSE_DUPLICATE_SESSION = 4012
@@ -343,8 +343,15 @@ class MezonSfuSession @Inject constructor(
     var connectionState = SfuConnectionState.DISCONNECTED
         private set
 
-    private data class CallIdentity(val channelId: Long, val clanId: Long, val userId: String)
+    private data class CallIdentity(
+        val channelId: Long,
+        val clanId: Long,
+        val userId: String,
+        val externalRoomName: String? = null
+    )
     private var callIdentity: CallIdentity? = null
+    private val externalPeerProfilesByUserId = HashMap<String, SfuPeerProfile>()
+    val externalPeerProfiles: Map<String, SfuPeerProfile> get() = externalPeerProfilesByUserId
     private var callFactory: PeerConnectionFactory? = null
     private var nativeStartupJob: Job? = null
     private val nativeCleanup by lazy {
@@ -545,9 +552,17 @@ class MezonSfuSession @Inject constructor(
     fun isInRoom(channelId: Long, clanId: Long): Boolean =
         active && callIdentity?.let { it.channelId == channelId && it.clanId == clanId } == true
 
-    fun join(channelId: Long, clanId: Long, userId: String, token: String, role: SfuRole, sfuUrl: String? = null) {
+    fun join(
+        channelId: Long,
+        clanId: Long,
+        userId: String,
+        token: String,
+        role: SfuRole,
+        sfuUrl: String? = null,
+        externalRoomName: String? = null
+    ) {
         leave()
-        callIdentity = CallIdentity(channelId, clanId, userId)
+        callIdentity = CallIdentity(channelId, clanId, userId, externalRoomName?.takeIf { it.isNotBlank() })
         audioRecoveryAttempts = 0
         resetAudioFlow()
         this.token = token
@@ -783,7 +798,7 @@ class MezonSfuSession @Inject constructor(
         stateRestored = false
         admitted = false
         selfPeerId = null
-        readiness = SfuConnectionReadiness(requiresVoiceJoined = !hasReachedConnected)
+        readiness = SfuConnectionReadiness(requiresVoiceJoined = call.externalRoomName == null && !hasReachedConnected)
         participantActionCallbacks.clear()
         clearOfferReissueDeadline()
         clearTransportWatchdog()
@@ -909,6 +924,7 @@ class MezonSfuSession @Inject constructor(
         networkQuality = SfuNetworkQuality()
         setNetworkWeak(false)
         callIdentity = null
+        externalPeerProfilesByUserId.clear()
         resetAudioFlow()
         videoExposures.clear()
         hiddenVideoJob?.cancel()
@@ -1221,7 +1237,7 @@ class MezonSfuSession @Inject constructor(
                 send(
                     JSONObject()
                         .put("type", "join")
-                        .put("room", call.channelId.toString())
+                        .put("room", call.externalRoomName ?: call.channelId.toString())
                         .put("token", token)
                         .put("role", role.wire)
                         .put("media_pool_version", SFU_MEDIA_POOL_VERSION)
@@ -1986,6 +2002,12 @@ class MezonSfuSession @Inject constructor(
             val peerId = peer.opt("peer_id")?.toString() ?: continue
             val state = memberByPeerId.getOrPut(peerId) { MemberState() }
             peer.optString("user_id").takeIf { it.isNotEmpty() }?.let { state.userId = it }
+            val externalUserId = state.userId
+            if (callIdentity?.externalRoomName != null && externalUserId != null) {
+                SfuPeerProfile.fromMetadata(peer.opt("metadata") as? String)?.let {
+                    externalPeerProfilesByUserId[externalUserId] = it
+                }
+            }
             if (peer.has("role")) state.role = SfuRole.fromWire(peer.optString("role"))
             if (peer.has("is_mute")) state.muted = peer.optBoolean("is_mute")
             if (peer.has("camera_active")) state.cameraActive = peer.optBoolean("camera_active")
@@ -2431,7 +2453,7 @@ class MezonSfuSession @Inject constructor(
         stateRestored = false
         admitted = false
         selfPeerId = null
-        readiness = SfuConnectionReadiness(requiresVoiceJoined = !hasReachedConnected)
+        readiness = SfuConnectionReadiness(requiresVoiceJoined = callIdentity?.externalRoomName == null && !hasReachedConnected)
         negotiating = false
         pendingOffer = null
         localTracksAdded = false

@@ -34,6 +34,7 @@ class VoiceHeaderView(
         private val LEFT_GAP = LayoutHelper.dp(12)
         private val RIGHT_GAP = LayoutHelper.dp(10)
         private val H_PADDING = LayoutHelper.dp(10)
+        private val EXTERNAL_TAG_COLOR = 0xFFEF4444.toInt()
     }
 
     var onMinimizeClick: (() -> Unit)? = null
@@ -46,6 +47,7 @@ class VoiceHeaderView(
     private val connectionStatusText: TextView
     private val connectionStatusRow: LinearLayout
     private val channelNameText: TextView
+    private val externalTag: TextView
     private val agentBtn: FrameLayout
     private val agentIconView: ImageView
     private val agentProgress: ProgressBar
@@ -84,6 +86,21 @@ class VoiceHeaderView(
             onMinimizeClick?.invoke()
         }
         leftContainer.addView(minimizeBtn, LinearLayout.LayoutParams(BUTTON_SIZE, BUTTON_SIZE))
+
+        externalTag = TextView(context).apply {
+            textSize = 10f
+            setTextColor(0xFFFFFFFF.toInt())
+            typeface = Typeface.DEFAULT_BOLD
+            maxLines = 1
+            setPadding(LayoutHelper.dp(6), LayoutHelper.dp(3), LayoutHelper.dp(6), LayoutHelper.dp(3))
+            background = GradientDrawable().apply {
+                cornerRadius = LayoutHelper.dp(4).toFloat()
+                setColor(EXTERNAL_TAG_COLOR)
+            }
+            visibility = View.GONE
+        }
+        leftContainer.addView(externalTag, LinearLayout.LayoutParams(
+            LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { marginStart = LEFT_GAP })
 
         channelNameText = TextView(context).apply {
             setTextColor(themeColors.colorText)
@@ -200,6 +217,11 @@ class VoiceHeaderView(
         if (channelName == name) return
         channelName = name
         channelNameText.text = name
+    }
+
+    fun setExternalTag(text: String?) {
+        externalTag.text = text.orEmpty()
+        externalTag.visibility = if (text.isNullOrBlank()) View.GONE else View.VISIBLE
     }
 
     fun setReconnecting(value: Boolean) {
