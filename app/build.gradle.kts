@@ -147,6 +147,7 @@ android {
         buildStr("MEZON_WEBRTC_ICESERVERS_CREDENTIAL")
         buildStr("CLOUDFLARE_CDN_URL")
         buildStr("MEZON_CDN_URL")
+        buildStr("PROFILE_CDN_URL")
         buildStr("MEZON_LOGO_URL")
         buildStr("MEZON_IMGPROXY_BASE_URL")
         buildStr("MEZON_IMGPROXY_KEY")

@@ -995,8 +995,6 @@ class ClanEventEditorDialog private constructor(
                 val url = clanEventController.uploadEventCover(
                     image.bytes,
                     image.mimeType,
-                    image.width,
-                    image.height,
                 )
                 onCoverUploaded(url)
             } catch (e: CancellationException) {
@@ -1050,14 +1048,12 @@ class ClanEventEditorDialog private constructor(
         val mimeType = declaredMimeType?.takeIf { it.startsWith("image/") }
             ?: bounds.outMimeType?.lowercase()?.takeIf { it.startsWith("image/") }
             ?: throw IllegalArgumentException("Unsupported cover image")
-        return CoverImage(bytes, mimeType, bounds.outWidth, bounds.outHeight)
+        return CoverImage(bytes, mimeType)
     }
 
     private data class CoverImage(
         val bytes: ByteArray,
         val mimeType: String,
-        val width: Int,
-        val height: Int,
     )
 
     private class CoverTooLargeException : Exception()

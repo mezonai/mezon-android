@@ -3,7 +3,6 @@ package com.mezon.mobile.home.profile
 import android.content.ContentResolver
 import android.net.Uri
 import android.util.Log
-import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.R
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
@@ -474,17 +473,14 @@ class AccountController @Inject constructor(
 
                 val cdnUrl = sessionManager.withAutoRefresh { session ->
                     withContext(ioDispatcher) {
-                        AttachmentUploader.uploadAttachmentBytes(
+                        AttachmentUploader.uploadPublicImage(
                             api,
                             session.apiUrl,
                             session.token,
                             filename,
                             mimeType,
                             fileBytes,
-                            400,
-                            400,
-                            BuildConfig.CLOUDFLARE_CDN_URL,
-                        ).cdnUrl
+                        )
                     }
                 }
                 withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(true, cdnUrl) }

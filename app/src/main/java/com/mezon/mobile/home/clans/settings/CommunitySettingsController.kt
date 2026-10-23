@@ -1,6 +1,5 @@
 package com.mezon.mobile.home.clans.settings
 
-import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.home.clans.ClansController
@@ -407,8 +406,7 @@ private suspend fun uploadCommunityBanner(
 ): String {
     require(bytes.isNotEmpty())
     val filename = "community-banner/$clanId.$ext"
-    return AttachmentUploader.uploadAttachmentBytes(
+    return AttachmentUploader.uploadPublicImage(
         api, apiUrl, token, filename, mimeType, bytes,
-        cdnBaseUrl = BuildConfig.CLOUDFLARE_CDN_URL,
-    ).cdnUrl
+    )
 }

@@ -430,8 +430,6 @@ class ClanEventController @Inject constructor(
     suspend fun uploadEventCover(
         bytes: ByteArray,
         mimeType: String,
-        width: Int,
-        height: Int,
     ): String {
         require(bytes.isNotEmpty())
         require(mimeType.startsWith("image/"))
@@ -449,17 +447,14 @@ class ClanEventController @Inject constructor(
                     else -> "jpg"
                 }
                 val filename = "${System.currentTimeMillis()}_event_cover.$extension"
-                com.mezon.mobile.util.AttachmentUploader.uploadAttachmentBytes(
+                com.mezon.mobile.util.AttachmentUploader.uploadPublicImage(
                     api,
                     session.apiUrl,
                     session.token,
                     filename,
                     mimeType,
                     bytes,
-                    width,
-                    height,
-                    com.mezon.mobile.BuildConfig.CLOUDFLARE_CDN_URL,
-                ).cdnUrl
+                )
             }
         }
     }
