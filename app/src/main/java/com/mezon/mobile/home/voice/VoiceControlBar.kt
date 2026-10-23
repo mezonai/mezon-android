@@ -76,6 +76,7 @@ class VoiceControlBar(
     private var pushToTalkMode = false
     private var pttCompact = false
     private var isGroupCall = false
+    private var isExternalMeeting = false
     private var raiseHandActive = false
 
     private val row: LinearLayout
@@ -95,6 +96,7 @@ class VoiceControlBar(
     private val pttMicContent: LinearLayout
     private val pttRaisePill: FrameLayout
     private val pttRaiseIcon: ImageView
+    private val pttChatPill: FrameLayout
     private val pttBottomRow: LinearLayout
 
     private val defaultMicBg = themeColors.tertiary
@@ -300,6 +302,7 @@ class VoiceControlBar(
             addView(chatIcon, LayoutParams(PTT_BOTTOM_ICON, PTT_BOTTOM_ICON, Gravity.CENTER))
             setOnClickListener { onChatClick?.invoke() }
         }
+        pttChatPill = chatPill
 
         pttBottomRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -550,9 +553,16 @@ class VoiceControlBar(
         updateSecondaryButtonsVisibility()
     }
 
+    fun setExternalMeetingMode(external: Boolean) {
+        isExternalMeeting = external
+        pttRaisePill.visibility = if (external) View.GONE else View.VISIBLE
+        pttChatPill.visibility = if (external) View.GONE else View.VISIBLE
+        updateSecondaryButtonsVisibility()
+    }
+
     private fun updateSecondaryButtonsVisibility() {
         val vis = if (!isGroupCall && !pushToTalkMode) View.VISIBLE else View.GONE
-        chatButton.visibility = vis
+        chatButton.visibility = if (isExternalMeeting) View.GONE else vis
         screenShareButton.visibility = vis
     }
 

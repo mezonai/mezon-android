@@ -348,6 +348,69 @@ class VoiceController @Inject constructor(
         }
     }
 
+    suspend fun joinExternalMeeting(meeting: ExternalMeetingRoom, label: String): String? {
+        if (isJoined || isConnecting) {
+            leaveVoiceChannel()
+        }
+        val generation = synchronized(this) {
+            voiceSessionGeneration++
+            currentVoiceInfo = VoiceInfo(meeting.roomId, 0L, label, meeting.code)
+            meetToken = null
+            meetSfuUrl = null
+            isConnecting = true
+            voiceSessionGeneration
+        }
+        try {
+            val token = requestExternalMeetToken(meeting)
+            currentCoroutineContext().ensureActive()
+            synchronized(this) {
+                if (generation != voiceSessionGeneration) return null
+                meetToken = token
+                meetSfuUrl = null
+                isJoined = false
+            }
+            return token
+        } catch (e: Exception) {
+            synchronized(this) {
+                if (generation == voiceSessionGeneration) {
+                    currentVoiceInfo = null
+                    isConnecting = false
+                }
+            }
+            throw e
+        }
+    }
+
+    suspend fun refreshExternalMeetToken(meeting: ExternalMeetingRoom): String? {
+        val generation = synchronized(this) {
+            if (currentVoiceInfo?.channelId != meeting.roomId || currentVoiceInfo?.roomName != meeting.code) return null
+            voiceSessionGeneration
+        }
+        return try {
+            val token = requestExternalMeetToken(meeting)
+            currentCoroutineContext().ensureActive()
+            synchronized(this) {
+                if (generation != voiceSessionGeneration || currentVoiceInfo?.roomName != meeting.code) return null
+                meetToken = token
+            }
+            token
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            Log.e(TAG, "refreshExternalMeetToken failed", e)
+            null
+        }
+    }
+
+    private suspend fun requestExternalMeetToken(meeting: ExternalMeetingRoom): String {
+        val userId = userController.userId
+        val username = ExternalMeetingRoom.sfuIdentity(userController.username, userController.displayName, userId)
+        val metadata = meetTokenMetadata(0L, userId)
+        val response = withContext(ioDispatcher) {
+            api.generateMeetTokenExternal(meeting.code, username, metadata)
+        }
+        return response.token
+    }
+
     private fun meetTokenMetadata(clanId: Long, userId: Long): String {
         val member = userClanController.getClanMembers(clanId).firstOrNull { it.userId == userId }
         val profile = userClanController.getUserById(userId)

@@ -1889,4 +1889,10 @@
     <string name="voice_room_network_warning_body">Please check your network connection.</string>
     <string name="voice_room_hide_controls">Hide screen share controls</string>
     <string name="voice_room_show_controls">Show screen share controls</string>
+    <string name="external_meeting_call">External call</string>
+    <string name="external_meeting_join_in_app">Join in App</string>
+    <string name="external_meeting_open_in_browser">Open in Browser</string>
+    <string name="external_meeting_link_prompt">Join this call in the app or open it in your browser.</string>
+    <string name="external_meeting_link_invalid">This meeting link is invalid or has expired.</string>
+    <string name="external_meeting_guest">Guest</string>
 </resources>

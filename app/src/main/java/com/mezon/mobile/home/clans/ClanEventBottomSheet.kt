@@ -31,6 +31,8 @@ import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.chat.MezonImageLoader
+import com.mezon.mobile.home.voice.ExternalMeetingLinkBottomSheet
+import com.mezon.mobile.home.voice.ExternalMeetingRoom
 import com.mezon.mobile.ui.cells.AvatarView
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.util.avatarImgproxyUrl
@@ -53,6 +55,7 @@ class ClanEventBottomSheet(
     private val onInviteExternalEvent: (String) -> Unit,
 ) : BottomSheet(context) {
 
+    var onJoinExternalMeeting: ((ExternalMeetingRoom) -> Unit)? = null
     private val logoLoadTokens = ArrayList<MezonImageLoader.Cancellable>()
     private val eventsLoadedObserver = object : NotificationCenter.NotificationCenterDelegate {
         override fun didReceivedNotification(id: Int, account: Int, vararg args: Any?) {
@@ -646,6 +649,36 @@ class ClanEventBottomSheet(
         Toast.makeText(context, R.string.invite_link_copied, Toast.LENGTH_SHORT).show()
     }
 
+    private fun buildJoinInAppAction(label: String, onClick: () -> Unit): View {
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            minimumHeight = LayoutHelper.dp(40)
+            setPadding(LayoutHelper.dp(8), LayoutHelper.dp(4), LayoutHelper.dp(8), LayoutHelper.dp(4))
+            background = GradientDrawable().apply {
+                cornerRadius = LayoutHelper.dpf(8f)
+                setColor(ExternalMeetingLinkBottomSheet.JOIN_IN_APP_COLOR)
+            }
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { onClick() }
+            addView(ImageView(context).apply {
+                setImageDrawable(MezonIcon.channelVoice.getDrawable(context))
+                setColorFilter(0xFFFFFFFF.toInt())
+                scaleType = ImageView.ScaleType.CENTER_INSIDE
+            }, LinearLayout.LayoutParams(LayoutHelper.dp(16), LayoutHelper.dp(16)))
+            addView(TextView(context).apply {
+                text = label
+                textSize = 13f
+                setTextColor(0xFFFFFFFF.toInt())
+                typeface = Typeface.DEFAULT_BOLD
+                maxLines = 1
+            }, LinearLayout.LayoutParams(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT).apply {
+                marginStart = LayoutHelper.dp(6)
+            })
+        }
+    }
+
     private fun buildExternalEventAction(label: String, onClick: () -> Unit): TextView {
         return TextView(context).apply {
             text = label
@@ -865,6 +898,23 @@ class ClanEventBottomSheet(
             ))
 
             externalEventUrl(event)?.let { url ->
+                ExternalMeetingRoom.fromExternalLink(event.externalLink, event.title)?.let { meeting ->
+                    content.addView(
+                        buildJoinInAppAction(context.getString(R.string.external_meeting_join_in_app)) {
+                            onJoinExternalMeeting?.invoke(meeting)
+                        },
+                        LayoutHelper.createLinear(
+                            LayoutHelper.MATCH_PARENT,
+                            LayoutHelper.WRAP_CONTENT,
+                            0f,
+                            Gravity.NO_GRAVITY,
+                            0f,
+                            12f,
+                            0f,
+                            0f,
+                        ),
+                    )
+                }
                 val externalActions = LinearLayout(context).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL

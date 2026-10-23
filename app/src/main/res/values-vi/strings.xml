@@ -1784,4 +1784,10 @@
     <string name="voice_room_network_warning_body">Hãy kiểm tra lại đường truyền mạng của bạn.</string>
     <string name="voice_room_hide_controls">Ẩn điều khiển chia sẻ màn hình</string>
     <string name="voice_room_show_controls">Hiện điều khiển chia sẻ màn hình</string>
+    <string name="external_meeting_call">Cuộc gọi ngoài</string>
+    <string name="external_meeting_join_in_app">Tham gia trong ứng dụng</string>
+    <string name="external_meeting_open_in_browser">Mở bằng trình duyệt</string>
+    <string name="external_meeting_link_prompt">Tham gia cuộc gọi này ngay trong ứng dụng hoặc mở bằng trình duyệt.</string>
+    <string name="external_meeting_link_invalid">Liên kết cuộc họp không hợp lệ hoặc đã hết hạn.</string>
+    <string name="external_meeting_guest">Khách</string>
 </resources>

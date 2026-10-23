@@ -7,6 +7,7 @@ import com.mezon.mobile.home.clans.SET_MUTE_ACTIVE_UNMUTE
 import com.mezon.mobile.util.SentryReporter
 import com.mezon.mobile.ui.cells.utf8ByteCount
 import com.mezon.mobile.ui.cells.utf8Prefix
+import android.net.Uri
 import android.util.Base64
 import com.mezon.mezon.api.Account
 import com.mezon.mezon.api.AllUsersAddChannelResponse
@@ -145,6 +146,7 @@ import com.mezon.mezon.api.sessionRefreshRequest
 import com.mezon.mezon.api.Session
 import com.mezon.mezon.api.updateUsernameRequest
 import com.mezon.mezon.api.GenerateMeetTokenResponse
+import com.mezon.mezon.api.GenerateMeetTokenExternalResponse
 import com.mezon.mezon.api.StreamingChannelUserList
 import com.mezon.mezon.api.VoiceChannelUserList
 import com.mezon.mezon.api.generateMeetTokenRequest
@@ -2792,6 +2794,35 @@ class MezonApi @Inject constructor(
             Log.w("MezonApi", "GenerateMeetToken returned an unusable SFU url=${response.url}; using MEZON_SFU_WS_URL")
         }
         return response.toBuilder().setUrl(sfuUrl.orEmpty()).build()
+    }
+
+    suspend fun generateMeetTokenExternal(
+        code: String,
+        username: String,
+        metadata: String
+    ): GenerateMeetTokenExternalResponse {
+        val gatewayUrl = BuildConfig.MEZON_GATEWAY_URL.trimEnd('/')
+        val url = "$gatewayUrl/v2/meet/external/${Uri.encode(code)}" +
+            "?username=${Uri.encode(username)}&metadata=${Uri.encode(metadata)}&is_guest=false"
+        val response = httpClient.post(url) {
+            header(HttpHeaders.Accept, ContentType.Application.Json.toString())
+            contentType(ContentType.Application.Json)
+            setBody(ByteArray(0))
+        }
+        if (!response.status.isSuccess()) {
+            val errorBody = runCatching { response.bodyAsText() }.getOrDefault("")
+            throw HttpRpcStatusException(
+                "GenerateMeetTokenExternal failed (${response.status.value}): $errorBody",
+                response.status.value
+            )
+        }
+        val json = JSONObject(response.bodyAsText())
+        val token = json.optString("token").trim()
+        if (token.isEmpty()) throw IOException("GenerateMeetTokenExternal returned an empty token")
+        return GenerateMeetTokenExternalResponse.newBuilder()
+            .setToken(token)
+            .setUrl(json.optString("url").trim())
+            .build()
     }
 
     suspend fun listChannelVoiceUsers(
