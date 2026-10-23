@@ -60,6 +60,7 @@ import com.mezon.mobile.core.StartupCache
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.di.FragmentEntryPoint
+import com.mezon.mobile.home.AnonymousController.ToggleResult
 import com.mezon.mobile.home.ChatController
 import com.mezon.mobile.home.TopicBadgeTracker
 import com.mezon.mobile.home.TopicController
@@ -1475,6 +1476,15 @@ open class ChatFragment : BaseFragment() {
             val isAnon = anonymousController.isAnonymous(clanId)
             anonymousIndicator?.visibility = if (isAnon) View.VISIBLE else View.GONE
             advancedMenuView?.updateAnonymousMode(isAnon)
+            val disabledByClanPolicy = args.getOrNull(1) as? Boolean == true
+            val isCurrentChat = !isPaused && !MainActivity.applicationPaused && parentLayout?.getLastFragment() === this
+            if (disabledByClanPolicy && !isAnon && isCurrentChat) {
+                MezonToast.show(
+                    this,
+                    ToastOverlay.ToastType.ERROR,
+                    getString(R.string.advanced_anonymous_disabled_by_clan)
+                )
+            }
         }
 
         observe(NotificationCenter.channelMembersDidLoad) { _, _, args ->
@@ -5871,13 +5881,16 @@ open class ChatFragment : BaseFragment() {
                         showBuzzConfirmDialog()
                     }
                     override fun onAnonymousToggled() {
-                        if (!anonymousController.toggleAnonymous(clanId)) {
-                            MezonToast.show(
-                                this@ChatFragment,
-                                ToastOverlay.ToastType.INFO,
-                                getString(R.string.advanced_anonymous_not_allowed)
-                            )
+                        val messageRes = when (anonymousController.toggleAnonymous(clanId)) {
+                            ToggleResult.CHANGED -> return
+                            ToggleResult.NOT_ALLOWED -> R.string.advanced_anonymous_not_allowed
+                            ToggleResult.CLAN_UNAVAILABLE -> R.string.advanced_anonymous_unavailable
                         }
+                        MezonToast.show(
+                            this@ChatFragment,
+                            ToastOverlay.ToastType.ERROR,
+                            getString(messageRes)
+                        )
                     }
                     override fun onCreatePollRequested() {
                         openCreatePollScreen()

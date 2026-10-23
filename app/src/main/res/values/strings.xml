@@ -1300,6 +1300,8 @@
     <string name="advanced_anonymous">Anonymous</string>
     <string name="advanced_anonymous_off">Turn off anonymous</string>
     <string name="advanced_anonymous_not_allowed">Anonymous mode is not allowed in this clan</string>
+    <string name="advanced_anonymous_unavailable">Unable to check anonymous mode for this clan. Please try again.</string>
+    <string name="advanced_anonymous_disabled_by_clan">Anonymous mode was turned off because this clan does not allow it</string>
     <string name="advanced_buzz">Buzz</string>
     <string name="advanced_ephemeral">Ephemeral</string>
     <string name="ephemeral_only_visible_to_recipient">Only visible to recipient</string>

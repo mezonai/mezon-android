@@ -36,6 +36,10 @@ class CommunitySettingsController @Inject constructor(
 
     private val serverStateByClan = HashMap<Long, CommunityClanState>()
 
+    private suspend fun currentPreventAnonymous(clanId: Long): Boolean =
+        clansController.findClanById(clanId)?.preventAnonymous
+            ?: error("Clan not found while saving community settings")
+
     private fun communityCacheKey(clanId: Long) = apiCacheKey("communityClanDesc", clanId)
 
     private fun invalidateServerCache(clanId: Long) {
@@ -171,7 +175,11 @@ class CommunitySettingsController @Inject constructor(
             try {
                 sessionManager.withAutoRefresh { session ->
                     withContext(ioDispatcher) {
-                        api.updateClanDesc(session.apiUrl, session.token, clanId, isCommunity = true)
+                        api.updateClanDesc(
+                            session.apiUrl, session.token, clanId,
+                            preventAnonymous = currentPreventAnonymous(clanId),
+                            isCommunity = true,
+                        )
                         var bannerUrl = state.draft.bannerPreviewUrl.orEmpty()
                         val bytes = state.draft.pendingBannerBytes
                         if (bytes != null) {
@@ -180,19 +188,35 @@ class CommunitySettingsController @Inject constructor(
                                 state.draft.pendingBannerMime ?: "image/jpeg",
                                 state.draft.pendingBannerExt,
                             )
-                            api.updateClanDesc(session.apiUrl, session.token, clanId, communityBanner = bannerUrl)
+                            api.updateClanDesc(
+                                session.apiUrl, session.token, clanId,
+                                preventAnonymous = currentPreventAnonymous(clanId),
+                                communityBanner = bannerUrl,
+                            )
                         }
                         val about = state.draft.about.trim()
                         val desc = state.draft.description.trim()
                         val slug = state.draft.shortUrl.trim()
                         if (about.isNotEmpty()) {
-                            api.updateClanDesc(session.apiUrl, session.token, clanId, about = about)
+                            api.updateClanDesc(
+                                session.apiUrl, session.token, clanId,
+                                preventAnonymous = currentPreventAnonymous(clanId),
+                                about = about,
+                            )
                         }
                         if (desc.isNotEmpty()) {
-                            api.updateClanDesc(session.apiUrl, session.token, clanId, description = desc)
+                            api.updateClanDesc(
+                                session.apiUrl, session.token, clanId,
+                                preventAnonymous = currentPreventAnonymous(clanId),
+                                description = desc,
+                            )
                         }
                         if (slug.isNotEmpty()) {
-                            api.updateClanDesc(session.apiUrl, session.token, clanId, shortUrl = slug, isCommunity = true)
+                            api.updateClanDesc(
+                                session.apiUrl, session.token, clanId,
+                                preventAnonymous = currentPreventAnonymous(clanId),
+                                shortUrl = slug, isCommunity = true,
+                            )
                         }
                     }
                 }
@@ -239,16 +263,32 @@ class CommunitySettingsController @Inject constructor(
                                 d.pendingBannerMime ?: "image/jpeg",
                                 d.pendingBannerExt,
                             )
-                            api.updateClanDesc(session.apiUrl, session.token, clanId, communityBanner = bannerUrl)
+                            api.updateClanDesc(
+                                session.apiUrl, session.token, clanId,
+                                preventAnonymous = currentPreventAnonymous(clanId),
+                                communityBanner = bannerUrl,
+                            )
                         }
                         if (d.about.trim() != i.about.trim()) {
-                            api.updateClanDesc(session.apiUrl, session.token, clanId, about = d.about.trim())
+                            api.updateClanDesc(
+                                session.apiUrl, session.token, clanId,
+                                preventAnonymous = currentPreventAnonymous(clanId),
+                                about = d.about.trim(),
+                            )
                         }
                         if (d.description.trim() != i.description.trim()) {
-                            api.updateClanDesc(session.apiUrl, session.token, clanId, description = d.description.trim())
+                            api.updateClanDesc(
+                                session.apiUrl, session.token, clanId,
+                                preventAnonymous = currentPreventAnonymous(clanId),
+                                description = d.description.trim(),
+                            )
                         }
                         if (d.shortUrl.trim() != i.shortUrl.trim()) {
-                            api.updateClanDesc(session.apiUrl, session.token, clanId, shortUrl = d.shortUrl.trim(), isCommunity = true)
+                            api.updateClanDesc(
+                                session.apiUrl, session.token, clanId,
+                                preventAnonymous = currentPreventAnonymous(clanId),
+                                shortUrl = d.shortUrl.trim(), isCommunity = true,
+                            )
                         }
                     }
                 }
@@ -276,7 +316,11 @@ class CommunitySettingsController @Inject constructor(
             try {
                 sessionManager.withAutoRefresh { session ->
                     withContext(ioDispatcher) {
-                        api.updateClanDesc(session.apiUrl, session.token, clanId, isCommunity = false)
+                        api.updateClanDesc(
+                            session.apiUrl, session.token, clanId,
+                            preventAnonymous = currentPreventAnonymous(clanId),
+                            isCommunity = false,
+                        )
                     }
                 }
                 invalidateServerCache(clanId)
@@ -303,7 +347,11 @@ class CommunitySettingsController @Inject constructor(
             try {
                 sessionManager.withAutoRefresh { session ->
                     withContext(ioDispatcher) {
-                        api.updateClanDesc(session.apiUrl, session.token, clanId, about = about)
+                        api.updateClanDesc(
+                            session.apiUrl, session.token, clanId,
+                            preventAnonymous = currentPreventAnonymous(clanId),
+                            about = about,
+                        )
                     }
                 }
                 invalidateServerCache(clanId)
@@ -324,7 +372,11 @@ class CommunitySettingsController @Inject constructor(
             try {
                 sessionManager.withAutoRefresh { session ->
                     withContext(ioDispatcher) {
-                        api.updateClanDesc(session.apiUrl, session.token, clanId, description = desc)
+                        api.updateClanDesc(
+                            session.apiUrl, session.token, clanId,
+                            preventAnonymous = currentPreventAnonymous(clanId),
+                            description = desc,
+                        )
                     }
                 }
                 invalidateServerCache(clanId)
@@ -345,7 +397,11 @@ class CommunitySettingsController @Inject constructor(
             try {
                 sessionManager.withAutoRefresh { session ->
                     withContext(ioDispatcher) {
-                        api.updateClanDesc(session.apiUrl, session.token, clanId, shortUrl = slug, isCommunity = true)
+                        api.updateClanDesc(
+                            session.apiUrl, session.token, clanId,
+                            preventAnonymous = currentPreventAnonymous(clanId),
+                            shortUrl = slug, isCommunity = true,
+                        )
                     }
                 }
                 invalidateServerCache(clanId)
@@ -362,7 +418,11 @@ class CommunitySettingsController @Inject constructor(
             try {
                 sessionManager.withAutoRefresh { session ->
                     withContext(ioDispatcher) {
-                        api.updateClanDesc(session.apiUrl, session.token, clanId, clearCommunityBanner = true)
+                        api.updateClanDesc(
+                            session.apiUrl, session.token, clanId,
+                            preventAnonymous = currentPreventAnonymous(clanId),
+                            clearCommunityBanner = true,
+                        )
                     }
                 }
                 invalidateServerCache(clanId)

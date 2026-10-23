@@ -1717,6 +1717,8 @@
     <string name="sticker_add_label">Thêm nhãn dán</string>
     <string name="advanced_anonymous_off">Tắt ẩn danh</string>
     <string name="advanced_anonymous_not_allowed">Không cho phép dùng ẩn danh trên clan này</string>
+    <string name="advanced_anonymous_unavailable">Chưa thể kiểm tra chế độ ẩn danh của clan này. Vui lòng thử lại.</string>
+    <string name="advanced_anonymous_disabled_by_clan">Chế độ ẩn danh đã tắt vì clan này không cho phép dùng ẩn danh</string>
     <string name="profile_history_transaction_all">Tất cả</string>
     <string name="profile_history_transaction_incoming">Tiền vào</string>
     <string name="profile_history_transaction_outgoing">Tiền ra</string>

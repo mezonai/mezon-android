@@ -4,6 +4,7 @@ import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.mezon.mezon.api.ClanDesc
+import com.mezon.mezon.rtapi.ClanUpdatedEvent
 
 @Entity(tableName = "clans", indices = [Index("clanOrder")])
 data class ClanEntity(
@@ -36,38 +37,15 @@ fun ClanDesc.toClanEntity(): ClanEntity = ClanEntity(
     isOnboarding = isOnboarding,
 )
 
-fun ClanDesc.mergeOnto(existing: ClanEntity): ClanEntity {
-    val p = toClanEntity()
-    return p.copy(
-        clanId = existing.clanId,
-        clanName = p.clanName.ifEmpty { existing.clanName },
-        logo = p.logo,
-        banner = p.banner,
-        badgeCount = existing.badgeCount,
-        hasUnread = existing.hasUnread,
-        clanOrder = existing.clanOrder,
-        creatorId = if (p.creatorId != 0L) p.creatorId else existing.creatorId,
-        welcomeChannelId = if (p.welcomeChannelId != 0L) p.welcomeChannelId else existing.welcomeChannelId,
-    )
-}
+internal fun ClanUpdatedEvent.mergeOnto(existing: ClanEntity): ClanEntity = existing.copy(
+    clanName = clanName.ifEmpty { existing.clanName },
+    logo = logo.ifEmpty { existing.logo },
+    banner = banner.ifEmpty { existing.banner },
+    isCommunity = isCommunity || existing.isCommunity,
+    preventAnonymous = preventAnonymous || existing.preventAnonymous,
+    welcomeChannelId = welcomeChannelId.takeIf { it != 0L } ?: existing.welcomeChannelId,
+    isOnboarding = isOnboarding,
+)
 
-internal fun ClanDesc.mergeOverviewUpdateOnto(
-    existing: ClanEntity,
-    requestedName: String,
-    requestedBanner: String?,
-    requestedPreventAnonymous: Boolean,
-    requestedWelcomeChannelId: Long?,
-    requestedIsOnboarding: Boolean?,
-): ClanEntity {
-    val merged = if (clanId == 0L) {
-        existing.copy(
-            clanName = requestedName,
-            preventAnonymous = requestedPreventAnonymous,
-            welcomeChannelId = requestedWelcomeChannelId ?: existing.welcomeChannelId,
-            isOnboarding = requestedIsOnboarding ?: existing.isOnboarding,
-        )
-    } else {
-        mergeOnto(existing)
-    }
-    return if (requestedBanner != null) merged.copy(banner = requestedBanner) else merged
-}
+internal fun ClanUpdatedEvent.needsPolicyRefresh(existing: ClanEntity): Boolean =
+    (!preventAnonymous && existing.preventAnonymous) || (!isCommunity && existing.isCommunity)
