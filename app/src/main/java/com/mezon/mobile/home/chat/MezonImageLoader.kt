@@ -16,6 +16,7 @@ import android.util.Base64
 import android.util.LruCache
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -421,7 +422,9 @@ class MezonImageLoader private constructor(context: Context) {
     }
 
     private fun fetchSourceInsteadOfProxy(fetchUrl: String, logicalUrl: String): Boolean {
-        val sourceUrl = plainSourceUrlFromImgproxy(fetchUrl) ?: return false
+        val sourceUrl = plainSourceUrlFromImgproxy(fetchUrl)
+            ?.takeIf { it.toHttpUrlOrNull() != null }
+            ?: return false
         ensureNetworkFetch(sourceUrl, logicalUrl)
         return true
     }

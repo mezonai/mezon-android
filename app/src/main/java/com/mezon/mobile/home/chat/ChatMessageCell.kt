@@ -210,6 +210,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     private val avatarDrawable = AvatarDrawable().also { it.attachToView(this) }
     private var currentAvatarUrl: String? = null
+    private var failedAvatarUrl: String? = null
     private var measuredCellHeight = LayoutHelper.dp(60)
 
     private var contentLayout: StaticLayout? = null
@@ -444,7 +445,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             update(0, msg)
         }
         val interruptedAvatarUrl = currentAvatarUrl
-        if (!isCombined && avatarCancellable == null && !avatarDrawable.hasPhoto() && !interruptedAvatarUrl.isNullOrEmpty()) {
+        if (!isCombined && avatarCancellable == null && !avatarDrawable.hasPhoto() &&
+            !interruptedAvatarUrl.isNullOrEmpty() && interruptedAvatarUrl != failedAvatarUrl
+        ) {
             loadAvatar(interruptedAvatarUrl)
         }
         syncReactionEmojiImages(reactionGroups)
@@ -2508,6 +2511,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private fun loadAvatar(url: String) {
         if (url == currentAvatarUrl && avatarDrawable.hasPhoto()) return
         currentAvatarUrl = url
+        failedAvatarUrl = null
         avatarCancellable?.cancel()
         avatarCancellable = null
 
@@ -2541,6 +2545,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             }
 
             val errorCallback: (Throwable) -> Unit = {
+                failedAvatarUrl = url
                 avatarDrawable.setLoadingPlaceholder(false)
                 invalidate()
             }
