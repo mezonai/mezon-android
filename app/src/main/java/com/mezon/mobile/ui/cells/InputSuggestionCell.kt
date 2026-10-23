@@ -319,8 +319,7 @@ class InputSuggestionCell(
         showLeadingSlot = true
         leadingMode = LEADING_AVATAR
         leadingDrawable = null
-        val displayName = InputSuggestionsController.mentionDisplayName(member)
-        avatarDrawable.setInfo(member.userId, displayName)
+        avatarDrawable.setUserId(member.userId)
         avatarDrawable.setPhoto(null)
         namePaint.color = theme.onSurface
         subPaint.color = theme.textDisabled

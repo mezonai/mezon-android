@@ -63,9 +63,9 @@ class CallAvatarView(
     private var cancellable: MezonImageLoader.Cancellable? = null
     private var attachedToWindow = false
 
-    fun setData(name: String, username: String, avatarUrl: String?) {
+    fun setData(name: String, avatarUrl: String?) {
         peerName = name
-        avatarDrawable.setInfo(0L, username.ifEmpty { name })
+        avatarDrawable.setUserId(0L)
         
         val actualAvatarUrl = if (avatarUrl == "null") null else avatarUrl
         

@@ -174,7 +174,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private val topicButtonLayout = TopicMessageButtonLayout(context, theme).also {
         it.setInvalidateCallback { invalidate() }
     }
-    var topicCreatorResolver: ((Long) -> Pair<String, String>?)? = null
+    var topicCreatorAvatarResolver: ((Long) -> String?)? = null
     var topicLastMessageIdResolver: ((Long) -> Long)? = null
     var topicBadgeResolver: ((Long) -> Int)? = null
     var botCommandResolver: ((Long) -> BotCommandDisplay?)? = null
@@ -443,6 +443,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             pendingMessage = null
             update(0, msg)
         }
+        val interruptedAvatarUrl = currentAvatarUrl
+        if (!isCombined && avatarCancellable == null && !avatarDrawable.hasPhoto() && !interruptedAvatarUrl.isNullOrEmpty()) {
+            loadAvatar(interruptedAvatarUrl)
+        }
         syncReactionEmojiImages(reactionGroups)
         reactionEmojiImages.values.forEach { image ->
             image.drawable?.let {
@@ -551,7 +555,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         replyAvatarCancellable?.cancel()
         replyAvatarCancellable = null
         replyAvatarDrawable.setPhoto(null)
-        replyAvatarDrawable.setDrawableByInfo(true)
         embedMessage.clear()
         hasEmbedContent = false
         hideEmbedInteractiveViews(force = true)
@@ -585,9 +588,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         avatarCancellable?.cancel()
         avatarCancellable = null
         currentAvatarUrl = null
-        avatarLoadStartTime = 0L
-        avatarFallbackVisible = false
-        avatarDrawable.setDrawableByInfo(true)
         for (i in videoThumbJobs.indices) {
             videoThumbJobs[i]?.cancel()
             videoThumbJobs[i] = null
@@ -752,8 +752,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             if (drawPhotoImage) computePhotoSize(msg)
             buildLayouts(msg)
             if (!isCombined) {
-                avatarDrawable.setInfo(msg.senderId, senderAvatarLabel(msg))
-                if (showsAnonymousPlaceholderAvatar(msg)) loadAnonymousAvatar() else loadAvatar(msg.senderAvatar)
+                avatarDrawable.setUserId(msg.senderId)
+                if (showsAnonymousPlaceholderAvatar(msg)) loadAnonymousAvatar() else loadAvatar(senderAvatarUrl(msg))
             }
             if (drawPhotoImage) loadPhotoImage(msg) else clearPhotoReceivers()
             buildTopicButton(msg, width)
@@ -811,14 +811,16 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     rebuildLayout = true
                 }
             }
-            avatarDrawable.setInfo(msg.senderId, senderAvatarLabel(msg))
+            if (!isCombined && msg.senderAvatar.isBlank() && !showsAnonymousPlaceholderAvatar(msg)) {
+                loadAvatar(senderAvatarUrl(msg))
+            }
             needInvalidate = true
         }
 
         if ((mask and NotificationCenter.UPDATE_MASK_AVATAR) != 0) {
             if (!isCombined && messageEntity?.senderAvatar != msg.senderAvatar) {
-                avatarDrawable.setInfo(msg.senderId, senderAvatarLabel(msg))
-                if (showsAnonymousPlaceholderAvatar(msg)) loadAnonymousAvatar() else loadAvatar(msg.senderAvatar)
+                avatarDrawable.setUserId(msg.senderId)
+                if (showsAnonymousPlaceholderAvatar(msg)) loadAnonymousAvatar() else loadAvatar(senderAvatarUrl(msg))
                 needInvalidate = true
             }
         }
@@ -1277,10 +1279,11 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         reserveSenderRoleIcon = true
     }
 
-    private fun senderAvatarLabel(msg: MessageEntity): String {
-        val name = msg.senderName.ifBlank { msg.senderUsername }
-        return if (msg.senderId == ANONYMOUS_USER_ID) name.ifBlank { "Anonymous" } else name
-    }
+    private fun anonymousSenderLabel(msg: MessageEntity): String =
+        msg.senderName.ifBlank { msg.senderUsername }.ifBlank { "Anonymous" }
+
+    private fun senderAvatarUrl(msg: MessageEntity): String =
+        msg.senderAvatar.ifBlank { delegate?.resolveMemberIdentity(msg.senderId)?.second.orEmpty() }
 
     private fun showsAnonymousPlaceholderAvatar(msg: MessageEntity): Boolean =
         msg.senderId == ANONYMOUS_USER_ID && msg.senderAvatar.isBlank()
@@ -1682,7 +1685,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             } else {
                 context.getString(R.string.location_card_location_of, msg.senderName.ifBlank { msg.senderUsername })
             }
-            locationCardLayout.prepare(locData, msg.senderId, msg.senderUsername, msg.senderAvatar, title, theme, bubbleMaxW)
+            locationCardLayout.prepare(locData, msg.senderId, msg.senderAvatar, title, theme, bubbleMaxW)
         } else {
             locationCardLayout.clear()
         }
@@ -1702,7 +1705,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             (channelType == CHANNEL_TYPE_CHANNEL || channelType == CHANNEL_TYPE_THREAD)
 
         senderLayout = if (!isCombined) {
-            val s = if (msg.senderId == ANONYMOUS_USER_ID) senderAvatarLabel(msg) else msg.senderName
+            val s = if (msg.senderId == ANONYMOUS_USER_ID) anonymousSenderLabel(msg) else msg.senderName
             val senderMaxW = (bubbleMaxW * 0.60f).toInt().coerceAtLeast(1)
             if (showRoleRow) {
                 val appearance = senderDisplayRoleAppearance(msg.senderId)
@@ -1932,9 +1935,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             topicButtonLayout.clear()
             return
         }
-        val creator = topicCreatorResolver?.invoke(msg.topicCreatorId)
-        val creatorName = creator?.first ?: msg.senderName
-        val creatorAvatar = creator?.second ?: msg.senderAvatar
+        val creatorAvatar = topicCreatorAvatarResolver?.invoke(msg.topicCreatorId) ?: msg.senderAvatar
         val lastTopicMessageId = topicLastMessageIdResolver?.invoke(msg.effectiveTopicId) ?: 0L
         val count = resolveTopicReplyCount(msg.rplCount, lastTopicMessageId)
         val countLabel = when {
@@ -1945,7 +1946,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val topicBadgeCount = topicBadgeResolver?.invoke(msg.effectiveTopicId) ?: 0
         topicButtonLayout.bind(
             msg,
-            creatorName,
             creatorAvatar,
             context.getString(R.string.topic_creator),
             context.getString(R.string.topic_view),
@@ -2420,7 +2420,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             } else if (replySenderId != 0L &&
                 (replySenderName.isBlank() || replySenderAvatarUrl.isNullOrBlank())
             ) {
-                val cachedIdentity = delegate?.resolveReplyIdentity(replySenderId)
+                val cachedIdentity = delegate?.resolveMemberIdentity(replySenderId)
                 if (replySenderName.isBlank()) {
                     replySenderName = cachedIdentity?.first.orEmpty().ifBlank { replySenderId.toString() }
                 }
@@ -2430,7 +2430,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             }
             replyHasAttachment = content.contains("\"has_attachment\":true")
 
-            replyAvatarDrawable.setInfo(replySenderId, replySenderUsername.ifBlank { replySenderName })
+            replyAvatarDrawable.setUserId(replySenderId)
             if (isAnonymousReply && replySenderAvatarUrl.isNullOrBlank()) {
                 loadReplyAnonymousAvatar()
             } else {
@@ -2505,9 +2505,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
     }
 
-    private var avatarLoadStartTime = 0L
-    private var avatarFallbackVisible = false
-
     private fun loadAvatar(url: String) {
         if (url == currentAvatarUrl && avatarDrawable.hasPhoto()) return
         currentAvatarUrl = url
@@ -2517,24 +2514,18 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         if (url.isNotEmpty()) {
             val proxyUrl = avatarImgproxyUrl(url, AVATAR_SIZE)
             val loader = MezonImageLoader.getInstance(context)
-            val absoluteUrlFallback = com.mezon.mobile.util.plainSourceUrlFromImgproxy(proxyUrl) ?: proxyUrl
-            val isAnimated = com.mezon.mobile.util.isAnimatedImageUrl(absoluteUrlFallback)
-            
+            val isAnimated = com.mezon.mobile.util.isAnimatedImageUrl(proxyUrl)
+
             if (!isAnimated) {
                 val cached = loader.getBitmapFromMemory(proxyUrl, AVATAR_SIZE, AVATAR_SIZE)
                 if (cached != null) {
                     avatarDrawable.setLoadingPlaceholder(false)
                     avatarDrawable.setPhoto(cached)
-                    avatarDrawable.setDrawableByInfo(true)
-                    avatarFallbackVisible = true
                     return
                 }
             }
 
             avatarDrawable.setLoadingPlaceholder(true)
-            avatarDrawable.setDrawableByInfo(true)
-            avatarFallbackVisible = false
-            avatarLoadStartTime = System.currentTimeMillis()
 
             val successCallback: (Any) -> Unit = { drawable ->
                 avatarDrawable.setLoadingPlaceholder(false)
@@ -2546,44 +2537,21 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 } else if (drawable is android.graphics.Bitmap) {
                     avatarDrawable.setPhoto(drawable)
                 }
-                avatarDrawable.setDrawableByInfo(true)
-                avatarFallbackVisible = true
                 invalidate()
             }
 
             val errorCallback: (Throwable) -> Unit = {
-                if (absoluteUrlFallback != proxyUrl) {
-                    avatarCancellable = loader.loadDrawable(
-                        absoluteUrlFallback, AVATAR_SIZE, AVATAR_SIZE, successCallback,
-                        onError = {
-                            avatarDrawable.setLoadingPlaceholder(false)
-                            avatarDrawable.setDrawableByInfo(true)
-                            avatarFallbackVisible = true
-                            invalidate()
-                        }
-                    )
-                } else {
-                    avatarDrawable.setLoadingPlaceholder(false)
-                    avatarDrawable.setDrawableByInfo(true)
-                    avatarFallbackVisible = true
-                    invalidate()
-                }
+                avatarDrawable.setLoadingPlaceholder(false)
+                invalidate()
             }
 
-            if (isAnimated) {
-                avatarCancellable = loader.loadDrawable(absoluteUrlFallback, AVATAR_SIZE, AVATAR_SIZE, successCallback, {
-                    avatarDrawable.setLoadingPlaceholder(false)
-                    avatarDrawable.setDrawableByInfo(true)
-                    avatarFallbackVisible = true
-                    invalidate()
-                })
+            avatarCancellable = if (isAnimated) {
+                loader.loadDrawable(proxyUrl, AVATAR_SIZE, AVATAR_SIZE, successCallback, errorCallback)
             } else {
-                avatarCancellable = loader.load(proxyUrl, AVATAR_SIZE, AVATAR_SIZE, { bmp -> successCallback(bmp) }, errorCallback)
+                loader.load(proxyUrl, AVATAR_SIZE, AVATAR_SIZE, { bmp -> successCallback(bmp) }, errorCallback)
             }
         } else {
             avatarDrawable.setPhoto(null)
-            avatarDrawable.setDrawableByInfo(true)
-            avatarFallbackVisible = true
         }
     }
 
@@ -2596,8 +2564,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val cached = anonymousAvatarBitmaps[bgColor]
             ?: createAnonymousAvatarBitmap(bgColor).also { anonymousAvatarBitmaps[bgColor] = it }
         avatarDrawable.setPhoto(cached)
-        avatarDrawable.setDrawableByInfo(true)
-        avatarFallbackVisible = true
     }
 
     private fun createAnonymousAvatarBitmap(bgColor: Int): Bitmap {
@@ -2624,26 +2590,22 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         if (url.isEmpty()) {
             replyAvatarDrawable.setLoadingPlaceholder(false)
             replyAvatarDrawable.setPhoto(null)
-            replyAvatarDrawable.setDrawableByInfo(true)
             return
         }
         val proxyUrl = avatarImgproxyUrl(url, REPLY_AVATAR_SIZE)
-        val absoluteUrlFallback = com.mezon.mobile.util.plainSourceUrlFromImgproxy(proxyUrl) ?: proxyUrl
-        val isAnimated = com.mezon.mobile.util.isAnimatedImageUrl(absoluteUrlFallback)
+        val isAnimated = com.mezon.mobile.util.isAnimatedImageUrl(proxyUrl)
         val loader = MezonImageLoader.getInstance(context)
-        
+
         if (!isAnimated) {
             val cached = loader.getBitmapFromMemory(proxyUrl, REPLY_AVATAR_SIZE, REPLY_AVATAR_SIZE)
             if (cached != null) {
                 replyAvatarDrawable.setLoadingPlaceholder(false)
                 replyAvatarDrawable.setPhoto(cached)
-                replyAvatarDrawable.setDrawableByInfo(true)
                 return
             }
         }
         
         replyAvatarDrawable.setLoadingPlaceholder(true)
-        replyAvatarDrawable.setDrawableByInfo(true)
 
         val successCallback: (Any) -> Unit = { drawable ->
             replyAvatarDrawable.setLoadingPlaceholder(false)
@@ -2655,32 +2617,17 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             } else if (drawable is android.graphics.Bitmap) {
                 replyAvatarDrawable.setPhoto(drawable)
             }
-            replyAvatarDrawable.setDrawableByInfo(true)
             invalidate()
         }
 
         val errorCallback: (Throwable) -> Unit = {
-            if (absoluteUrlFallback != proxyUrl) {
-                replyAvatarCancellable = loader.loadDrawable(
-                    absoluteUrlFallback, REPLY_AVATAR_SIZE, REPLY_AVATAR_SIZE, successCallback,
-                    onError = {
-                        replyAvatarDrawable.setLoadingPlaceholder(false)
-                        replyAvatarDrawable.setDrawableByInfo(true)
-                    }
-                )
-            } else {
-                replyAvatarDrawable.setLoadingPlaceholder(false)
-                replyAvatarDrawable.setDrawableByInfo(true)
-            }
+            replyAvatarDrawable.setLoadingPlaceholder(false)
         }
 
-        if (isAnimated) {
-            replyAvatarCancellable = loader.loadDrawable(absoluteUrlFallback, REPLY_AVATAR_SIZE, REPLY_AVATAR_SIZE, successCallback, {
-                replyAvatarDrawable.setLoadingPlaceholder(false)
-                replyAvatarDrawable.setDrawableByInfo(true)
-            })
+        replyAvatarCancellable = if (isAnimated) {
+            loader.loadDrawable(proxyUrl, REPLY_AVATAR_SIZE, REPLY_AVATAR_SIZE, successCallback, errorCallback)
         } else {
-            replyAvatarCancellable = loader.load(proxyUrl, REPLY_AVATAR_SIZE, REPLY_AVATAR_SIZE, { bmp -> successCallback(bmp) }, errorCallback)
+            loader.load(proxyUrl, REPLY_AVATAR_SIZE, REPLY_AVATAR_SIZE, { bmp -> successCallback(bmp) }, errorCallback)
         }
     }
 
@@ -2691,17 +2638,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val cached = anonymousAvatarBitmaps[bgColor]
             ?: createAnonymousAvatarBitmap(bgColor).also { anonymousAvatarBitmaps[bgColor] = it }
         replyAvatarDrawable.setPhoto(cached)
-        replyAvatarDrawable.setDrawableByInfo(true)
-    }
-
-    private fun checkAvatarFallbackTimeout() {
-        if (!avatarFallbackVisible && !avatarDrawable.hasPhoto() && avatarLoadStartTime > 0) {
-            if (System.currentTimeMillis() - avatarLoadStartTime > 3000L) {
-                avatarDrawable.setLoadingPlaceholder(false)
-                avatarDrawable.setDrawableByInfo(true)
-                avatarFallbackVisible = true
-            }
-        }
     }
 
     private var cachedMeasuredWidth = 0
@@ -2737,7 +2673,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         fun didLongPress(cell: ChatMessageCell, msg: MessageEntity) {}
         fun didClickAvatar(cell: ChatMessageCell, msg: MessageEntity) {}
         fun didPressReply(cell: ChatMessageCell, replyMessageId: Long) {}
-        fun resolveReplyIdentity(senderId: Long): Pair<String, String>? = null
+        fun resolveMemberIdentity(senderId: Long): Pair<String, String>? = null
         fun didTapReaction(cell: ChatMessageCell, msg: MessageEntity, group: ReactionGroup) {}
         fun didLongPressReaction(cell: ChatMessageCell, msg: MessageEntity, group: ReactionGroup) {}
         fun didTapAddReaction(cell: ChatMessageCell, msg: MessageEntity) {}
@@ -3390,7 +3326,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     override fun onDraw(canvas: Canvas) {
         val msg = messageEntity ?: return
-        checkAvatarFallbackTimeout()
 
         if (hasMentionHighlight) {
             MENTION_BG_PAINT.color = theme.mentionHighlightBg

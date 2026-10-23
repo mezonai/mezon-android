@@ -238,7 +238,6 @@ class VoiceRoomFragment : BaseFragment() {
     data class FocusedContent(
         val videoTrack: VideoTrack?,
         val name: String,
-        val username: String,
         val avatarUrl: String?,
         val isMuted: Boolean,
         val isScreenShare: Boolean,
@@ -249,19 +248,19 @@ class VoiceRoomFragment : BaseFragment() {
         val screen = participants.firstOrNull { it.isScreenShare && it.videoTrack != null }
         if (screen != null) {
             return FocusedContent(
-                screen.videoTrack, screen.name, screen.username, screen.avatarUrl,
+                screen.videoTrack, screen.name, screen.avatarUrl,
                 screen.isMuted, true, screen.identity.toLongOrNull() ?: 0L
             )
         }
         val camera = participants.firstOrNull { !it.isScreenShare && it.videoTrack != null }
         if (camera != null) {
             return FocusedContent(
-                camera.videoTrack, camera.name, camera.username, camera.avatarUrl,
+                camera.videoTrack, camera.name, camera.avatarUrl,
                 camera.isMuted, false, camera.identity.toLongOrNull() ?: 0L
             )
         }
         val first = participants.firstOrNull() ?: return null
-        return FocusedContent(null, first.name, first.username, first.avatarUrl, first.isMuted, false, first.identity.toLongOrNull() ?: 0L)
+        return FocusedContent(null, first.name, first.avatarUrl, first.isMuted, false, first.identity.toLongOrNull() ?: 0L)
     }
 
     private fun getMainActivity(): MainActivity? = getParentActivity() as? MainActivity
@@ -303,11 +302,11 @@ class VoiceRoomFragment : BaseFragment() {
         val focused = getFocusedContent()
         if (focused != null) {
             manager.updateMiniContent(
-                focused.videoTrack, focused.name, focused.username,
+                focused.videoTrack, focused.name,
                 focused.avatarUrl, focused.isMuted, focused.userId, focused.isScreenShare
             )
         } else {
-            manager.updateMiniContent(null, channelLabel, "", null, false, 0L, false)
+            manager.updateMiniContent(null, channelLabel, null, false, 0L, false)
         }
     }
 
@@ -370,7 +369,7 @@ class VoiceRoomFragment : BaseFragment() {
             val senderAvatar = findReactionMeta(emojis, SENDER_AVATAR_PREFIX)
             if (senderId != 0L && raiseUpReaction != null) {
                 val resolved = resolveRaiseHandDisplay(senderId, senderName, senderAvatar)
-                raiseHandOverlay?.showRaiseHand(senderId, resolved.displayName, resolved.username, resolved.avatarUrl)
+                raiseHandOverlay?.showRaiseHand(senderId, resolved.displayName, resolved.avatarUrl)
             } else if (senderId != 0L && raiseDownReaction != null) {
                 raiseHandOverlay?.removeRaiseHand(senderId)
             }
@@ -2111,7 +2110,6 @@ class VoiceRoomFragment : BaseFragment() {
 
     private data class RaiseHandDisplay(
         val displayName: String,
-        val username: String,
         val avatarUrl: String?
     )
 
@@ -2123,7 +2121,6 @@ class VoiceRoomFragment : BaseFragment() {
         }
         return RaiseHandDisplay(
             displayName = resolved.displayName,
-            username = resolved.username,
             avatarUrl = resolved.avatarUrl ?: fallbackAvatar.ifBlank { null }
         )
     }

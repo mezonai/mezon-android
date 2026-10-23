@@ -396,7 +396,7 @@ class ClanMembersFragment : BaseFragment() {
             currentMember = member
             drawDivider = divider
             val displayName = member.clanNick.takeIf { it.isNotBlank() } ?: member.displayName.takeIf { it.isNotBlank() } ?: member.username
-            avatarView.setInfo(member.userId, displayName)
+            avatarView.setUserId(member.userId)
             avatarView.setImageUrl(member.clanAvatar.ifBlank { member.avatarUrl })
             displayNameText.text = displayName
             usernameText.text = member.username

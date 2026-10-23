@@ -586,7 +586,6 @@ class ChannelListView(
                     (holder as VoiceMemberVH).cell.setUser(
                         row.member.userId,
                         row.member.displayName,
-                        row.member.username,
                         row.member.avatarUrl,
                         row.member.isSharingScreen
                     )
@@ -651,7 +650,6 @@ private class RowDiffCallback(
 data class VoiceMemberDisplay(
     val userId: Long,
     val displayName: String,
-    val username: String = "",
     val avatarUrl: String?,
     val isSharingScreen: Boolean = false
 )

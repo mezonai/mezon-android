@@ -94,7 +94,7 @@ class PinMessageCell(context: Context, private val theme: ThemeColors) : FrameLa
         pinData = data
         val name = displayName?.takeIf { it.isNotBlank() }
             ?: data.username.ifBlank { if (data.senderId == anonymousUserId) "Anonymous" else "Unknown" }
-        headerView.setInfo(name, avatarUrl ?: data.avatar, data.messageId, data.username)
+        headerView.setInfo(name, avatarUrl ?: data.avatar, data.messageId)
 
         messageCell.resetForRebind()
         val entity = data.toDisplayMessageEntity(cachedMessage)
@@ -165,9 +165,9 @@ private class PinHeaderView(context: Context, private val theme: ThemeColors) : 
         isFakeBoldText = true
     }
 
-    fun setInfo(name: String, avatarUrl: String, fallbackId: Long, username: String) {
+    fun setInfo(name: String, avatarUrl: String, fallbackId: Long) {
         nameText = name
-        avatarDrawable.setInfo(fallbackId, username)
+        avatarDrawable.setUserId(fallbackId)
         loadAvatar(avatarUrl)
         namePaint.color = nameColor()
         lastLayoutWidth = 0

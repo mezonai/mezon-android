@@ -610,7 +610,7 @@ class MainActivity : BasePermissionsActivity(),
             overlay = CallingOverlay(this)
             callingOverlay = overlay
         }
-        overlay.setCallerInfo(callInfo.peerName, callInfo.peerUsername, callInfo.peerAvatar)
+        overlay.setCallerInfo(callInfo.peerName, callInfo.peerAvatar)
         overlay.delegate = object : CallingOverlay.Delegate {
             override fun onAcceptClicked() {
                 dismissIncomingCallOverlay(removeView = false)
@@ -1103,11 +1103,11 @@ class MainActivity : BasePermissionsActivity(),
         if (focused != null) {
             manager.minimize(
                 focused.videoTrack,
-                focused.name, focused.username, focused.avatarUrl, focused.isMuted, focused.userId,
+                focused.name, focused.avatarUrl, focused.isMuted, focused.userId,
                 focused.isScreenShare
             )
         } else {
-            manager.minimize(null, fragment.getChannelLabel(), "", null, false, 0L, false)
+            manager.minimize(null, fragment.getChannelLabel(), null, false, 0L, false)
         }
     }
 

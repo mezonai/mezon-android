@@ -7,7 +7,6 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
-import android.graphics.Canvas
 import android.net.Uri
 import android.os.Build
 import android.os.SystemClock
@@ -17,7 +16,6 @@ import androidx.core.app.Person
 import androidx.core.graphics.drawable.IconCompat
 import com.mezon.mobile.MainActivity
 import com.mezon.mobile.R
-import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.util.avatarImgproxyUrl
 
@@ -77,27 +75,14 @@ class CallNotificationManager(private val context: Context) {
     private val avatarSizePx: Int
         get() = (AVATAR_ICON_DP * context.resources.displayMetrics.density).toInt()
 
-    private fun letterAvatarBitmap(callerName: String, callerId: String): Bitmap {
-        val size = avatarSizePx.coerceAtLeast(1)
-        val drawable = AvatarDrawable().apply {
-            cornerRadius = 0f
-            setInfo(callerId.toLongOrNull() ?: 0L, callerName)
-            setBounds(0, 0, size, size)
-        }
-        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-        drawable.draw(Canvas(bitmap))
-        return bitmap
-    }
-
     private fun personFor(callerName: String, callerAvatar: String?, callerId: String): Person {
         val cached = callerAvatar?.trim()?.takeIf { it.isNotEmpty() }
             ?.let { avatarCache[it] }
             ?.takeIf { !it.isRecycled }
-        val bitmap = cached ?: letterAvatarBitmap(callerName, callerId)
         return Person.Builder()
             .setName(callerName)
             .setKey(callerId)
-            .setIcon(IconCompat.createWithAdaptiveBitmap(bitmap))
+            .apply { if (cached != null) setIcon(IconCompat.createWithAdaptiveBitmap(cached)) }
             .setImportant(true)
             .build()
     }

@@ -35,7 +35,6 @@ import com.mezon.mobile.home.voice.ExternalMeetingLinkBottomSheet
 import com.mezon.mobile.home.voice.ExternalMeetingRoom
 import com.mezon.mobile.ui.cells.AvatarView
 import com.mezon.mobile.ui.cells.MezonIcon
-import com.mezon.mobile.util.avatarImgproxyUrl
 import com.mezon.mobile.util.DateTimeUtil
 import java.util.Locale
 import kotlin.math.max
@@ -394,13 +393,13 @@ class ClanEventBottomSheet(
 
     private val EVENT_INFO_ICON_DP = 20
 
-    private fun buildInfoLeadingSlot(context: Context, content: View, contentSizeDp: Int = EVENT_INFO_ICON_DP): FrameLayout {
+    private fun buildInfoLeadingSlot(context: Context, content: View): FrameLayout {
         return FrameLayout(context).apply {
             addView(
                 content,
                 FrameLayout.LayoutParams(
-                    LayoutHelper.dp(contentSizeDp),
-                    LayoutHelper.dp(contentSizeDp),
+                    LayoutHelper.dp(EVENT_INFO_ICON_DP),
+                    LayoutHelper.dp(EVENT_INFO_ICON_DP),
                     Gravity.CENTER,
                 ),
             )
@@ -417,23 +416,6 @@ class ClanEventBottomSheet(
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
         return buildInfoLeadingSlot(context, iconView)
-    }
-
-    private fun buildInfoAvatarLeading(
-        context: Context,
-        userId: Long,
-        name: String,
-        avatarUrl: String,
-    ): View {
-        val avatar = AvatarView(context).apply {
-            setSizeDp(EVENT_INFO_LEADING_DP)
-            setRoundRadius(EVENT_INFO_LEADING_DP / 2f)
-            setInfo(userId, name)
-            if (avatarUrl.isNotEmpty()) {
-                setImageUrl(avatarImgproxyUrl(avatarUrl, LayoutHelper.dp(EVENT_INFO_LEADING_DP)))
-            }
-        }
-        return buildInfoLeadingSlot(context, avatar, EVENT_INFO_LEADING_DP)
     }
 
     private fun buildInlineInfoRow(
@@ -793,8 +775,6 @@ class ClanEventBottomSheet(
             AvatarView(context).apply {
                 setSizeDp(24)
                 setRoundRadius(12f)
-                val name = creator?.displayName.orEmpty().ifBlank { creator?.username.orEmpty() }
-                setInfo(creator?.userId ?: 0L, name)
                 val avatar = creator?.clanAvatar?.ifBlank { creator.avatarUrl }.orEmpty()
                 if (avatar.isNotEmpty()) setImageUrl(avatar)
             },

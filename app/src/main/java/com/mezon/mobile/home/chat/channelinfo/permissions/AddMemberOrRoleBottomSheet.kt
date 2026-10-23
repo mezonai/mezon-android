@@ -355,7 +355,7 @@ class AddMemberOrRoleBottomSheet(
             fun bind(member: ClanMember) {
                 val display = member.clanNick.ifBlank { member.displayName.ifBlank { member.username } }
                 title.text = display
-                avatar.setInfo(member.userId, display)
+                avatar.setUserId(member.userId)
                 avatar.setImageUrl(member.clanAvatar.ifBlank { member.avatarUrl })
                 bindCheckbox(checkbox, member.userId in selectedMemberIds)
                 row.setOnClickListener {

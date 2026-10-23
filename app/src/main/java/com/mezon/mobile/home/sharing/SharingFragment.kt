@@ -811,7 +811,7 @@ class SharingFragment(
         selectedChipView.visibility = View.VISIBLE
         selectedChipClose.visibility = View.VISIBLE
 
-        selectedChipAvatar.setInfo(t.avatarId, t.channelLabel)
+        if (t.isDm) selectedChipAvatar.setUserId(t.avatarId) else selectedChipAvatar.setInfo(t.avatarId, t.channelLabel)
         selectedChipAvatar.setImageUrl(t.avatarUrl.ifEmpty { t.clanLogo }.ifEmpty { null })
         selectedChipLabel.text = t.channelLabel
 
