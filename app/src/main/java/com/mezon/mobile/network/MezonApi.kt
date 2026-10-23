@@ -1056,12 +1056,12 @@ class MezonApi @Inject constructor(
         apiUrl: String,
         token: String,
         clanId: Long,
+        preventAnonymous: Boolean,
         logo: String? = null,
         clearLogo: Boolean = false,
         clanName: String? = null,
         banner: String? = null,
         clearBanner: Boolean = false,
-        preventAnonymous: Boolean? = null,
         welcomeChannelId: Long? = null,
         isOnboarding: Boolean? = null,
         isCommunity: Boolean? = null,
@@ -1070,7 +1070,7 @@ class MezonApi @Inject constructor(
         about: String? = null,
         description: String? = null,
         shortUrl: String? = null,
-    ): ClanDesc {
+    ) {
         val request = updateClanDescRequest {
             this.clanId = clanId
             when {
@@ -1085,7 +1085,7 @@ class MezonApi @Inject constructor(
                 banner != null && banner.isEmpty() -> this.banner = StringValue.of("")
                 clearBanner -> this.banner = StringValue.of("")
             }
-            preventAnonymous?.let { this.preventAnonymous = it }
+            this.preventAnonymous = preventAnonymous
             welcomeChannelId?.let { this.welcomeChannelId = it }
             isOnboarding?.let { this.isOnboarding = BoolValue.of(it) }
             isCommunity?.let { this.isCommunity = BoolValue.of(it) }
@@ -1097,8 +1097,7 @@ class MezonApi @Inject constructor(
             description?.let { this.description = StringValue.of(it) }
             shortUrl?.let { this.shortUrl = StringValue.of(it) }
         }
-        val bytes = rpc(apiUrl, token, "UpdateClanDesc", request.toByteArray())
-        return ClanDesc.parseFrom(bytes)
+        rpc(apiUrl, token, "UpdateClanDesc", request.toByteArray())
     }
 
     suspend fun getSystemMessageForClan(
