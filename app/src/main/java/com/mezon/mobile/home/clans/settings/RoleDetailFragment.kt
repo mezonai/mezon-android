@@ -604,7 +604,9 @@ class RoleDetailFragment : BaseFragment() {
                         return@runCatching
                     }
                     val mime = cr.getType(uri) ?: "image/jpeg"
-                    val url = withContext(ioDispatcher) { clansController.uploadRoleIconImage(bytes, mime) }
+                    val url = withContext(ioDispatcher) {
+                        clansController.uploadRoleIconImage(bytes, mime, FileUtils.getPickedFileName(cr, uri))
+                    }
                     draftIconUrl = url
                     refreshIconPreview()
                     refreshRemoveIconVisibility()

@@ -46,6 +46,7 @@ import com.mezon.mobile.ui.cells.RadioCell
 import com.mezon.mobile.ui.cells.SelectPopup
 import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.util.DateTimeUtil
+import com.mezon.mobile.util.FileUtils
 import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -995,8 +996,7 @@ class ClanEventEditorDialog private constructor(
                 val url = clanEventController.uploadEventCover(
                     image.bytes,
                     image.mimeType,
-                    image.width,
-                    image.height,
+                    image.originalFilename,
                 )
                 onCoverUploaded(url)
             } catch (e: CancellationException) {
@@ -1050,14 +1050,13 @@ class ClanEventEditorDialog private constructor(
         val mimeType = declaredMimeType?.takeIf { it.startsWith("image/") }
             ?: bounds.outMimeType?.lowercase()?.takeIf { it.startsWith("image/") }
             ?: throw IllegalArgumentException("Unsupported cover image")
-        return CoverImage(bytes, mimeType, bounds.outWidth, bounds.outHeight)
+        return CoverImage(bytes, mimeType, FileUtils.getPickedFileName(resolver, uri))
     }
 
     private data class CoverImage(
         val bytes: ByteArray,
         val mimeType: String,
-        val width: Int,
-        val height: Int,
+        val originalFilename: String?,
     )
 
     private class CoverTooLargeException : Exception()

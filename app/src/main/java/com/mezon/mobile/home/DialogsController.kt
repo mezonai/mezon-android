@@ -10,7 +10,6 @@ import android.util.LongSparseArray
 import android.util.Log
 import com.mezon.mezon.api.AllUsersAddChannelResponse
 import com.mezon.mezon.api.ChannelMessage
-import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.StartupCache
 import com.mezon.mobile.data.db.DirectMessageDao
@@ -740,6 +739,9 @@ class DialogsController @Inject constructor(
             val normalized = withContext(ioDispatcher) {
                 prepareDmGroupAvatarUpload(contentResolver, uri, sourceMimeType, maxBytes)
             }
+            val originalFilename = withContext(ioDispatcher) {
+                FileUtils.getPickedFileName(contentResolver, uri)
+            }
             if (normalized.bytes.isEmpty()) {
                 return DmGroupAvatarUploadResult.Failed
             }
@@ -751,17 +753,15 @@ class DialogsController @Inject constructor(
             val filename = "${System.currentTimeMillis() / 1000}_dm_group.$ext"
             val cdnUrl = sessionManager.withAutoRefresh { session ->
                 withContext(ioDispatcher) {
-                    AttachmentUploader.uploadAttachmentBytes(
+                    AttachmentUploader.uploadPublicImage(
                         api,
                         session.apiUrl,
                         session.token,
                         filename,
                         normalized.mimeType,
                         normalized.bytes,
-                        512,
-                        512,
-                        BuildConfig.CLOUDFLARE_CDN_URL,
-                    ).cdnUrl
+                        originalFilename = originalFilename,
+                    )
                 }
             }
             DmGroupAvatarUploadResult.Success(cdnUrl)

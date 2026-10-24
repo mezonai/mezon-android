@@ -1,7 +1,6 @@
 package com.mezon.mobile.home.clans
 
 import android.content.Context
-import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.R
 import android.util.Log
 import com.mezon.mobile.core.LayoutHelper
@@ -451,24 +450,22 @@ class ClansController @Inject constructor(
         }
     }
 
-    suspend fun uploadClanBannerJpeg(jpegBytes: ByteArray): String {
+    suspend fun uploadClanBannerJpeg(jpegBytes: ByteArray, originalFilename: String? = null): String {
         require(jpegBytes.isNotEmpty())
         return sessionManager.withAutoRefresh { session ->
             withContext(ioDispatcher) {
                 val ts = System.currentTimeMillis() / 1000
                 val filename = "${ts}_banner.jpg"
                 val mime = "image/jpeg"
-                AttachmentUploader.uploadAttachmentBytes(
+                AttachmentUploader.uploadPublicImage(
                     api,
                     session.apiUrl,
                     session.token,
                     filename,
                     mime,
                     jpegBytes,
-                    1920,
-                    1080,
-                    BuildConfig.CLOUDFLARE_CDN_URL,
-                ).cdnUrl
+                    originalFilename = originalFilename,
+                )
             }
         }
     }
@@ -868,27 +865,25 @@ class ClansController @Inject constructor(
         }
     }
 
-    suspend fun uploadWebhookAvatar(bytes: ByteArray, mimeType: String): String {
+    suspend fun uploadWebhookAvatar(bytes: ByteArray, mimeType: String, originalFilename: String? = null): String {
         return sessionManager.withAutoRefresh { session ->
             withContext(ioDispatcher) {
                 val ts = System.currentTimeMillis() / 1000
                 val name = "${ts}_wh.jpg"
-                AttachmentUploader.uploadAttachmentBytes(
+                AttachmentUploader.uploadPublicImage(
                     api,
                     session.apiUrl,
                     session.token,
                     name,
                     mimeType,
                     bytes,
-                    512,
-                    512,
-                    BuildConfig.CLOUDFLARE_CDN_URL,
-                ).cdnUrl
+                    originalFilename = originalFilename,
+                )
             }
         }
     }
 
-    suspend fun uploadRoleIconImage(bytes: ByteArray, mimeType: String): String {
+    suspend fun uploadRoleIconImage(bytes: ByteArray, mimeType: String, originalFilename: String? = null): String {
         require(bytes.isNotEmpty())
         return sessionManager.withAutoRefresh { session ->
             withContext(ioDispatcher) {
@@ -899,17 +894,15 @@ class ClansController @Inject constructor(
                     else -> "jpg"
                 }
                 val name = "${ts}_role.$ext"
-                AttachmentUploader.uploadAttachmentBytes(
+                AttachmentUploader.uploadPublicImage(
                     api,
                     session.apiUrl,
                     session.token,
                     name,
                     mimeType,
                     bytes,
-                    512,
-                    512,
-                    BuildConfig.CLOUDFLARE_CDN_URL,
-                ).cdnUrl
+                    originalFilename = originalFilename,
+                )
             }
         }
     }

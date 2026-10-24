@@ -386,6 +386,22 @@ object AttachmentUploader {
         }
     }
 
+    suspend fun uploadPublicImage(
+        api: MezonApi,
+        apiUrl: String,
+        token: String,
+        fallbackFilename: String,
+        mimeType: String,
+        bytes: ByteArray,
+        originalFilename: String? = null,
+    ): String {
+        val filename = publicImageUploadFilename(originalFilename, fallbackFilename)
+        val presign = api.uploadOauthFile(apiUrl, token, filename, mimeType, bytes.size)
+        require(presign.filename.isNotBlank()) { "public image presign returned an empty filename" }
+        api.putFileToPresignedUrl(presign.url, bytes, mimeType)
+        return "${BuildConfig.PROFILE_CDN_URL.trim().trimEnd('/')}/${presign.filename}"
+    }
+
     suspend fun uploadAttachmentBytes(
         api: MezonApi,
         apiUrl: String,

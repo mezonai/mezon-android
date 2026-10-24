@@ -29,6 +29,7 @@ import com.mezon.mobile.ui.cells.ActionBarView
 import com.mezon.mobile.ui.cells.InputCell
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.ToastOverlay
+import com.mezon.mobile.util.FileUtils
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -663,7 +664,7 @@ class CommunitySettingsFragment : BaseFragment() {
                     BannerLoadResult.Failed ->
                         MezonToast.show(this@CommunitySettingsFragment, ToastOverlay.ToastType.ERROR, getString(R.string.community_settings_error_banner))
                     is BannerLoadResult.Ok -> {
-                        controller.onBannerPicked(result.bytes, result.mimeType, result.ext, previewUri)
+                        controller.onBannerPicked(result.bytes, result.mimeType, result.ext, previewUri, result.originalFilename)
                         result.drawable?.let { d ->
                             formHolder?.applyLocalBannerPreview(d, previewUri)
                         }
@@ -724,7 +725,7 @@ class CommunitySettingsFragment : BaseFragment() {
                     drawable = android.graphics.drawable.BitmapDrawable(ctx.resources, bitmap)
                 }
             }
-            BannerLoadResult.Ok(bytes, mimeType, ext, drawable)
+            BannerLoadResult.Ok(bytes, mimeType, ext, drawable, FileUtils.getPickedFileName(ctx.contentResolver, uri))
         } catch (_: Exception) {
             BannerLoadResult.Failed
         }
@@ -739,6 +740,7 @@ class CommunitySettingsFragment : BaseFragment() {
             val mimeType: String,
             val ext: String,
             val drawable: android.graphics.drawable.Drawable?,
+            val originalFilename: String?,
         ) : BannerLoadResult
     }
 }
