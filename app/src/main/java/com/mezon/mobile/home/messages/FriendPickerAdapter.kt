@@ -292,7 +292,6 @@ private class FriendPickerCell(
 ) : FrameLayout(context) {
 
     private val avatarView: AvatarView
-    private val fallbackAvatar: TextView
     private val titleView: TextView
     private val subtitleView: TextView
     private val checkView: SquareCheckView
@@ -323,19 +322,6 @@ private class FriendPickerCell(
 
         val avatarWrap = FrameLayout(context)
         row.addView(avatarWrap, LayoutHelper.createLinear(40, 40, rightMargin = 8f))
-
-        fallbackAvatar = TextView(context).apply {
-            gravity = Gravity.CENTER
-            setTextColor(0xFFFFFFFF.toInt())
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
-            includeFontPadding = false
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(themeColors.colorAvatarDefault)
-            }
-            visibility = View.GONE
-        }
-        avatarWrap.addView(fallbackAvatar, LayoutHelper.createFrame(40, 40))
 
         avatarView = AvatarView(context).apply {
             setSizeDp(40)
@@ -383,19 +369,8 @@ private class FriendPickerCell(
     ) {
         val user = friend.user
         val displayName = user.displayName.ifBlank { user.username }
-        if (user.avatarUrl.isBlank()) {
-            avatarView.visibility = View.GONE
-            avatarView.setImageUrl(null)
-            fallbackAvatar.visibility = View.VISIBLE
-            fallbackAvatar.text = user.username.firstOrNull()?.uppercaseChar()?.toString()
-                ?: displayName.firstOrNull()?.uppercaseChar()?.toString()
-                ?: ""
-        } else {
-            fallbackAvatar.visibility = View.GONE
-            avatarView.visibility = View.VISIBLE
-            avatarView.setInfo(user.id, user.username)
-            avatarView.setImageUrl(user.avatarUrl)
-        }
+        avatarView.setUserId(user.id)
+        avatarView.setImageUrl(user.avatarUrl.ifBlank { null })
         titleView.text = displayName
         subtitleView.text = user.username.takeIf { it.isNotBlank() && it != displayName } ?: ""
         subtitleView.visibility = if (subtitleView.text.isNullOrEmpty()) View.GONE else View.VISIBLE

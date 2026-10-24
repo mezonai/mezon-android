@@ -252,7 +252,6 @@ class AppearanceThemeFragment : BaseFragment() {
             val avatar = AvatarView(context).apply {
                 setSizeDp(42)
                 setRoundRadius(21f)
-                setInfo((i + 1).toLong(), previewName(i))
                 setImageUrl(previewAvatarUrls.getOrNull(i))
             }
             avatarWrap.addView(

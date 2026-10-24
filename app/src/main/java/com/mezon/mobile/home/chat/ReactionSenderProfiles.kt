@@ -4,7 +4,6 @@ import com.mezon.mobile.home.ClanMember
 
 internal data class ReactionSenderProfile(
     val name: String,
-    val username: String,
     val avatarUrl: String
 )
 
@@ -38,7 +37,6 @@ internal class ReactionSenderProfiles(
                 name = member?.let {
                     it.clanNick.ifBlank { it.displayName.ifBlank { it.username } }
                 }.orEmpty().ifBlank { "User $senderId" },
-                username = member?.username.orEmpty(),
                 avatarUrl = member?.let { it.clanAvatar.ifBlank { it.avatarUrl } }.orEmpty()
             )
         }

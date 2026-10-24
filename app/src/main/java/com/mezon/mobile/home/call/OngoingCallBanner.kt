@@ -157,7 +157,7 @@ class OngoingCallBanner(context: Context) : FrameLayout(context) {
         boundConnectedTime = connectedTime
         boundPeerId = callInfo.peerId
         nameTv.text = callInfo.peerName
-        avatarView.setInfo(callInfo.peerId, callInfo.peerUsername.ifEmpty { callInfo.peerName })
+        avatarView.setUserId(callInfo.peerId)
         avatarView.setImageUrl(callInfo.peerAvatar)
         durationView.startTimer(connectedTime)
     }

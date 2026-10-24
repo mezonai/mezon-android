@@ -108,7 +108,7 @@ class DmMenuBottomSheet(
             AvatarView(context).apply {
                 setSizeDp(60)
                 setRoundRadius(if (dm.type == CHANNEL_TYPE_GROUP) 10f else 30f)
-                setInfo(dm.channelId, dm.avatarPlaceholderKey())
+                if (dm.type == CHANNEL_TYPE_GROUP) setInfo(dm.channelId, dm.avatarPlaceholderKey()) else setUserId(dm.channelId)
                 setImageUrl(dm.avatarUrl.ifBlank { "" })
             },
             FrameLayout.LayoutParams(LayoutHelper.dp(60), LayoutHelper.dp(60))

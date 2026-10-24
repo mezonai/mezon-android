@@ -15,6 +15,7 @@ import com.mezon.mobile.home.messages.loadChannelAvatar
 import com.mezon.mobile.search.SearchMember
 import com.mezon.mobile.search.avatarEntityId
 import com.mezon.mobile.search.avatarPlaceholderKey
+import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 
 class ProfileSearchCell(context: Context, private val theme: ThemeColors) : BaseCell(context) {
@@ -105,7 +106,7 @@ class ProfileSearchCell(context: Context, private val theme: ThemeColors) : Base
             this,
             avatarDrawable,
             ChannelAvatarRequest(
-                channelType = if (m.isDm) m.channelType else 0,
+                channelType = if (m.isDm) m.channelType else CHANNEL_TYPE_DM,
                 avatarUrl = m.avatarUrl,
                 avatarId = avatarId,
                 placeholderKey = placeholderKey,

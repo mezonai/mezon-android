@@ -59,8 +59,7 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : BaseC
 
         if (mask == 0) {
             if (newEntity != null) entity = newEntity
-            val displayName = resolveDisplayName(n)
-            avatarDrawable.setInfo(n.senderId.takeIf { it != 0L } ?: n.id, displayName)
+            avatarDrawable.setUserId(n.senderId.takeIf { it != 0L } ?: n.id)
             buildLayouts()
             loadAvatar(resolveAvatarUrl(n))
             invalidate()
@@ -85,7 +84,6 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : BaseC
         }
 
         if ((mask and NotificationCenter.UPDATE_MASK_NAME) != 0) {
-            avatarDrawable.setInfo(n.senderId.takeIf { it != 0L } ?: n.id, resolveDisplayName(n))
             rebuildLayout = true
         }
 
@@ -160,18 +158,6 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : BaseC
         if (fromEntity.isNotEmpty()) return fromEntity
         val member = memberResolver?.invoke(n.senderId, n.clanId, n.channelId, n.channelType)
         return member?.let { it.clanAvatar.ifBlank { it.avatarUrl } }.orEmpty()
-    }
-
-    private fun resolveDisplayName(n: NotificationEntity): String {
-        if (n.category == NOTIF_CATEGORY_FOR_YOU) {
-            val username = resolveForYouUsername(n)
-            if (username.isNotEmpty()) return username
-        }
-        val member = memberResolver?.invoke(n.senderId, n.clanId, n.channelId, n.channelType)
-        if (member != null) {
-            return member.clanNick.ifBlank { member.displayName.ifBlank { member.username } }
-        }
-        return n.senderName.ifBlank { n.senderUsername }
     }
 
     private fun loadAvatar(url: String) {

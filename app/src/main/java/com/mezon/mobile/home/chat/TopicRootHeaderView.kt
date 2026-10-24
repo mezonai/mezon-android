@@ -138,7 +138,7 @@ private class TopicRootMetaView(
     fun setInfo(message: MessageEntity, name: String) {
         boundMessage = message
         boundName = name
-        avatarDrawable.setInfo(message.senderId, name)
+        avatarDrawable.setUserId(message.senderId)
         if (currentAvatarUrl != message.senderAvatar) {
             currentAvatarUrl = message.senderAvatar
             avatarDisposable?.cancel()

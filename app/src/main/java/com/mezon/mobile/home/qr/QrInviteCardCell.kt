@@ -168,7 +168,8 @@ class QrInviteCardCell(
             avatarView.setSizeDp(40)
             avatarView.setRoundRadius(6f)
         }
-        avatarView.setInfo(model.avatarName.hashCode().toLong(), model.avatarName)
+        val avatarKey = model.avatarName.hashCode().toLong()
+        if (model.appearance == Appearance.PERSONAL) avatarView.setUserId(avatarKey) else avatarView.setInfo(avatarKey, model.avatarName)
         avatarView.setPhoto(null)
         avatarView.setImageUrl(null)
         if (model.centerBitmap != null) {

@@ -421,8 +421,7 @@ class FriendsHomeFragment : BaseFragment() {
                         0L,
                         CHANNEL_TYPE_DM,
                         false,
-                        isVideo = false,
-                        peerUsername = friend.user.username
+                        isVideo = false
                     )
                     presentFragment(CallFragment())
                 }

@@ -339,8 +339,7 @@ internal class ChannelMediaGalleryAdapter(
                     else ->
                         (m?.clanAvatar?.ifBlank { null } ?: m?.avatarUrl) ?: ""
                 }
-            val avatarUsername = m?.username.orEmpty().ifBlank { item.senderUsername }
-            slot.av.setInfo(item.uploaderId, avatarUsername.ifEmpty { "User" })
+            slot.av.setUserId(item.uploaderId)
             slot.av.setImageUrl(avatarUrl)
         }
 

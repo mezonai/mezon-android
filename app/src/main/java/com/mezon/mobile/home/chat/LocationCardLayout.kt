@@ -78,7 +78,6 @@ class LocationCardLayout(private val context: Context) {
     fun prepare(
         data: LocationMessageData,
         senderId: Long,
-        senderUsername: String,
         senderAvatarUrl: String,
         title: String,
         theme: ThemeColors,
@@ -115,7 +114,7 @@ class LocationCardLayout(private val context: Context) {
             .setEllipsize(TextUtils.TruncateAt.END)
             .build()
 
-        avatarDrawable.setInfo(senderId, senderUsername)
+        avatarDrawable.setUserId(senderId)
         loadAvatar(senderAvatarUrl)
         loadMap(data, dark)
     }
@@ -228,7 +227,6 @@ class LocationCardLayout(private val context: Context) {
         avatarCancellable = null
         if (url.isEmpty()) {
             avatarDrawable.setPhoto(null)
-            avatarDrawable.setDrawableByInfo(true)
             return
         }
         val proxyUrl = avatarImgproxyUrl(url, AVATAR_SIZE)
@@ -236,16 +234,12 @@ class LocationCardLayout(private val context: Context) {
         val cached = loader.getBitmapFromMemory(proxyUrl, AVATAR_SIZE, AVATAR_SIZE)
         if (cached != null) {
             avatarDrawable.setPhoto(cached)
-            avatarDrawable.setDrawableByInfo(true)
             return
         }
-        avatarDrawable.setDrawableByInfo(false)
         avatarCancellable = loader.load(proxyUrl, AVATAR_SIZE, AVATAR_SIZE, onSuccess = { bmp ->
             avatarDrawable.setPhoto(bmp)
-            avatarDrawable.setDrawableByInfo(true)
             invalidateCallback?.invoke()
         }, onError = {
-            avatarDrawable.setDrawableByInfo(true)
             invalidateCallback?.invoke()
         })
     }
@@ -333,7 +327,6 @@ class LocationCardLayout(private val context: Context) {
         clearTiles()
         titleLayout = null
         avatarDrawable.setPhoto(null)
-        avatarDrawable.setDrawableByInfo(true)
         cardWidth = 0
         blockHeight = 0
     }

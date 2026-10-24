@@ -1152,7 +1152,7 @@ class GlobalSearchFragment : BaseFragment() {
                 userClanController.getUserById(uid),
                 getString(R.string.search_user_fallback)
             )
-            VoiceMemberDisplay(uid, identity.displayName, identity.username, identity.avatarUrl)
+            VoiceMemberDisplay(uid, identity.displayName, identity.avatarUrl)
         }
     }
 

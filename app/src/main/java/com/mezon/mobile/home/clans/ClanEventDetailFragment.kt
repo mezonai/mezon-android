@@ -490,14 +490,13 @@ class ClanEventDetailFragment : BaseFragment() {
 
     private fun buildInfoAvatarLeading(
         context: Context,
-        userId: Long,
-        name: String,
         avatarUrl: String,
+        clanName: String? = null,
     ): View {
         val avatar = AvatarView(context).apply {
             setSizeDp(EVENT_INFO_LEADING_DP)
             setRoundRadius(EVENT_INFO_LEADING_DP / 2f)
-            setInfo(userId, name)
+            if (clanName != null) setInfo(0L, clanName)
             if (avatarUrl.isNotEmpty()) {
                 setImageUrl(avatarImgproxyUrl(avatarUrl, LayoutHelper.dp(EVENT_INFO_LEADING_DP)))
             }
@@ -699,7 +698,6 @@ class ClanEventDetailFragment : BaseFragment() {
                 AvatarView(context).apply {
                     setSizeDp(40)
                     setRoundRadius(20f)
-                    setInfo(userId, member?.username ?: "")
                     val avatar = memberAvatarUrl(member)
                     if (avatar.isNotEmpty()) setImageUrl(avatarImgproxyUrl(avatar, LayoutHelper.dp(40)))
                 },
@@ -838,7 +836,7 @@ class ClanEventDetailFragment : BaseFragment() {
             buildDetailInfoRow(
                 context,
                 theme,
-                buildInfoAvatarLeading(context, 0L, clanName, clanLogo),
+                buildInfoAvatarLeading(context, clanLogo, clanName),
                 clanName,
                 theme.colorText,
             ),
@@ -862,12 +860,7 @@ class ClanEventDetailFragment : BaseFragment() {
             buildDetailInfoRow(
                 context,
                 theme,
-                buildInfoAvatarLeading(
-                    context,
-                    creator?.userId ?: 0L,
-                    memberDisplayName(creator),
-                    memberAvatarUrl(creator),
-                ),
+                buildInfoAvatarLeading(context, memberAvatarUrl(creator)),
                 context.getString(R.string.clan_event_created_by, memberDisplayName(creator)),
                 theme.onSurfaceVariant,
                 10f,

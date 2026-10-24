@@ -269,7 +269,6 @@ class EditProfileFragment : BaseFragment() {
 
         avatarView = AvatarView(context).apply {
             setSizeDp(100)
-            setInfo(userId, username)
             if (currentAvatarUrl.isNotEmpty()) setImageUrl(currentAvatarUrl)
         }
         val avatarBorderColor = if (themeColors.resolvedMode == com.mezon.mobile.ui.theme.ThemeMode.LIGHT) 0xFFFFFFFF.toInt() else 0xFF0D0D18.toInt()
@@ -330,8 +329,6 @@ class EditProfileFragment : BaseFragment() {
             setCellStrokeColor(0x00000000)
             onTextChanged = { text ->
                 nameView.text = text.ifEmpty { username }
-                avatarView.setInfo(userId, username)
-                if (::clanAvatarView.isInitialized) clanAvatarView.setInfo(userId, username)
             }
         }
         inputGroupCard.addView(displayNameCell, LayoutHelper.createLinear(
@@ -521,7 +518,6 @@ class EditProfileFragment : BaseFragment() {
 
         clanAvatarView = AvatarView(context).apply {
             setSizeDp(100)
-            setInfo(userId, username)
             if (currentAvatarUrl.isNotEmpty()) setImageUrl(currentAvatarUrl)
         }
         val clanAvatarBorderColor = if (themeColors.resolvedMode == com.mezon.mobile.ui.theme.ThemeMode.LIGHT) 0xFFFFFFFF.toInt() else 0xFF0D0D18.toInt()
@@ -790,10 +786,6 @@ class EditProfileFragment : BaseFragment() {
             bindDmLogoPreview()
             nameView.text = updatedInfo.displayName.ifEmpty { updatedInfo.username }
             usernameSubView.text = updatedInfo.username
-            val uid = updatedInfo.userId.takeIf { it != 0L } ?: userController.userId
-            val refreshedUsername = updatedInfo.username.ifEmpty { userController.username }
-            avatarView.setInfo(uid, refreshedUsername)
-            if (::clanAvatarView.isInitialized) clanAvatarView.setInfo(uid, refreshedUsername)
         }
         observe(NotificationCenter.themeChanged) { _, _, _ ->
             fragmentView?.setBackgroundColor(themeColors.background)

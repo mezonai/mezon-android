@@ -66,7 +66,7 @@ class MemberCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         if (newMember != null) member = newMember
 
         if (mask == 0) {
-            avatarDrawable.setInfo(m.userId, m.username)
+            avatarDrawable.setUserId(m.userId)
             loadAvatar(resolveAvatar(m))
             isOwner = creatorId != 0L && m.userId == creatorId
             buildLayouts()

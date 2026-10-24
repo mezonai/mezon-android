@@ -319,8 +319,7 @@ class StreamingRoomFragment : BaseFragment() {
 
         for ((index, uid) in visible.withIndex()) {
             val member = memberMap[uid]
-            val displayName = resolveMemberDisplayName(uid, member)
-            val avatarDrawable = AvatarDrawable().apply { setInfo(uid, displayName) }
+            val avatarDrawable = AvatarDrawable().apply { setUserId(uid) }
             val avatarView = ImageView(membersRow.context).apply {
                 setImageDrawable(avatarDrawable)
                 scaleType = ImageView.ScaleType.CENTER_CROP
@@ -343,15 +342,6 @@ class StreamingRoomFragment : BaseFragment() {
             membersOverflow.visibility = View.VISIBLE
             membersOverflow.text = "+$overflow"
         }
-    }
-
-    private fun resolveMemberDisplayName(userId: Long, member: ClanMember?): String {
-        member?.clanNick?.takeIf { it.isNotBlank() }?.let { return it }
-        member?.displayName?.takeIf { it.isNotBlank() }?.let { return it }
-        member?.username?.takeIf { it.isNotBlank() }?.let { return it }
-        userClanController.getUserById(userId)?.displayName?.takeIf { it.isNotBlank() }?.let { return it }
-        userClanController.getUserById(userId)?.username?.takeIf { it.isNotBlank() }?.let { return it }
-        return userId.toString()
     }
 
     private fun resolveMemberAvatarUrl(userId: Long, member: ClanMember?): String? {

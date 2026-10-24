@@ -258,7 +258,7 @@ class UserProfileBottomSheet(
         }
 
         val avatarSize = LayoutHelper.dp(80)
-        profileAvatarDrawable.setInfo(userId, username)
+        profileAvatarDrawable.setUserId(userId)
         val avatarView = ImageView(context).apply {
             setImageDrawable(profileAvatarDrawable)
             scaleType = ImageView.ScaleType.FIT_CENTER
@@ -358,8 +358,7 @@ class UserProfileBottomSheet(
         profileAvatarDrawable.setLoadingPlaceholder(true)
         img.setImageDrawable(profileAvatarDrawable)
         avatarLoadDisposable?.cancel()
-        val absoluteUrlFallback = com.mezon.mobile.util.plainSourceUrlFromImgproxy(proxyUrl) ?: proxyUrl
-        val isAnimated = com.mezon.mobile.util.isAnimatedImageUrl(absoluteUrlFallback)
+        val isAnimated = com.mezon.mobile.util.isAnimatedImageUrl(proxyUrl)
 
         val successCallback: (Any) -> Unit = { result ->
             avatarLoadDisposable = null
@@ -378,34 +377,17 @@ class UserProfileBottomSheet(
         }
 
         val errorCallback: (Throwable) -> Unit = {
-            if (absoluteUrlFallback != proxyUrl) {
-                avatarLoadDisposable = loader.loadDrawable(
-                    absoluteUrlFallback, size, size, successCallback,
-                    onError = {
-                        avatarLoadDisposable = null
-                        profileAvatarDrawable.setLoadingPlaceholder(false)
-                        profileAvatarView?.setImageDrawable(profileAvatarDrawable)
-                    }
-                )
-            } else {
-                avatarLoadDisposable = null
-                profileAvatarDrawable.setLoadingPlaceholder(false)
-                profileAvatarView?.setImageDrawable(profileAvatarDrawable)
-            }
+            avatarLoadDisposable = null
+            profileAvatarDrawable.setLoadingPlaceholder(false)
+            profileAvatarView?.setImageDrawable(profileAvatarDrawable)
         }
 
-        if (isAnimated) {
-            avatarLoadDisposable = loader.loadDrawable(absoluteUrlFallback, size, size, successCallback, {
-                avatarLoadDisposable = null
-                profileAvatarDrawable.setLoadingPlaceholder(false)
-                profileAvatarView?.setImageDrawable(profileAvatarDrawable)
-            })
+        avatarLoadDisposable = if (isAnimated) {
+            loader.loadDrawable(proxyUrl, size, size, successCallback, errorCallback)
         } else {
-            avatarLoadDisposable = loader.load(proxyUrl, size, size, { bmp -> successCallback(bmp) }, errorCallback)
+            loader.load(proxyUrl, size, size, { bmp -> successCallback(bmp) }, errorCallback)
         }
     }
-
-    // ─── User Info Card ───────────────────────────────────────────────
 
     private fun buildUserInfoCard(): LinearLayout {
         val card = LinearLayout(context).apply {

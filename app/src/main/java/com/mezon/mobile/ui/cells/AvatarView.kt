@@ -22,8 +22,13 @@ class AvatarView(context: Context) : View(context) {
         requestLayout()
     }
 
-    fun setInfo(id: Long, username: String) {
-        avatarDrawable.setInfo(id, username)
+    fun setUserId(id: Long) {
+        avatarDrawable.setUserId(id)
+        invalidate()
+    }
+
+    fun setInfo(id: Long, name: String) {
+        avatarDrawable.setInfo(id, name)
         invalidate()
     }
 
@@ -54,9 +59,7 @@ class AvatarView(context: Context) : View(context) {
         val proxyUrl = avatarImgproxyUrl(url, sizePx)
         avatarDrawable.setLoadingPlaceholder(true)
         val loader = MezonImageLoader.getInstance(context)
-        
-        val absoluteUrlFallback = com.mezon.mobile.util.plainSourceUrlFromImgproxy(proxyUrl) ?: proxyUrl
-        val isAnimated = isAnimatedImageUrl(absoluteUrlFallback)
+        val isAnimated = isAnimatedImageUrl(proxyUrl)
 
         val successCallback: (Any) -> Unit = { result ->
             cancellable = null
@@ -73,30 +76,15 @@ class AvatarView(context: Context) : View(context) {
         }
 
         val errorCallback: (Throwable) -> Unit = {
-            if (absoluteUrlFallback != proxyUrl) {
-                cancellable = loader.loadDrawable(
-                    absoluteUrlFallback, sizePx, sizePx, successCallback,
-                    onError = {
-                        cancellable = null
-                        avatarDrawable.setLoadingPlaceholder(false)
-                        invalidate()
-                    }
-                )
-            } else {
-                cancellable = null
-                avatarDrawable.setLoadingPlaceholder(false)
-                invalidate()
-            }
+            cancellable = null
+            avatarDrawable.setLoadingPlaceholder(false)
+            invalidate()
         }
 
-        if (isAnimated) {
-            cancellable = loader.loadDrawable(absoluteUrlFallback, sizePx, sizePx, successCallback, {
-                cancellable = null
-                avatarDrawable.setLoadingPlaceholder(false)
-                invalidate()
-            })
+        cancellable = if (isAnimated) {
+            loader.loadDrawable(proxyUrl, sizePx, sizePx, successCallback, errorCallback)
         } else {
-            cancellable = loader.load(proxyUrl, sizePx, sizePx, { bmp -> successCallback(bmp) }, errorCallback)
+            loader.load(proxyUrl, sizePx, sizePx, { bmp -> successCallback(bmp) }, errorCallback)
         }
     }
 
