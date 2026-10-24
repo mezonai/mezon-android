@@ -739,6 +739,9 @@ class DialogsController @Inject constructor(
             val normalized = withContext(ioDispatcher) {
                 prepareDmGroupAvatarUpload(contentResolver, uri, sourceMimeType, maxBytes)
             }
+            val originalFilename = withContext(ioDispatcher) {
+                FileUtils.getPickedFileName(contentResolver, uri)
+            }
             if (normalized.bytes.isEmpty()) {
                 return DmGroupAvatarUploadResult.Failed
             }
@@ -757,6 +760,7 @@ class DialogsController @Inject constructor(
                         filename,
                         normalized.mimeType,
                         normalized.bytes,
+                        originalFilename = originalFilename,
                     )
                 }
             }

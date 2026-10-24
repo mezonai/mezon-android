@@ -20,6 +20,7 @@ data class CommunityFormDraft(
     val pendingBannerBytes: ByteArray? = null,
     val pendingBannerMime: String? = null,
     val pendingBannerExt: String = "jpg",
+    val pendingBannerFilename: String? = null,
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -30,7 +31,8 @@ data class CommunityFormDraft(
             bannerPreviewUrl == other.bannerPreviewUrl &&
             pendingBannerBytes.contentEquals(other.pendingBannerBytes) &&
             pendingBannerMime == other.pendingBannerMime &&
-            pendingBannerExt == other.pendingBannerExt
+            pendingBannerExt == other.pendingBannerExt &&
+            pendingBannerFilename == other.pendingBannerFilename
     }
 
     override fun hashCode(): Int {
@@ -41,6 +43,7 @@ data class CommunityFormDraft(
         result = 31 * result + (pendingBannerBytes?.contentHashCode() ?: 0)
         result = 31 * result + (pendingBannerMime?.hashCode() ?: 0)
         result = 31 * result + pendingBannerExt.hashCode()
+        result = 31 * result + (pendingBannerFilename?.hashCode() ?: 0)
         return result
     }
 }

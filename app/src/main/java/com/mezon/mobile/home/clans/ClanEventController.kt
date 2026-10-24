@@ -430,6 +430,7 @@ class ClanEventController @Inject constructor(
     suspend fun uploadEventCover(
         bytes: ByteArray,
         mimeType: String,
+        originalFilename: String? = null,
     ): String {
         require(bytes.isNotEmpty())
         require(mimeType.startsWith("image/"))
@@ -454,6 +455,7 @@ class ClanEventController @Inject constructor(
                     filename,
                     mimeType,
                     bytes,
+                    originalFilename = originalFilename,
                 )
             }
         }

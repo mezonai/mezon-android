@@ -450,7 +450,7 @@ class ClansController @Inject constructor(
         }
     }
 
-    suspend fun uploadClanBannerJpeg(jpegBytes: ByteArray): String {
+    suspend fun uploadClanBannerJpeg(jpegBytes: ByteArray, originalFilename: String? = null): String {
         require(jpegBytes.isNotEmpty())
         return sessionManager.withAutoRefresh { session ->
             withContext(ioDispatcher) {
@@ -464,6 +464,7 @@ class ClansController @Inject constructor(
                     filename,
                     mime,
                     jpegBytes,
+                    originalFilename = originalFilename,
                 )
             }
         }
@@ -864,7 +865,7 @@ class ClansController @Inject constructor(
         }
     }
 
-    suspend fun uploadWebhookAvatar(bytes: ByteArray, mimeType: String): String {
+    suspend fun uploadWebhookAvatar(bytes: ByteArray, mimeType: String, originalFilename: String? = null): String {
         return sessionManager.withAutoRefresh { session ->
             withContext(ioDispatcher) {
                 val ts = System.currentTimeMillis() / 1000
@@ -876,12 +877,13 @@ class ClansController @Inject constructor(
                     name,
                     mimeType,
                     bytes,
+                    originalFilename = originalFilename,
                 )
             }
         }
     }
 
-    suspend fun uploadRoleIconImage(bytes: ByteArray, mimeType: String): String {
+    suspend fun uploadRoleIconImage(bytes: ByteArray, mimeType: String, originalFilename: String? = null): String {
         require(bytes.isNotEmpty())
         return sessionManager.withAutoRefresh { session ->
             withContext(ioDispatcher) {
@@ -899,6 +901,7 @@ class ClansController @Inject constructor(
                     name,
                     mimeType,
                     bytes,
+                    originalFilename = originalFilename,
                 )
             }
         }
