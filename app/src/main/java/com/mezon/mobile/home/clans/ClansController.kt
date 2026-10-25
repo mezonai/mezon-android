@@ -46,7 +46,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
@@ -931,39 +930,6 @@ class ClansController @Inject constructor(
         }
     }
 
-    private fun refreshClanPolicies(clanId: Long) {
-        appScope.launch {
-            try {
-                while (_clans.value.any { it.clanId == clanId }) {
-                    val revisionAtRequest = currentMetadataRevision()
-                    val desc = sessionManager.withAutoRefresh { session ->
-                        withContext(ioDispatcher) {
-                            api.listClanDescs(session.apiUrl, session.token).clandescList
-                                .firstOrNull { it.clanId == clanId }
-                        }
-                    } ?: return@launch
-                    val applied = updateClanMetadataIfCurrent(revisionAtRequest) { clans ->
-                        clans.map { clan ->
-                            if (clan.clanId != clanId) clan else clan.copy(
-                                preventAnonymous = desc.preventAnonymous,
-                                isCommunity = desc.isCommunity,
-                            )
-                        }
-                    }
-                    if (!applied) continue
-                    persistCurrentClans(listOf(clanId))
-                    cacheTracker.invalidate(apiCacheKey("listClanDescs"))
-                    notificationCenter.postNotificationOnMainThread(NotificationCenter.clanInfoUpdated, clanId)
-                    return@launch
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.e(TAG, "refreshClanPolicies($clanId) failed", e)
-            }
-        }
-    }
-
     private fun observeSocketEvents() {
         appScope.launch {
             dispatcher.allowAnonymousEvents.collect { event ->
@@ -1004,8 +970,6 @@ class ClansController @Inject constructor(
                     clans.map { if (it.clanId == event.clanId) event.mergeOnto(it) else it }
                 }
                 appScope.launch { persistCurrentClans(listOf(event.clanId)) }
-                val updated = _clans.value.find { it.clanId == event.clanId } ?: return@collect
-                if (event.needsPolicyRefresh(updated)) refreshClanPolicies(event.clanId)
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.clanInfoUpdated, event.clanId)
                 var mask = 0
                 if (event.clanName.isNotEmpty() && event.clanName != existing.clanName) {

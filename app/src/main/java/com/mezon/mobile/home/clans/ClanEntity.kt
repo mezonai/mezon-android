@@ -41,11 +41,8 @@ internal fun ClanUpdatedEvent.mergeOnto(existing: ClanEntity): ClanEntity = exis
     clanName = clanName.ifEmpty { existing.clanName },
     logo = logo.ifEmpty { existing.logo },
     banner = banner.ifEmpty { existing.banner },
-    isCommunity = isCommunity || existing.isCommunity,
-    preventAnonymous = preventAnonymous || existing.preventAnonymous,
+    isCommunity = isCommunity,
+    preventAnonymous = preventAnonymous,
     welcomeChannelId = welcomeChannelId.takeIf { it != 0L } ?: existing.welcomeChannelId,
     isOnboarding = isOnboarding,
 )
-
-internal fun ClanUpdatedEvent.needsPolicyRefresh(existing: ClanEntity): Boolean =
-    (!preventAnonymous && existing.preventAnonymous) || (!isCommunity && existing.isCommunity)
