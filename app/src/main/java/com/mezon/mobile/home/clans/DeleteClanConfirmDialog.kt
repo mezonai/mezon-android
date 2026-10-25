@@ -58,7 +58,6 @@ class DeleteClanConfirmDialog(
 
         val header = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(0, 0, 0, LayoutHelper.dp(12))
         }
         header.addView(TextView(context).apply {
             text = context.getString(titleRes)
@@ -71,9 +70,9 @@ class DeleteClanConfirmDialog(
         val divider = View(context).apply {
             setBackgroundColor(theme.border)
         }
-        header.addView(divider, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.dp(1)))
+        header.addView(divider, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 1, topMargin = 8f))
 
-        card.addView(header, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, topMargin = 0f, bottomMargin = LayoutHelper.dp(16).toFloat()))
+        card.addView(header, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, bottomMargin = 16f))
 
         val messageText = context.getString(messageRes, clanName)
         val spannable = SpannableString(messageText)
@@ -92,7 +91,7 @@ class DeleteClanConfirmDialog(
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             gravity = Gravity.CENTER
             setLineSpacing(LayoutHelper.dp(4).toFloat(), 1f)
-        }, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, bottomMargin = LayoutHelper.dp(16).toFloat()))
+        }, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
         val btnStack = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -105,6 +104,7 @@ class DeleteClanConfirmDialog(
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
                 typeface = Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER
+                minHeight = LayoutHelper.dp(48)
                 setPadding(LayoutHelper.dp(10), LayoutHelper.dp(10), LayoutHelper.dp(10), LayoutHelper.dp(10))
                 background = GradientDrawable().apply {
                     setColor(bgColor)
@@ -121,14 +121,14 @@ class DeleteClanConfirmDialog(
             pillButton(context.getString(R.string.common_yes), theme.blurple, 0xFFFFFFFF.toInt()) {
                 onConfirm()
             },
-            LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, bottomMargin = LayoutHelper.dp(12).toFloat()),
+            LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, bottomMargin = 8f),
         )
         btnStack.addView(
             pillButton(context.getString(R.string.common_cancel), theme.secondaryWeight, theme.textStrong) {},
             LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT),
         )
 
-        card.addView(btnStack, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, topMargin = LayoutHelper.dp(12).toFloat()))
+        card.addView(btnStack, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, topMargin = 20f))
 
         val cardLp = FrameLayout.LayoutParams(
             (context.resources.displayMetrics.widthPixels * 0.9f).toInt(),

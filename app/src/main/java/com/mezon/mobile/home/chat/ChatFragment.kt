@@ -656,6 +656,7 @@ open class ChatFragment : BaseFragment() {
         observe(NotificationCenter.clanMembersDidLoad) { _, _, args ->
             val changedClanId = args.getOrNull(0) as? Long ?: return@observe
             if (changedClanId != clanId || !::adapter.isInitialized) return@observe
+            refreshSystemMessageMemberGateCache()
             adapter.currentUserRoleIds = resolveSelfRoleIds()
             updateVisibleRows(NotificationCenter.UPDATE_MASK_NAME)
         }
@@ -1480,12 +1481,12 @@ open class ChatFragment : BaseFragment() {
         }
 
         observe(NotificationCenter.channelMembersDidLoad) { _, _, args ->
-            if (isPaused) return@observe
             val loadedChannelId = args.firstOrNull() as? Long ?: return@observe
             val ch = channelController.findChannelById(channelId)
             val targetChannelId = if (ch?.parentId != 0L && ch?.parentId != null) ch.parentId else channelId
             if (loadedChannelId == targetChannelId) {
-                checkSuggestionTrigger()
+                refreshSystemMessageMemberGateCache()
+                if (!isPaused) checkSuggestionTrigger()
             }
         }
 
@@ -5083,7 +5084,12 @@ open class ChatFragment : BaseFragment() {
     }
 
     private fun refreshSystemMessageMemberGateCache() {
-        systemMessageMemberIds = resolveMentionMembers().map { it.userId.toString() }.toSet()
+        val memberIds = resolveMentionMembers().map { it.userId.toString() }.toSet()
+        val changed = memberIds != systemMessageMemberIds
+        systemMessageMemberIds = memberIds
+        if (changed && ::adapter.isInitialized) {
+            adapter.refreshSystemMessageMentions()
+        }
     }
 
     private fun adjustMentionTrackersForChange(editStart: Int, removedLen: Int, addedLen: Int) {
