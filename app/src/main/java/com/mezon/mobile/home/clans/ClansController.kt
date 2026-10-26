@@ -11,7 +11,6 @@ import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.network.ApiCacheTracker
 import com.mezon.mezon.api.ClanBadgeCount
-import com.mezon.mezon.api.ClanDesc
 import com.mezon.mezon.api.GenerateClanWebhookResponse
 import com.mezon.mezon.api.ListClanWebhookResponse
 import com.mezon.mezon.api.SystemMessage
@@ -46,6 +45,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -78,6 +79,48 @@ class ClansController @Inject constructor(
     private val _clans = MutableStateFlow<List<ClanEntity>>(emptyList())
     val clans: StateFlow<List<ClanEntity>> = _clans.asStateFlow()
 
+    private val metadataLock = Any()
+    private var metadataRevision = 0L
+    private val persistenceMutex = Mutex()
+
+    private fun currentMetadataRevision(): Long = synchronized(metadataLock) { metadataRevision }
+
+    private fun updateClanMetadata(transform: (List<ClanEntity>) -> List<ClanEntity>): Boolean =
+        synchronized(metadataLock) {
+            metadataRevision++
+            updateClanState(transform)
+        }
+
+    private fun updateClanState(transform: (List<ClanEntity>) -> List<ClanEntity>): Boolean =
+        synchronized(metadataLock) {
+            val current = _clans.value
+            val updated = transform(current)
+            if (updated == current) return@synchronized false
+            _clans.value = updated
+            true
+        }
+
+    private fun updateClanMetadataIfCurrent(
+        revision: Long,
+        acceptUnchanged: Boolean = false,
+        transform: (List<ClanEntity>) -> List<ClanEntity>,
+    ): Boolean = synchronized(metadataLock) {
+        if (metadataRevision != revision) {
+            val current = _clans.value
+            return@synchronized acceptUnchanged && transform(current) == current
+        }
+        updateClanMetadata(transform)
+        true
+    }
+
+    private suspend fun persistCurrentClans(clanIds: Collection<Long>) {
+        persistenceMutex.withLock {
+            val ids = clanIds.toSet()
+            val latest = _clans.value.filter { it.clanId in ids }
+            withContext(ioDispatcher) { clanDao.upsertAll(latest) }
+        }
+    }
+
     private val _selectedClanId = MutableStateFlow(0L)
     val selectedClanId: StateFlow<Long> = _selectedClanId.asStateFlow()
 
@@ -88,10 +131,13 @@ class ClansController @Inject constructor(
         private set
 
     init {
+        val revisionAtCacheRead = currentMetadataRevision()
         appScope.launch {
             val cached = withContext(ioDispatcher) { clanDao.getAll() }
-            if (cached.isNotEmpty()) {
-                _clans.value = cached
+            val restored = cached.isNotEmpty() && synchronized(metadataLock) {
+                metadataRevision == revisionAtCacheRead && updateClanState { cached }
+            }
+            if (restored) {
                 clansLoaded = true
                 preWarmClanLogos(cached)
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.clansDidLoad)
@@ -112,7 +158,7 @@ class ClansController @Inject constructor(
     }
 
     fun cleanup() {
-        _clans.value = emptyList()
+        updateClanMetadata { emptyList() }
         _selectedClanId.value = 0L
         clansLoaded = false
         ClanCell.clearAvatarCache()
@@ -195,12 +241,8 @@ class ClansController @Inject constructor(
                 created
             }
         }
-        val old = _clans.value
-        val next = old + createdClan.copy(clanOrder = old.size)
-        _clans.value = next
-        withContext(ioDispatcher) {
-            clanDao.upsert(createdClan.copy(clanOrder = old.size))
-        }
+        updateClanMetadata { clans -> clans + createdClan.copy(clanOrder = clans.size) }
+        persistCurrentClans(listOf(createdClan.clanId))
         clansLoaded = true
         notificationCenter.postNotificationOnMainThread(NotificationCenter.clansDidLoad)
         selectClan(createdClan.clanId)
@@ -270,6 +312,7 @@ class ClansController @Inject constructor(
                     }
                     return@launch
                 }
+                val revisionAtRequest = currentMetadataRevision()
                 val result = sessionManager.withAutoRefresh { session ->
                     withContext(ioDispatcher) {
                         api.listClanDescs(session.apiUrl, session.token)
@@ -281,22 +324,23 @@ class ClansController @Inject constructor(
                     }
                 }
 
-                val existingOrder = _clans.value.mapIndexed { i, c -> c.clanId to i }.toMap()
-                val cachedById = _clans.value.associateBy { it.clanId }
-                val entities = apiEntities.map { entity ->
-                    val cached = cachedById[entity.clanId] ?: return@map entity
-                    entity.copy(badgeCount = cached.badgeCount, hasUnread = cached.hasUnread)
+                val applied = updateClanMetadataIfCurrent(revisionAtRequest, acceptUnchanged = true) { current ->
+                    val existingOrder = current.mapIndexed { i, c -> c.clanId to i }.toMap()
+                    val cachedById = current.associateBy { it.clanId }
+                    apiEntities.map { entity ->
+                        val cached = cachedById[entity.clanId] ?: return@map entity
+                        entity.copy(badgeCount = cached.badgeCount, hasUnread = cached.hasUnread)
+                    }.sortedBy { existingOrder[it.clanId] ?: it.clanOrder }
                 }
-                val sorted = if (existingOrder.isNotEmpty()) {
-                    entities.sortedBy { existingOrder[it.clanId] ?: it.clanOrder }
-                } else {
-                    entities.sortedBy { it.clanOrder }
+                if (!applied) {
+                    loadClans(force = true)
+                    return@launch
                 }
-                _clans.value = sorted
+                val sorted = _clans.value
                 clansLoaded = true
                 cacheTracker.markCalled(cacheKey)
                 preWarmClanLogos(sorted)
-                withContext(ioDispatcher) { clanDao.upsertAll(sorted) }
+                persistCurrentClans(sorted.map { it.clanId })
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.clansDidLoad)
                 badgeCoordinator.get().processDeferredQueue()
 
@@ -342,23 +386,22 @@ class ClansController @Inject constructor(
     ) {
         val byClanId = badges.associateBy { it.clanId }
         val changedRows = ArrayList<ClanEntity>()
-        val updated = _clans.value.map { clan ->
-            val start = before[clan.clanId]
-            if (start != null && (start.badgeCount != clan.badgeCount || start.hasUnread != clan.hasUnread)) {
-                return@map clan
+        val changed = updateClanState { clans ->
+            clans.map { clan ->
+                val start = before[clan.clanId]
+                if (start != null && (start.badgeCount != clan.badgeCount || start.hasUnread != clan.hasUnread)) {
+                    return@map clan
+                }
+                val target = byClanId[clan.clanId]?.let { b ->
+                    val badge = b.badge.coerceAtLeast(0)
+                    ClanBadgeState(badge, b.hasUnread || badge > 0)
+                } ?: ClanBadgeState(0, false)
+                if (clan.badgeCount == target.badgeCount && clan.hasUnread == target.hasUnread) return@map clan
+                clan.copy(badgeCount = target.badgeCount, hasUnread = target.hasUnread).also { changedRows.add(it) }
             }
-            val target = byClanId[clan.clanId]?.let { b ->
-                val badge = b.badge.coerceAtLeast(0)
-                ClanBadgeState(badge, b.hasUnread || badge > 0)
-            } ?: ClanBadgeState(0, false)
-            if (clan.badgeCount == target.badgeCount && clan.hasUnread == target.hasUnread) return@map clan
-            clan.copy(badgeCount = target.badgeCount, hasUnread = target.hasUnread).also { changedRows.add(it) }
         }
-        if (changedRows.isEmpty()) return
-        _clans.value = updated
-        appScope.launch(ioDispatcher) {
-            for (c in changedRows) clanDao.upsert(c)
-        }
+        if (!changed) return
+        appScope.launch { persistCurrentClans(changedRows.map { it.clanId }) }
         notificationCenter.postNotificationOnMainThread(
             NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_BADGE
         )
@@ -368,21 +411,27 @@ class ClansController @Inject constructor(
         channelController.requestMarkAsRead(clanId)
     }
 
-    fun mergeClanFromDesc(desc: ClanDesc, trustedBanner: String? = null, knownClanId: Long = 0L) {
-        val list = _clans.value
-        val mergeKey = when {
-            desc.clanId != 0L -> desc.clanId
-            knownClanId != 0L -> knownClanId
-            else -> return
+    private fun applyClanOverviewUpdate(
+        clanId: Long,
+        clanName: String,
+        clanBannerUrl: String?,
+        preventAnonymous: Boolean,
+        welcomeChannelId: Long?,
+        isOnboarding: Boolean?,
+    ) {
+        updateClanMetadata { clans ->
+            clans.map { existing ->
+                if (existing.clanId != clanId) existing else existing.copy(
+                    clanName = clanName,
+                    banner = clanBannerUrl ?: existing.banner,
+                    preventAnonymous = preventAnonymous,
+                    welcomeChannelId = welcomeChannelId ?: existing.welcomeChannelId,
+                    isOnboarding = isOnboarding ?: existing.isOnboarding,
+                )
+            }
         }
-        val idx = list.indexOfFirst { it.clanId == mergeKey }
-        if (idx < 0) return
-        var merged = desc.mergeOnto(list[idx])
-        if (trustedBanner != null) {
-            merged = merged.copy(banner = trustedBanner)
-        }
-        _clans.value = list.toMutableList().also { it[idx] = merged }
-        appScope.launch(ioDispatcher) { clanDao.upsert(merged) }
+        val merged = _clans.value.find { it.clanId == clanId } ?: return
+        appScope.launch { persistCurrentClans(listOf(clanId)) }
         cacheTracker.invalidate(apiCacheKey("listClanDescs"))
         notificationCenter.postNotificationOnMainThread(NotificationCenter.clanInfoUpdated, merged.clanId)
     }
@@ -418,9 +467,9 @@ class ClansController @Inject constructor(
         isOnboarding: Boolean?,
         invalidateBannerSources: Collection<String>? = null,
         bannerExtraWidthPx: Int = 0,
-    ): ClanDesc {
+    ) {
         val clearBanner = clanBannerUrl?.isEmpty() == true
-        val desc = sessionManager.withAutoRefresh { session ->
+        sessionManager.withAutoRefresh { session ->
             withContext(ioDispatcher) {
                 api.updateClanDesc(
                     session.apiUrl,
@@ -438,8 +487,7 @@ class ClansController @Inject constructor(
         if (!invalidateBannerSources.isNullOrEmpty()) {
             invalidateBannerImageCaches(invalidateBannerSources, bannerExtraWidthPx)
         }
-        mergeClanFromDesc(desc, trustedBanner = clanBannerUrl, knownClanId = clanId)
-        return desc
+        applyClanOverviewUpdate(clanId, clanName, clanBannerUrl, preventAnonymous, welcomeChannelId, isOnboarding)
     }
 
     suspend fun updateClanSystemMessage(body: SystemMessageRequest): SystemMessage {
@@ -541,9 +589,10 @@ class ClansController @Inject constructor(
         withContext(Dispatchers.Main.immediate) {
             val index = _clans.value.indexOfFirst { it.clanId == clanId }
             if (index >= 0) {
-                val updated = _clans.value[index].copy(creatorId = newOwnerId)
-                _clans.value = _clans.value.toMutableList().also { it[index] = updated }
-                appScope.launch(ioDispatcher) { clanDao.upsert(updated) }
+                updateClanMetadata { clans ->
+                    clans.map { if (it.clanId == clanId) it.copy(creatorId = newOwnerId) else it }
+                }
+                appScope.launch { persistCurrentClans(listOf(clanId)) }
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.clanInfoUpdated, clanId)
             }
         }
@@ -553,9 +602,11 @@ class ClansController @Inject constructor(
         cacheTracker.invalidate(apiCacheKey("listClanDescs"))
         cacheTracker.invalidate(apiCacheKey("listClanUsers", clanId.toString()))
         cacheTracker.invalidate(apiCacheKey("listClanBadgeCount"))
-        val filtered = _clans.value.filter { it.clanId != clanId }
-        _clans.value = filtered
-        appScope.launch(ioDispatcher) { clanDao.delete(clanId) }
+        updateClanMetadata { clans -> clans.filter { it.clanId != clanId } }
+        val filtered = _clans.value
+        appScope.launch(ioDispatcher) {
+            persistenceMutex.withLock { clanDao.delete(clanId) }
+        }
         userClanController.clearClanMembersCache(clanId)
         channelController.purgeClanChannelsCache(clanId)
         channelAppController.purgeAppsForClan(clanId)
@@ -586,57 +637,27 @@ class ClansController @Inject constructor(
         val pendingCount = channelController.getPendingMentionCount(clanId)
         val total = channels.sumOf { it.unreadCount.coerceAtLeast(0) } + pendingCount
         val anyUnread = pendingCount > 0 || channels.any { it.hasUnread }
-        val list = _clans.value
-        val idx = list.indexOfFirst { it.clanId == clanId }
-        if (idx < 0) return
-        val clan = list[idx]
-        if (clan.badgeCount == total && clan.hasUnread == anyUnread) return
-        val updated = clan.copy(badgeCount = total, hasUnread = anyUnread)
-        _clans.value = list.toMutableList().also { it[idx] = updated }
-        appScope.launch(ioDispatcher) { clanDao.upsert(updated) }
-        notificationCenter.postNotificationOnMainThread(
-            NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_BADGE
-        )
+        updateClanBadge(clanId) { it.copy(badgeCount = total, hasUnread = anyUnread) }
     }
 
     fun applyBadgeRead(clanId: Long) {
-        val list = _clans.value
-        val idx = list.indexOfFirst { it.clanId == clanId }
-        if (idx < 0) return
-        val clan = list[idx]
-        if (clan.badgeCount == 0 && !clan.hasUnread) return
-        val updated = clan.copy(badgeCount = 0, hasUnread = false)
-        _clans.value = list.toMutableList().also { it[idx] = updated }
-        appScope.launch(ioDispatcher) { clanDao.upsert(updated) }
-        notificationCenter.postNotificationOnMainThread(
-            NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_BADGE
-        )
+        updateClanBadge(clanId) { it.copy(badgeCount = 0, hasUnread = false) }
     }
 
     fun setHasUnread(clanId: Long) {
-        val list = _clans.value
-        val idx = list.indexOfFirst { it.clanId == clanId }
-        if (idx < 0) return
-        val clan = list[idx]
-        if (clan.hasUnread) return
-        val updated = clan.copy(hasUnread = true)
-        _clans.value = list.toMutableList().also { it[idx] = updated }
-        appScope.launch(ioDispatcher) { clanDao.upsert(updated) }
-        notificationCenter.postNotificationOnMainThread(
-            NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_BADGE
-        )
+        updateClanBadge(clanId) { it.copy(hasUnread = true) }
     }
 
     fun updateClanBadgeCount(clanId: Long, delta: Int) {
-        val list = _clans.value
-        val idx = list.indexOfFirst { it.clanId == clanId }
-        if (idx < 0) return
-        val clan = list[idx]
-        val newCount = (clan.badgeCount + delta).coerceAtLeast(0)
-        if (newCount == clan.badgeCount) return
-        val updated = clan.copy(badgeCount = newCount)
-        _clans.value = list.toMutableList().also { it[idx] = updated }
-        appScope.launch(ioDispatcher) { clanDao.upsert(updated) }
+        updateClanBadge(clanId) { it.copy(badgeCount = (it.badgeCount + delta).coerceAtLeast(0)) }
+    }
+
+    private fun updateClanBadge(clanId: Long, transform: (ClanEntity) -> ClanEntity) {
+        val changed = updateClanState { clans ->
+            clans.map { if (it.clanId == clanId) transform(it) else it }
+        }
+        if (!changed) return
+        appScope.launch { persistCurrentClans(listOf(clanId)) }
         notificationCenter.postNotificationOnMainThread(
             NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_BADGE
         )
@@ -661,7 +682,7 @@ class ClansController @Inject constructor(
             }
             _clanLogoUpdateInFlight.update { it + clanId }
             try {
-                val desc = sessionManager.withAutoRefresh { session ->
+                sessionManager.withAutoRefresh { session ->
                     withContext(ioDispatcher) {
                         if (logoUrl.isBlank()) {
                             api.updateClanDesc(
@@ -693,25 +714,21 @@ class ClansController @Inject constructor(
                         }
                     }
                 }
-                val list = _clans.value
-                val idx = list.indexOfFirst { it.clanId == clanId }
-                if (idx < 0) {
+                if (_clans.value.none { it.clanId == clanId }) {
                     withContext(Dispatchers.Main.immediate) {
                         onResult(false, appContext.getString(R.string.clan_settings_logo_update_failed))
                     }
                     return@launch
                 }
-                val existing = list[idx]
                 val clearedLogo = logoUrl.isBlank()
-                val merged = desc.mergeOnto(existing).copy(
-                    logo = when {
-                        clearedLogo -> ""
-                        desc.logo.isNotEmpty() -> desc.logo
-                        else -> logoUrl
+                updateClanMetadata { clans ->
+                    clans.map { existing ->
+                        if (existing.clanId != clanId) existing else existing.copy(
+                            logo = if (clearedLogo) "" else logoUrl,
+                        )
                     }
-                )
-                _clans.value = list.toMutableList().also { it[idx] = merged }
-                appScope.launch(ioDispatcher) { clanDao.upsert(merged) }
+                }
+                persistCurrentClans(listOf(clanId))
                 cacheTracker.invalidate(apiCacheKey("listClanDescs"))
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.clanInfoUpdated, clanId)
                 withContext(Dispatchers.Main.immediate) { onResult(true, null) }
@@ -727,11 +744,10 @@ class ClansController @Inject constructor(
     }
 
     fun mergeCommunityFlag(clanId: Long, enabled: Boolean) {
-        val idx = _clans.value.indexOfFirst { it.clanId == clanId }
-        if (idx < 0) return
-        val updated = _clans.value[idx].copy(isCommunity = enabled)
-        _clans.value = _clans.value.toMutableList().also { it[idx] = updated }
-        appScope.launch(ioDispatcher) { clanDao.upsert(updated) }
+        updateClanMetadata { clans ->
+            clans.map { if (it.clanId == clanId) it.copy(isCommunity = enabled) else it }
+        }
+        appScope.launch { persistCurrentClans(listOf(clanId)) }
         notificationCenter.postNotificationOnMainThread(NotificationCenter.clanInfoUpdated, clanId)
     }
 
@@ -909,6 +925,19 @@ class ClansController @Inject constructor(
 
     private fun observeSocketEvents() {
         appScope.launch {
+            dispatcher.allowAnonymousEvents.collect { event ->
+                if (event.clanId == 0L) return@collect
+                val changed = updateClanMetadata { clans ->
+                    clans.map { clan ->
+                        if (clan.clanId == event.clanId) clan.copy(preventAnonymous = !event.allow) else clan
+                    }
+                }
+                if (!changed) return@collect
+                persistCurrentClans(listOf(event.clanId))
+                notificationCenter.postNotificationOnMainThread(NotificationCenter.clanInfoUpdated, event.clanId)
+            }
+        }
+        appScope.launch {
             dispatcher.userClanRemovedEvents.collect { event ->
                 val uid = userController.userId
                 if (uid == 0L) return@collect
@@ -930,17 +959,10 @@ class ClansController @Inject constructor(
         appScope.launch {
             dispatcher.clanUpdatedEvents.collect { event ->
                 val existing = _clans.value.find { it.clanId == event.clanId } ?: return@collect
-                val updated = existing.copy(
-                    clanName = event.clanName.ifEmpty { existing.clanName },
-                    logo = event.logo.ifEmpty { existing.logo },
-                    banner = event.banner.ifEmpty { existing.banner },
-                    isCommunity = event.isCommunity,
-                    preventAnonymous = event.preventAnonymous,
-                    welcomeChannelId = event.welcomeChannelId.takeIf { it != 0L } ?: existing.welcomeChannelId,
-                    isOnboarding = event.isOnboarding,
-                )
-                _clans.value = _clans.value.map { if (it.clanId == updated.clanId) updated else it }
-                appScope.launch(ioDispatcher) { clanDao.upsert(updated) }
+                updateClanMetadata { clans ->
+                    clans.map { if (it.clanId == event.clanId) event.mergeOnto(it) else it }
+                }
+                appScope.launch { persistCurrentClans(listOf(event.clanId)) }
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.clanInfoUpdated, event.clanId)
                 var mask = 0
                 if (event.clanName.isNotEmpty() && event.clanName != existing.clanName) {

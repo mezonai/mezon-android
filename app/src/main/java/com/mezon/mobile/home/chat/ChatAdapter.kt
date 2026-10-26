@@ -365,6 +365,15 @@ class ChatAdapter(
         }
     }
 
+    fun refreshSystemMessageMentions() {
+        for (position in messagesStartRow until messagesEndRow) {
+            val message = messages[position - messagesStartRow]
+            if (message.isSystemMessage && !message.isWelcomeMessage) {
+                notifyItemChanged(position)
+            }
+        }
+    }
+
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int, payloads: MutableList<Any>) {
         if (payloads.isNotEmpty() && payloads.all { it === EmojiResourcesPayload || it === LinkedChannelLabelsPayload }) {
             if (holder is MessageViewHolder) {

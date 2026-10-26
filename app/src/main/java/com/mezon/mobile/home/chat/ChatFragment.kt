@@ -60,6 +60,7 @@ import com.mezon.mobile.core.StartupCache
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.di.FragmentEntryPoint
+import com.mezon.mobile.home.AnonymousController.ToggleResult
 import com.mezon.mobile.home.ChatController
 import com.mezon.mobile.home.TopicBadgeTracker
 import com.mezon.mobile.home.TopicController
@@ -656,6 +657,7 @@ open class ChatFragment : BaseFragment() {
         observe(NotificationCenter.clanMembersDidLoad) { _, _, args ->
             val changedClanId = args.getOrNull(0) as? Long ?: return@observe
             if (changedClanId != clanId || !::adapter.isInitialized) return@observe
+            refreshSystemMessageMemberGateCache()
             adapter.currentUserRoleIds = resolveSelfRoleIds()
             updateVisibleRows(NotificationCenter.UPDATE_MASK_NAME)
         }
@@ -1477,15 +1479,24 @@ open class ChatFragment : BaseFragment() {
             val isAnon = anonymousController.isAnonymous(clanId)
             anonymousIndicator?.visibility = if (isAnon) View.VISIBLE else View.GONE
             advancedMenuView?.updateAnonymousMode(isAnon)
+            val disabledByClanPolicy = args.getOrNull(1) as? Boolean == true
+            val isCurrentChat = !isPaused && !MainActivity.applicationPaused && parentLayout?.getLastFragment() === this
+            if (disabledByClanPolicy && !isAnon && isCurrentChat) {
+                MezonToast.show(
+                    this,
+                    ToastOverlay.ToastType.ERROR,
+                    getString(R.string.advanced_anonymous_disabled_by_clan)
+                )
+            }
         }
 
         observe(NotificationCenter.channelMembersDidLoad) { _, _, args ->
-            if (isPaused) return@observe
             val loadedChannelId = args.firstOrNull() as? Long ?: return@observe
             val ch = channelController.findChannelById(channelId)
             val targetChannelId = if (ch?.parentId != 0L && ch?.parentId != null) ch.parentId else channelId
             if (loadedChannelId == targetChannelId) {
-                checkSuggestionTrigger()
+                refreshSystemMessageMemberGateCache()
+                if (!isPaused) checkSuggestionTrigger()
             }
         }
 
@@ -5083,7 +5094,12 @@ open class ChatFragment : BaseFragment() {
     }
 
     private fun refreshSystemMessageMemberGateCache() {
-        systemMessageMemberIds = resolveMentionMembers().map { it.userId.toString() }.toSet()
+        val memberIds = resolveMentionMembers().map { it.userId.toString() }.toSet()
+        val changed = memberIds != systemMessageMemberIds
+        systemMessageMemberIds = memberIds
+        if (changed && ::adapter.isInitialized) {
+            adapter.refreshSystemMessageMentions()
+        }
     }
 
     private fun adjustMentionTrackersForChange(editStart: Int, removedLen: Int, addedLen: Int) {
@@ -5870,7 +5886,16 @@ open class ChatFragment : BaseFragment() {
                         showBuzzConfirmDialog()
                     }
                     override fun onAnonymousToggled() {
-                        anonymousController.toggleAnonymous(clanId)
+                        val messageRes = when (anonymousController.toggleAnonymous(clanId)) {
+                            ToggleResult.CHANGED -> return
+                            ToggleResult.NOT_ALLOWED -> R.string.advanced_anonymous_not_allowed
+                            ToggleResult.CLAN_UNAVAILABLE -> R.string.advanced_anonymous_unavailable
+                        }
+                        MezonToast.show(
+                            this@ChatFragment,
+                            ToastOverlay.ToastType.ERROR,
+                            getString(messageRes)
+                        )
                     }
                     override fun onCreatePollRequested() {
                         openCreatePollScreen()
