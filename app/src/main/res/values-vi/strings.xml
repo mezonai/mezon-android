@@ -1265,8 +1265,16 @@
     <string name="discover_community">Cộng đồng</string>
     <string name="discover_des_community">Sự kiện và cập nhật hàng tuần.</string>
     <string name="discover_about">Giới thiệu</string>
-    <string name="discover_tag_science">Khoa học &amp; Công nghệ</string>
+    <string name="discover_tag_gaming">Gaming</string>
+    <string name="discover_tag_technology">Công nghệ</string>
+    <string name="discover_tag_education">Học tập</string>
     <string name="discover_tag_entertainment">Giải trí</string>
+    <string name="discover_tag_music">Âm nhạc</string>
+    <string name="discover_tag_art">Nghệ thuật</string>
+    <string name="discover_tag_crypto">Tiền mã hóa</string>
+    <string name="discover_tag_anime">Anime &amp; Manga</string>
+    <string name="discover_tag_sports">Thể thao</string>
+    <string name="discover_tag_community">Cộng đồng</string>
     <string name="discover_list_load_error">Không tải được danh sách cộng đồng. Kéo xuống để thử lại.</string>
     <string name="discover_list_empty_search">Không có cộng đồng phù hợp.</string>
 

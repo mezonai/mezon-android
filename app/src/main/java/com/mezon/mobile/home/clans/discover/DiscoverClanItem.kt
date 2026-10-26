@@ -13,7 +13,8 @@ data class DiscoverClanItem(
     val shortUrl: String,
     val totalMembers: Int,
     val verified: Boolean,
-    val createTimeSeconds: Int
+    val createTimeSeconds: Int,
+    val hashtags: String = ""
 ) {
     companion object {
         fun fromProto(c: ClanDiscover): DiscoverClanItem = DiscoverClanItem(
@@ -27,7 +28,8 @@ data class DiscoverClanItem(
             shortUrl = c.shortUrl,
             totalMembers = c.totalMembers,
             verified = c.verified,
-            createTimeSeconds = c.createTimeSeconds
+            createTimeSeconds = c.createTimeSeconds,
+            hashtags = c.hashtags
         )
     }
 }
