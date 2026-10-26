@@ -246,13 +246,15 @@ class SocketRpcTransportException(
 class SocketRpcServerException(
     message: String,
     val code: Int,
-    cause: Throwable? = null
+    cause: Throwable? = null,
+    val serverMessage: String = ""
 ) : RuntimeException(message, cause)
 
 class HttpRpcStatusException(
     message: String,
     val code: Int,
-    cause: Throwable? = null
+    cause: Throwable? = null,
+    val serverMessage: String = ""
 ) : RuntimeException(message, cause)
 
 @Serializable
@@ -511,6 +513,9 @@ class MezonApi @Inject constructor(
             httpCode = response.status.value
         )
     }
+
+    private fun jsonErrorMessage(rawBody: String): String =
+        runCatching { JSONObject(rawBody.trim()).optString("message", "").trim() }.getOrDefault("")
 
     private fun gatewayJsonErrorUserMessage(rawBody: String): String {
         val t = rawBody.trim()
@@ -801,7 +806,8 @@ class MezonApi @Inject constructor(
             }
             throw HttpRpcStatusException(
                 "RPC $method failed (${response.status.value}): $errorBody",
-                response.status.value
+                response.status.value,
+                serverMessage = jsonErrorMessage(errorBody)
             )
         }
 
@@ -2814,7 +2820,8 @@ class MezonApi @Inject constructor(
             val errorBody = runCatching { response.bodyAsText() }.getOrDefault("")
             throw HttpRpcStatusException(
                 "GenerateMeetTokenExternal failed (${response.status.value}): $errorBody",
-                response.status.value
+                response.status.value,
+                serverMessage = jsonErrorMessage(errorBody)
             )
         }
         val json = JSONObject(response.bodyAsText())

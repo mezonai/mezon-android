@@ -15,7 +15,7 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.network.LinkInvitePreview
 import com.mezon.mobile.ui.theme.ThemeMode
-import com.mezon.mobile.util.createImgproxyUrl
+import com.mezon.mobile.util.iconImgproxyUrl
 import com.mezon.mobile.util.parseInviteLinkMessageId
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -243,8 +243,7 @@ class LinkInviteBlock(
                     .setMaxLines(1)
                     .build()
                 if (p.logoUrl.isNotEmpty()) {
-                    val av = LayoutHelper.dp(48)
-                    val prox = createImgproxyUrl(p.logoUrl, av, av, "fit")
+                    val prox = iconImgproxyUrl(p.logoUrl)
                     logo.setRoundRadius(LayoutHelper.dp(14))
                     logo.setImage(prox, null, context)
                 } else {

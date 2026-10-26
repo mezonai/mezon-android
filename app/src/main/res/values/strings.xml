@@ -24,7 +24,6 @@
     <string name="mention_suggestions_loading">Loading members…</string>
     <string name="common_failed_to_load">Failed to load</string>
     <string name="common_no_results_found">No results found</string>
-    <string name="common_something_went_wrong">Something went wrong</string>
     <string name="common_log_out">Log Out</string>
     <string name="common_confirm_log_out">Please confirm if you would like to log out?</string>
     <string name="common_appearance">Appearance</string>
@@ -58,6 +57,14 @@
     <string name="common_poor_connection">You are currently offline.</string>
     <string name="error_network_no_connection">No internet connection. Please turn on Wi‑Fi or mobile data and try again.</string>
     <string name="error_network_timeout">The connection timed out. Check your network and try again.</string>
+    <string name="error_request_failed">Request failed. Please try again.</string>
+    <string name="error_server_code">Server error (code %1$d)</string>
+    <string name="error_server_invalid_argument">Invalid request.</string>
+    <string name="error_server_not_found">Not found or you no longer have access.</string>
+    <string name="error_server_already_exists">Already exists.</string>
+    <string name="error_server_permission_denied">You don\'t have permission to do this.</string>
+    <string name="error_server_rate_limited">Too many requests. Please try again later.</string>
+    <string name="error_message_too_long">Message is too long</string>
 
     <!-- qr -->
     <string name="qr_my_code">My QR Code</string>
@@ -818,7 +825,6 @@
     <string name="menu_clan_roles">Roles</string>
     <string name="menu_clan_notification_setting">Notification Settings</string>
     <string name="clan_overview_save_success">Clan setting updated successfully</string>
-    <string name="clan_overview_save_error">Something went wrong while updating clan settings</string>
     <string name="clan_overview_name_label">Clan name</string>
     <string name="clan_overview_name_invalid">Enter a valid clan name (max 64 characters: letters, numbers, spaces, _ or -).</string>
     <string name="clan_overview_name_duplicate">This clan name is already taken. Choose another.</string>
@@ -1332,6 +1338,7 @@
     <string name="share_location_cancel">Cancel</string>
     <string name="share_location_send">Send</string>
     <string name="share_location_fetching">Getting your location…</string>
+    <string name="share_location_accuracy">Accurate to %1$s</string>
     <string name="share_location_unavailable">Couldn\'t get your location. Please try again.</string>
     <string name="location_card_your_location">Your location</string>
     <string name="location_card_location_of">%1$s\'s location</string>

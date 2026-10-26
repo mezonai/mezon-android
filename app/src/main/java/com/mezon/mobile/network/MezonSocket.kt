@@ -398,7 +398,7 @@ class MezonSocket @Inject constructor(
             val response = withTimeout(SEND_TIMEOUT_MS) { deferred.await() }
             val responseEnvelope = runCatching { Envelope.parseFrom(response) }.getOrNull()
             if (responseEnvelope?.messageCase == Envelope.MessageCase.ERROR) {
-                throw SocketRpcServerException(responseEnvelope.error.message, responseEnvelope.error.code)
+                throw SocketRpcServerException(responseEnvelope.error.message, responseEnvelope.error.code, serverMessage = responseEnvelope.error.message)
             }
             if (generation != connectGen || t !== transport || _connectionState.value != ConnectionState.CONNECTED) {
                 throw SocketConnectionLostException("Socket changed while subscribing to clan $clanId")
@@ -1000,7 +1000,7 @@ class MezonSocket @Inject constructor(
         } else {
             val msg = if (payload.isNotEmpty()) String(payload, Charsets.UTF_8) else ""
             deferred.completeExceptionally(
-                SocketRpcServerException("Server error code=$code msg='$msg'", code)
+                SocketRpcServerException("Server error code=$code msg='$msg'", code, serverMessage = msg)
             )
         }
     }
@@ -1023,7 +1023,7 @@ class MezonSocket @Inject constructor(
             if (deferred != null) {
                 if (case == Envelope.MessageCase.ERROR) {
                     deferred.completeExceptionally(
-                        SocketRpcServerException("Server error: ${envelope.error.message}", envelope.error.code)
+                        SocketRpcServerException("Server error: ${envelope.error.message}", envelope.error.code, serverMessage = envelope.error.message)
                     )
                 } else {
                     deferred.complete(envelope)
@@ -1035,7 +1035,7 @@ class MezonSocket @Inject constructor(
                 if (envelope.messageCase == Envelope.MessageCase.ERROR) {
                     val error = envelope.error
                     apiDeferred.completeExceptionally(
-                        SocketRpcServerException("Server error: ${error.message}", error.code)
+                        SocketRpcServerException("Server error: ${error.message}", error.code, serverMessage = error.message)
                     )
                 } else when (envelope.messageCase) {
                     Envelope.MessageCase.CHANNEL_MESSAGE_ACK -> {

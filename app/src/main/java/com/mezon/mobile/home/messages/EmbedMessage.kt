@@ -31,6 +31,7 @@ import com.mezon.mobile.util.EmbedRadioSpec
 import com.mezon.mobile.util.EmbedRowComponent
 import com.mezon.mobile.util.EmbedSelectSpec
 import com.mezon.mobile.util.createImgproxyUrl
+import com.mezon.mobile.util.iconImgproxyUrl
 import com.mezon.mobile.util.embedFooterDisplayText
 import com.mezon.mobile.util.formatEmbedRichText
 import com.mezon.mobile.util.parseEmbedPayload
@@ -718,7 +719,7 @@ class EmbedMessageRenderer(
         if (hasAuthorIcon) {
             imgs.authorIconImage.setRoundRadius(AUTHOR_ICON / 2)
             imgs.authorIconImage.setImage(
-                createImgproxyUrl(d.authorIconUrl, AUTHOR_ICON, AUTHOR_ICON, "fit"),
+                iconImgproxyUrl(d.authorIconUrl),
                 null,
                 context,
             )
@@ -729,7 +730,7 @@ class EmbedMessageRenderer(
         if (hasFooterIcon) {
             imgs.footerIconImage.setRoundRadius(FOOTER_ICON / 2)
             imgs.footerIconImage.setImage(
-                createImgproxyUrl(d.footerIconUrl, FOOTER_ICON, FOOTER_ICON, "fit"),
+                iconImgproxyUrl(d.footerIconUrl),
                 null,
                 context,
             )

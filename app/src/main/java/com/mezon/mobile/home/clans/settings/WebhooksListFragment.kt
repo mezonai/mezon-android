@@ -29,6 +29,7 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.chat.MezonImageLoader
+import com.mezon.mobile.util.iconImgproxyUrl
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.clans.ChannelPickerSheet
 import com.mezon.mobile.home.clans.ClansController
@@ -405,7 +406,7 @@ class WebhooksListFragment : BaseFragment() {
         }
         if (avatarUrl.isNotBlank()) {
             MezonImageLoader.getInstance(ctx).loadDrawable(
-                avatarUrl,
+                iconImgproxyUrl(avatarUrl),
                 w50,
                 w50,
                 cacheAnimated = true,

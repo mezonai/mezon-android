@@ -28,6 +28,7 @@ import com.mezon.mobile.ui.cells.RadioCell
 import com.mezon.mobile.ui.cells.SwitchView
 import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.util.CreateChannelNameValidator
+import com.mezon.mobile.util.NetworkErrorMessages
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -373,7 +374,7 @@ class CreateChannelFragment : BaseFragment() {
         if (creating) return
         val clanId = clansController.selectedClanId.value
         if (clanId == 0L || categoryId == 0L) {
-            showToast(getString(R.string.common_something_went_wrong))
+            showToast(getString(R.string.error_request_failed))
             return
         }
         val name = nameCell.getText().trim()
@@ -405,7 +406,7 @@ class CreateChannelFragment : BaseFragment() {
                 )
                 afterCreateSuccess(desc.channelId, desc.channelLabel, clanId, desc.type)
             } catch (e: Exception) {
-                val msg = e.message?.takeIf { it.length < 280 } ?: getString(R.string.common_something_went_wrong)
+                val msg = NetworkErrorMessages.userMessage(requireContext(), e)
                 showToast(msg)
             } finally {
                 creating = false

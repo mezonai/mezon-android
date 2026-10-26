@@ -183,13 +183,19 @@ class FriendController @Inject constructor(
         _blockedUsers.value = all.filter { it.state == FRIEND_STATE_BLOCKED }
     }
 
-    fun sendFriendRequest(userId: Long = 0L, username: String = "", onResult: (success: Boolean) -> Unit) {
+    fun sendFriendRequest(
+        userId: Long = 0L,
+        username: String = "",
+        onError: (Throwable) -> Unit = {},
+        onResult: (success: Boolean) -> Unit
+    ) {
         requestFriendRelationUpdate(
             userId = userId,
             username = username,
             onRequest = { session, ids, usernames ->
                 api.addFriends(session.apiUrl, session.token, ids, usernames)
             },
+            onError = onError,
             onResult = onResult
         )
     }
@@ -205,13 +211,19 @@ class FriendController @Inject constructor(
         )
     }
 
-    fun deleteFriendRelation(userId: Long = 0L, username: String = "", onResult: (success: Boolean) -> Unit) {
+    fun deleteFriendRelation(
+        userId: Long = 0L,
+        username: String = "",
+        onError: (Throwable) -> Unit = {},
+        onResult: (success: Boolean) -> Unit
+    ) {
         requestFriendRelationUpdate(
             userId = userId,
             username = username,
             onRequest = { session, ids, usernames ->
                 api.deleteFriends(session.apiUrl, session.token, ids, usernames)
             },
+            onError = onError,
             onResult = onResult
         )
     }
@@ -281,6 +293,7 @@ class FriendController @Inject constructor(
         userId: Long,
         username: String,
         onRequest: suspend (session: com.mezon.mobile.session.StoredSession, ids: List<Long>, usernames: List<String>) -> Any,
+        onError: (Throwable) -> Unit = {},
         onResult: (success: Boolean) -> Unit
     ) {
         appScope.launch {
@@ -300,8 +313,11 @@ class FriendController @Inject constructor(
 
                 invalidateFriendRelationCachesAndRefresh()
                 withContext(Dispatchers.Main) { onResult(true) }
-            } catch (_: Exception) {
-                withContext(Dispatchers.Main) { onResult(false) }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    onError(e)
+                    onResult(false)
+                }
             }
         }
     }

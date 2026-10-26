@@ -2,6 +2,7 @@ package com.mezon.mobile.home.chat
 
 import com.mezon.mobile.network.CdnSigner
 import com.mezon.mobile.util.plainSourceUrlFromImgproxy
+import com.mezon.mobile.util.fixedSizeImageCacheKey
 import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.res.Configuration
@@ -734,7 +735,7 @@ class MezonImageLoader private constructor(context: Context) {
     private fun cacheKey(url: String, w: Int, h: Int): String {
         val md = MD5_THREAD_LOCAL.get()!!
         md.reset()
-        md.update("$url|$w|$h".toByteArray())
+        md.update("${fixedSizeImageCacheKey(url)}|$w|$h".toByteArray())
         val digest = md.digest()
         val sb = HEX_SB_THREAD_LOCAL.get()!!
         sb.setLength(0)
@@ -748,7 +749,7 @@ class MezonImageLoader private constructor(context: Context) {
 
     private fun diskFileForUrl(url: String): File {
         val dir = if (isAvatarUrl(url)) avatarCacheDir else diskCacheDir
-        return File(dir, hashString(url))
+        return File(dir, hashString(fixedSizeImageCacheKey(url)))
     }
 
     private fun isAvatarUrl(url: String): Boolean {
@@ -908,13 +909,13 @@ class MezonImageLoader private constructor(context: Context) {
         private const val LARGE_FILE_TRIM_PRIORITY_BYTES = 384_000
         private const val TRIM_DEBOUNCE_MS = 60_000L
 
-        private val AVATAR_BUCKET_MARKERS = arrayOf(
-            "/rs:fill:64:64:1/",
-            "/rs:fill:96:96:1/",
-            "/rs:fill:144:144:1/",
-            "/rs:fill:192:192:1/",
-            "/rs:fill:256:256:1/"
-        )
+        private val AVATAR_BUCKET_MARKERS = intArrayOf(64, 96, 100, 144, 192, 256).flatMap { size ->
+            listOf(
+                "/rs:fill:$size:$size:1/",
+                "/rs:fill:$size:$size:0:1/",
+                "/rs:fill-down:$size:$size:0:1/"
+            )
+        }.toTypedArray()
 
         private val HEX_CHARS = "0123456789abcdef".toCharArray()
 
