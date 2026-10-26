@@ -76,6 +76,7 @@ import com.mezon.mobile.home.friends.FRIEND_STATE_FRIEND
 import com.mezon.mobile.home.friends.FRIEND_STATE_INVITE_SENT
 import com.mezon.mobile.home.friends.FriendController
 import com.mezon.mobile.home.call.CallFragment
+import com.mezon.mobile.util.NetworkErrorMessages
 import com.mezon.mobile.util.ShareContactData
 import com.mezon.mobile.util.LocationMessageData
 import com.mezon.mobile.util.isShareContactMessage
@@ -210,8 +211,10 @@ open class ChatFragment : BaseFragment() {
         private const val VIEWPORT_LIMIT = 300
         private const val PAGE_DOWN_SCROLL_THRESHOLD = 2
         private const val REQUEST_CODE_LOCATION_PERMISSION = 1002
-        private const val LOCATION_FIX_TIMEOUT_MS = 10_000L
-        private const val LOCATION_FRESH_MAX_AGE_MS = 2 * 60_000L
+        private const val COMPOSER_DRAFT_SAVE_DELAY_MS = 600L
+        private const val MAX_COMPOSER_DRAFT_LENGTH = 20_000
+        private const val LOCATION_FRESH_MAX_AGE_MS = 30_000L
+        private const val LOCATION_ACCURACY_DECAY_PER_SECOND = 2.0
         private val LOCATION_FIX_PROVIDERS = listOf(
             android.location.LocationManager.GPS_PROVIDER,
             android.location.LocationManager.NETWORK_PROVIDER
@@ -342,8 +345,9 @@ open class ChatFragment : BaseFragment() {
     private var pendingLocationSettingsReturn: LocationSettingsReturn? = null
     private var locationFixListener: android.location.LocationListener? = null
     private var locationFixManager: android.location.LocationManager? = null
-    private var locationFixTimeout: Runnable? = null
     private var locationFixDialog: com.mezon.mobile.core.AlertDialog? = null
+    private var locationPreviewView: LocationPreviewView? = null
+    private var bestLocationFix: android.location.Location? = null
     private val pendingAttachmentThumbTasks = ArrayList<Runnable?>()
     private var attachmentProgressReloadRunnable: Runnable? = null
 
@@ -484,6 +488,9 @@ open class ChatFragment : BaseFragment() {
     private val mentionTrackers = mutableListOf<MentionData>()
     private val hashtagTrackers = mutableListOf<HashtagData>()
     private var suppressInputTrackerMutation = false
+    private var composerDraftOwnerId = 0L
+    private val composerDraftKey: String get() = "$channelId:$topicId"
+    private val saveComposerDraftRunnable = Runnable { saveComposerDraft() }
     private var systemMessageMemberIds: Set<String> = emptySet()
     private var currentTrigger: InputSuggestionsController.TriggerState = InputSuggestionsController.TriggerState.NONE
     private var slashCommandDebounceJob: Job? = null
@@ -2323,6 +2330,7 @@ open class ChatFragment : BaseFragment() {
                 if (!s.isNullOrEmpty() && editingMessage == null) {
                     chatController.sendTyping(channelId, clanId, channelType, resolveChannelPrivate(), topicId)
                 }
+                scheduleComposerDraftSave()
             }
         })
 
@@ -2784,6 +2792,7 @@ open class ChatFragment : BaseFragment() {
         fragmentView = rootView
         refreshUI()
         refreshPermissionGates()
+        restoreComposerDraft()
         return rootView
     }
 
@@ -2913,6 +2922,7 @@ open class ChatFragment : BaseFragment() {
 
     override fun onPause() {
         super.onPause()
+        saveComposerDraft(flush = true)
         pausedFromAppBackground = MainActivity.applicationPaused
         if (!isBackSwipePreview()) {
             dialogsController.clearCurrentChannel()
@@ -3326,6 +3336,7 @@ open class ChatFragment : BaseFragment() {
     }
 
     override fun onFragmentDestroy() {
+        saveComposerDraft(flush = true)
         cancelLocationFix()
         activeImageEditor?.setOnDismissListener(null)
         activeImageEditor?.dismiss()
@@ -5297,7 +5308,7 @@ open class ChatFragment : BaseFragment() {
                     outgoingContentFor(cleanedText, emojiMarkers, filteredMdMarkers, hashtags, ogpMarker)
                 )
             ) {
-                MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.common_something_went_wrong))
+                MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.error_message_too_long))
                 return
             }
             val request = chatController.buildEphemeralMessage(
@@ -5374,6 +5385,7 @@ open class ChatFragment : BaseFragment() {
         failedInputOgpUrl = null
         clearInputOgpPreview()
         clearReplyState()
+        saveComposerDraft()
     }
 
     private fun sendEphemeralMessage(request: com.mezon.mezon.rtapi.ChannelMessageSend, receiverId: Long) {
@@ -5384,7 +5396,7 @@ open class ChatFragment : BaseFragment() {
             MezonToast.show(
                 this@ChatFragment,
                 ToastOverlay.ToastType.ERROR,
-                error.message?.takeIf { it.isNotBlank() } ?: getString(R.string.common_something_went_wrong)
+                NetworkErrorMessages.userMessage(requireContext(), error)
             )
         }
     }
@@ -6087,7 +6099,7 @@ open class ChatFragment : BaseFragment() {
                 .setPositiveButton(getString(R.string.common_ok)) { _, _ ->
                     locationPermissionAskedBefore = true
                     activity.requestPermissions(
-                        arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
+                        arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
                         REQUEST_CODE_LOCATION_PERMISSION
                     )
                 }
@@ -6099,7 +6111,7 @@ open class ChatFragment : BaseFragment() {
 
         locationPermissionAskedBefore = true
         activity.requestPermissions(
-            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
             REQUEST_CODE_LOCATION_PERMISSION
         )
     }
@@ -6138,17 +6150,10 @@ open class ChatFragment : BaseFragment() {
             return
         }
 
-        val recent = freshestLastKnownLocation(locationManager)
-        if (recent != null && locationAgeMs(recent) <= LOCATION_FRESH_MAX_AGE_MS) {
-            showLocationConfirmDialog(recent.latitude, recent.longitude)
-            return
-        }
-
         val listener = object : android.location.LocationListener {
             override fun onLocationChanged(location: android.location.Location) {
                 if (locationFixListener !== this) return
-                cancelLocationFix()
-                showLocationConfirmDialog(location.latitude, location.longitude)
+                applyLocationFix(location)
             }
             @Deprecated("Deprecated in Java")
             override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
@@ -6171,62 +6176,52 @@ open class ChatFragment : BaseFragment() {
                 Log.e(TAG, "Failed to request location updates from $provider", e)
             }
         }
-        if (!requested) {
-            finishLocationFixWithLastKnown()
+        val recent = mostAccurateRecentLastKnownLocation(locationManager)
+        if (!requested && recent == null) {
+            cancelLocationFix()
+            MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.share_location_unavailable))
             return
         }
-
-        val timeout = Runnable { finishLocationFixWithLastKnown() }
-        locationFixTimeout = timeout
-        AndroidUtilities.runOnUIThread(timeout, LOCATION_FIX_TIMEOUT_MS)
-
-        val row = LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(
-                android.widget.ProgressBar(activity),
-                LayoutHelper.createLinear(28, 28, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, 16f, 0f)
-            )
-            addView(
-                TextView(activity).apply {
-                    text = getString(R.string.share_location_fetching)
-                    setTextColor(themeColors.onSurface)
-                    setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 16f)
-                },
-                LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.CENTER_VERTICAL)
-            )
-        }
-        val dialog = com.mezon.mobile.core.AlertDialog.Builder(activity)
-            .setView(row)
-            .setNegativeButton(getString(R.string.share_location_cancel)) { _, _ -> cancelLocationFix() }
-            .setOnCancelListener { cancelLocationFix() }
-            .create()
-        locationFixDialog = dialog
-        dialog.show()
+        showLocationConfirmDialog(activity)
+        recent?.let { applyLocationFix(it) }
     }
 
-    private fun finishLocationFixWithLastKnown() {
-        val locationManager = locationFixManager ?: locationManagerOrNull()
-        cancelLocationFix()
-        val fallback = locationManager?.let { freshestLastKnownLocation(it) }
-        if (fallback != null) {
-            showLocationConfirmDialog(fallback.latitude, fallback.longitude)
-        } else {
-            MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.share_location_unavailable))
+    private fun applyLocationFix(location: android.location.Location) {
+        if (locationAgeMs(location) > LOCATION_FRESH_MAX_AGE_MS) return
+        val current = bestLocationFix
+        if (current != null && !isPreferredLocation(location, current)) return
+        bestLocationFix = location
+        locationPreviewView?.setLocation(location.latitude, location.longitude)
+        locationFixDialog?.setMessage(locationFixDescription(location))
+        setLocationSendEnabled(true)
+    }
+
+    private fun setLocationSendEnabled(enabled: Boolean) {
+        locationFixDialog?.getButton(android.content.DialogInterface.BUTTON_POSITIVE)?.let { button ->
+            button.isEnabled = enabled
+            button.alpha = if (enabled) 1f else 0.4f
         }
     }
+
+    private fun locationFixDescription(location: android.location.Location): String {
+        val coordinate = getString(R.string.share_location_coordinate, location.latitude, location.longitude)
+        if (!location.hasAccuracy()) return coordinate
+        return coordinate + "\n" + getString(R.string.share_location_accuracy, formatLocationAccuracy(location.accuracy))
+    }
+
+    private fun formatLocationAccuracy(meters: Float): String =
+        if (meters < 1000f) "${Math.round(meters)} m"
+        else String.format(java.util.Locale.getDefault(), "%.1f km", meters / 1000f)
 
     private fun cancelLocationFix() {
         locationFixListener?.let { listener -> locationFixManager?.removeUpdates(listener) }
         locationFixListener = null
         locationFixManager = null
-        locationFixTimeout?.let { AndroidUtilities.cancelRunOnUIThread(it) }
-        locationFixTimeout = null
-        locationFixDialog?.let { dialog ->
-            dialog.setOnCancelListener(null)
-            if (dialog.isShowing) dialog.dismiss()
-        }
+        bestLocationFix = null
+        locationPreviewView = null
+        val dialog = locationFixDialog
         locationFixDialog = null
+        if (dialog?.isShowing == true) dialog.dismiss()
     }
 
     private fun locationManagerOrNull(): android.location.LocationManager? =
@@ -6242,7 +6237,7 @@ open class ChatFragment : BaseFragment() {
         }
 
     @android.annotation.SuppressLint("MissingPermission")
-    private fun freshestLastKnownLocation(locationManager: android.location.LocationManager): android.location.Location? =
+    private fun mostAccurateRecentLastKnownLocation(locationManager: android.location.LocationManager): android.location.Location? =
         LOCATION_LAST_KNOWN_PROVIDERS
             .mapNotNull { provider ->
                 try {
@@ -6251,10 +6246,20 @@ open class ChatFragment : BaseFragment() {
                     null
                 }
             }
-            .maxByOrNull { it.elapsedRealtimeNanos }
+            .filter { locationAgeMs(it) <= LOCATION_FRESH_MAX_AGE_MS }
+            .minByOrNull { locationAccuracyMeters(it) }
 
     private fun locationAgeMs(location: android.location.Location): Long =
         (android.os.SystemClock.elapsedRealtimeNanos() - location.elapsedRealtimeNanos) / 1_000_000L
+
+    private fun locationAccuracyMeters(location: android.location.Location): Float =
+        if (location.hasAccuracy()) location.accuracy else Float.MAX_VALUE
+
+    private fun isPreferredLocation(candidate: android.location.Location, current: android.location.Location): Boolean {
+        val elapsedSeconds = ((candidate.elapsedRealtimeNanos - current.elapsedRealtimeNanos) / 1_000_000_000.0).coerceAtLeast(0.0)
+        return locationAccuracyMeters(candidate).toDouble() <=
+            locationAccuracyMeters(current).toDouble() + elapsedSeconds * LOCATION_ACCURACY_DECAY_PER_SECOND
+    }
 
     private fun showEnableLocationServicesDialog() {
         val activity = getParentActivity() ?: return
@@ -6302,21 +6307,32 @@ open class ChatFragment : BaseFragment() {
         }
     }
 
-    private fun showLocationConfirmDialog(latitude: Double, longitude: Double) {
-        val activity = getParentActivity() ?: return
+    private fun showLocationConfirmDialog(activity: android.app.Activity) {
         val channelName = arguments?.getString(ARG_CHANNEL_NAME).orEmpty()
-        val alertDialog = com.mezon.mobile.core.AlertDialog.Builder(activity)
+        val preview = LocationPreviewView(
+            activity,
+            userController.userId,
+            userController.avatarUrl,
+            getString(R.string.location_card_your_location)
+        )
+        val dialog = com.mezon.mobile.core.AlertDialog.Builder(activity)
             .setTitle(getString(R.string.share_location_title, channelName))
-            .setMessage(getString(R.string.share_location_coordinate, latitude, longitude))
+            .setMessage(getString(R.string.share_location_fetching))
+            .setView(preview)
             .setPositiveButton(getString(R.string.share_location_send)) { _, _ ->
+                val fix = bestLocationFix ?: return@setPositiveButton
                 if (!ensureCanSendMessageOrNotify()) return@setPositiveButton
                 chatController.sendLocation(
-                    channelId, clanId, channelType, resolveChannelPrivate(), latitude, longitude
+                    channelId, clanId, channelType, resolveChannelPrivate(), fix.latitude, fix.longitude
                 )
             }
             .setNegativeButton(getString(R.string.share_location_cancel), null)
             .create()
-        alertDialog.show()
+        dialog.setOnDismissListener { if (locationFixDialog === dialog) cancelLocationFix() }
+        locationFixDialog = dialog
+        locationPreviewView = preview
+        dialog.show()
+        setLocationSendEnabled(false)
     }
 
     private fun showBuzzConfirmDialog() {
@@ -7801,7 +7817,14 @@ open class ChatFragment : BaseFragment() {
             when {
                 items.isNotEmpty() -> showQuickMenuSheet(items, msg)
                 SlashCommandCatalog.cachedOrNull(targetChannelId, SlashCommandCatalog.MENU_TYPE_QUICK_MENU) == null ->
-                    MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.ERROR, getString(R.string.common_something_went_wrong))
+                    MezonToast.show(
+                        this@ChatFragment,
+                        ToastOverlay.ToastType.ERROR,
+                        NetworkErrorMessages.userMessage(
+                            requireContext(),
+                            SlashCommandCatalog.lastFailure(targetChannelId, SlashCommandCatalog.MENU_TYPE_QUICK_MENU)
+                        )
+                    )
                 else ->
                     MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.INFO, getString(R.string.channel_quick_action_empty_menu_title))
             }
@@ -7842,7 +7865,7 @@ open class ChatFragment : BaseFragment() {
             MezonToast.show(
                 this@ChatFragment,
                 ToastOverlay.ToastType.ERROR,
-                error.message?.takeIf { it.isNotBlank() } ?: getString(R.string.common_something_went_wrong)
+                NetworkErrorMessages.userMessage(requireContext(), error)
             )
         }
     }
@@ -8171,6 +8194,61 @@ open class ChatFragment : BaseFragment() {
                 searchFrom = end
             }
         }
+    }
+
+    private fun scheduleComposerDraftSave() {
+        AndroidUtilities.cancelRunOnUIThread(saveComposerDraftRunnable)
+        AndroidUtilities.runOnUIThread(saveComposerDraftRunnable, COMPOSER_DRAFT_SAVE_DELAY_MS)
+    }
+
+    private fun saveComposerDraft(flush: Boolean = false) {
+        AndroidUtilities.cancelRunOnUIThread(saveComposerDraftRunnable)
+        if (!::inputField.isInitialized) return
+        if (composerDraftOwnerId == 0L) {
+            restoreComposerDraft()
+            if (composerDraftOwnerId == 0L) return
+        }
+        val store = ComposerDraftStore.getInstance(inputField.context)
+        if (editingMessage == null) {
+            val rawText = inputField.text?.toString().orEmpty()
+            val draft = if (rawText.isBlank() || rawText.length > MAX_COMPOSER_DRAFT_LENGTH) {
+                null
+            } else {
+                ComposerDraft(rawText, mentionTrackers.toList(), hashtagTrackers.toList(), HashMap(emojiObjPicked))
+            }
+            store.put(composerDraftOwnerId, composerDraftKey, draft)
+        }
+        if (flush) store.flush()
+    }
+
+    private fun restoreComposerDraft() {
+        if (composerDraftOwnerId == 0L) composerDraftOwnerId = userController.userId
+        val owner = composerDraftOwnerId
+        if (owner == 0L || editingMessage != null || !inputField.text.isNullOrEmpty()) return
+        val draft = ComposerDraftStore.getInstance(inputField.context).get(owner, composerDraftKey) ?: return
+        val length = draft.rawText.length
+        val restored = com.mezon.mobile.util.RestoredInputContent(
+            draft.rawText,
+            draft.mentions.filter { it.startOffset >= 0 && it.startOffset < it.endOffset && it.endOffset <= length },
+            draft.hashtags.filter { it.startOffset >= 0 && it.startOffset < it.endOffset && it.endOffset <= length },
+            draft.emojis
+        )
+        mentionTrackers.clear()
+        hashtagTrackers.clear()
+        emojiObjPicked.clear()
+        suppressInputTrackerMutation = true
+        try {
+            inputField.setText(restored.rawText)
+            mentionTrackers.addAll(restored.mentions)
+            hashtagTrackers.addAll(restored.hashtags)
+            emojiObjPicked.putAll(restored.emojis)
+            applyEditHighlightSpans(restored)
+        } finally {
+            suppressInputTrackerMutation = false
+        }
+        inputField.setSelection(inputField.text?.length ?: 0)
+        updateSendButtonState()
+        updateInputOgpPreview(restored.rawText)
     }
 
     private fun clearEditState() {

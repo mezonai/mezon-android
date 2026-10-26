@@ -49,6 +49,7 @@ import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.TextCheckCell
 import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.util.ChannelSettingsNameValidator
+import com.mezon.mobile.util.NetworkErrorMessages
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -575,7 +576,7 @@ class ChannelSettingsFragment : BaseFragment() {
                     updateSaveState()
                     MezonToast.show(this@ChannelSettingsFragment, ToastOverlay.ToastType.SUCCESS, getString(R.string.channel_settings_updated))
                 } else {
-                    MezonToast.show(this@ChannelSettingsFragment, ToastOverlay.ToastType.ERROR, getString(R.string.common_something_went_wrong))
+                    MezonToast.show(this@ChannelSettingsFragment, ToastOverlay.ToastType.ERROR, NetworkErrorMessages.userMessage(requireContext(), result.exceptionOrNull()))
                     updateSaveState()
                 }
             }
@@ -676,8 +677,7 @@ class ChannelSettingsFragment : BaseFragment() {
                         )
                     }
                 } else {
-                    val msg = result.exceptionOrNull()?.message?.takeIf { it.length < 200 }
-                        ?: getString(R.string.common_something_went_wrong)
+                    val msg = NetworkErrorMessages.userMessage(requireContext(), result.exceptionOrNull())
                     MezonToast.show(this@ChannelSettingsFragment, ToastOverlay.ToastType.ERROR, getString(R.string.channel_settings_delete_failed, msg))
                 }
             }
@@ -712,8 +712,7 @@ class ChannelSettingsFragment : BaseFragment() {
                         )
                     }
                 } else {
-                    val msg = result.exceptionOrNull()?.message?.takeIf { it.length < 200 }
-                        ?: getString(R.string.common_something_went_wrong)
+                    val msg = NetworkErrorMessages.userMessage(requireContext(), result.exceptionOrNull())
                     MezonToast.show(this@ChannelSettingsFragment, ToastOverlay.ToastType.ERROR, getString(R.string.channel_settings_leave_failed, msg))
                 }
             }

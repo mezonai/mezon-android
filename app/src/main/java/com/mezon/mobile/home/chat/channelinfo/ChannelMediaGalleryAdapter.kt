@@ -29,8 +29,7 @@ import com.mezon.mobile.home.chat.VideoPlayerDialog
 import com.mezon.mobile.ui.cells.AvatarView
 import com.mezon.mobile.ui.cells.BackupImageView
 import com.mezon.mobile.ui.cells.MezonIcon
-import com.mezon.mobile.util.createImgproxyUrl
-import com.mezon.mobile.util.isConfiguredMediaUrl
+import com.mezon.mobile.util.channelMediaThumbnailImgproxyUrl
 import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -43,6 +42,7 @@ import kotlinx.coroutines.withContext
 private const val VIEW_HEADER = 1
 private const val VIEW_GRID = 2
 private const val VIEW_FOOTER = 3
+private const val MEDIA_THUMBNAIL_SIZE_PX = 200
 
 internal sealed class MediaGalleryRow {
     data class HeaderRow(val epochDay: Long, val label: CharSequence) : MediaGalleryRow()
@@ -347,19 +347,18 @@ internal class ChannelMediaGalleryAdapter(
         slot.videoDimmer.visibility = if (showVideo) View.VISIBLE else View.GONE
         slot.play.visibility = if (showVideo) View.VISIBLE else View.GONE
 
-        val cs = cellSizePx()
-        slot.thumb.setSize(cs, cs)
+        slot.thumb.setSize(MEDIA_THUMBNAIL_SIZE_PX, MEDIA_THUMBNAIL_SIZE_PX)
 
         slot.thumbJob?.cancel()
         slot.thumbJob = null
         if (showVideo) {
-            val cached = videoThumbCache.get(item.url)
+            val cached = videoThumbCache.get(videoThumbCacheKey(item.url))
             if (cached != null) {
                 slot.thumb.setImageDrawable(BitmapDrawable(slot.thumb.resources, cached))
             } else {
                 slot.thumb.setImageDrawable(null)
                 slot.thumbJob = scope.launch {
-                    val frame = withContext(Dispatchers.IO) { extractRemoteVideoFrame(item.url, cs) }
+                    val frame = withContext(Dispatchers.IO) { extractRemoteVideoFrame(item.url) }
                     if (frame != null &&
                         (slot.root.tag as? ChannelGalleryMediaItem)?.url == item.url
                     ) {
@@ -368,13 +367,13 @@ internal class ChannelMediaGalleryAdapter(
                 }
             }
         } else {
-            slot.thumb.setImage(galleryThumbLoadUrl(item, cs))
+            slot.thumb.setImage(galleryThumbLoadUrl(item))
         }
     }
 
-    private fun extractRemoteVideoFrame(url: String, targetPx: Int): Bitmap? {
+    private fun extractRemoteVideoFrame(url: String): Bitmap? {
         if (url.isBlank()) return null
-        videoThumbCache.get(url)?.let { return it }
+        videoThumbCache.get(videoThumbCacheKey(url))?.let { return it }
         val retriever = MediaMetadataRetriever()
         return try {
             if (url.startsWith("content://") || url.startsWith("file://")) {
@@ -387,7 +386,7 @@ internal class ChannelMediaGalleryAdapter(
                 1_000_000L,
                 MediaMetadataRetriever.OPTION_CLOSEST_SYNC
             ) ?: return null
-            val maxEdge = (targetPx * 2).coerceAtLeast(320)
+            val maxEdge = MEDIA_THUMBNAIL_SIZE_PX
             val scaled =
                 if (frame.width <= maxEdge && frame.height <= maxEdge) {
                     frame
@@ -399,7 +398,7 @@ internal class ChannelMediaGalleryAdapter(
                     if (out !== frame) frame.recycle()
                     out
                 }
-            videoThumbCache.put(url, scaled)
+            videoThumbCache.put(videoThumbCacheKey(url), scaled)
             scaled
         } catch (_: Exception) {
             null
@@ -520,11 +519,13 @@ internal class ChannelMediaGalleryAdapter(
     }
 }
 
+private fun videoThumbCacheKey(url: String): String = "media-video-thumb-${MEDIA_THUMBNAIL_SIZE_PX}-v1:$url"
+
 private val videoThumbCache = object : LruCache<String, Bitmap>(8 * 1024 * 1024) {
     override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
 }
 
-private fun galleryThumbLoadUrl(item: ChannelGalleryMediaItem, cellPx: Int): String {
+private fun galleryThumbLoadUrl(item: ChannelGalleryMediaItem): String {
     val u = item.url.trim()
     if (u.isEmpty()) return u
     val ft = item.filetype.lowercase(Locale.US)
@@ -536,11 +537,7 @@ private fun galleryThumbLoadUrl(item: ChannelGalleryMediaItem, cellPx: Int): Str
     if (isGif) {
         return u
     }
-    val isCdn = u.startsWith("https://cdn.mezon") || u.startsWith("https://cdn.komu") || u.startsWith("https://profile.mezon") || isConfiguredMediaUrl(u)
-    if (!isCdn) {
-        return u
-    }
-    return createImgproxyUrl(u, cellPx, cellPx, "fill")
+    return channelMediaThumbnailImgproxyUrl(u)
 }
 
 private fun BackupImageView.cancelLoad() {

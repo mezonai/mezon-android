@@ -22,6 +22,7 @@ import com.mezon.mobile.ui.cells.InputCell
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.util.CategoryNameValidator
+import com.mezon.mobile.util.NetworkErrorMessages
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -170,7 +171,7 @@ class CreateCategoryFragment : BaseFragment() {
         if (creating) return
         val clanId = clansController.selectedClanId.value
         if (clanId == 0L) {
-            showToast(getString(R.string.common_something_went_wrong))
+            showToast(getString(R.string.error_request_failed))
             return
         }
         val name = nameCell.getText().trim()
@@ -186,7 +187,7 @@ class CreateCategoryFragment : BaseFragment() {
                 channelController.createCategory(clanId, name)
                 finishFragment()
             } catch (e: Exception) {
-                val msg = e.message?.takeIf { it.length < 280 } ?: getString(R.string.common_something_went_wrong)
+                val msg = NetworkErrorMessages.userMessage(requireContext(), e)
                 showToast(msg)
             } finally {
                 creating = false

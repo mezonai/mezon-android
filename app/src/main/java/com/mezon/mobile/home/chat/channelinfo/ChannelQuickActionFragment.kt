@@ -34,6 +34,7 @@ import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.util.MezonSnowflake
 import com.mezon.mezon.api.QuickMenuAccess
 import com.mezon.mezon.api.quickMenuAccess
+import com.mezon.mobile.util.NetworkErrorMessages
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -671,7 +672,7 @@ class ChannelQuickActionFragment : BaseFragment() {
 
     private fun createMenu(name: String, actionMsg: String) {
         if (channelId == 0L || clanId == 0L) {
-            MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.common_something_went_wrong))
+            MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.error_request_failed))
             return
         }
         val targetChannelId = channelId
@@ -738,9 +739,7 @@ class ChannelQuickActionFragment : BaseFragment() {
     }
 
     private fun showApiError(error: Throwable?) {
-        val detail = error?.message?.takeIf { it.isNotBlank() }?.take(120)
-        val msg = detail ?: getString(R.string.common_something_went_wrong)
-        MezonToast.show(this@ChannelQuickActionFragment, ToastOverlay.ToastType.ERROR, msg)
+        MezonToast.show(this@ChannelQuickActionFragment, ToastOverlay.ToastType.ERROR, NetworkErrorMessages.userMessage(requireContext(), error))
     }
 
     private fun deleteMenu(existing: QuickMenuAccess) {

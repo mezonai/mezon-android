@@ -20,6 +20,10 @@ object SlashCommandCatalog {
     private val entries = HashMap<Key, Entry>()
     private val lastAttemptAtMs = HashMap<Key, Long>()
     private val revisions = HashMap<Key, Int>()
+    private val lastFailures = HashMap<Key, Throwable>()
+
+    fun lastFailure(channelId: Long, menuType: Int = MENU_TYPE_FLASH_MESSAGE): Throwable? =
+        synchronized(lock) { lastFailures[Key(channelId, menuType)] }
 
     fun cached(channelId: Long, menuType: Int = MENU_TYPE_FLASH_MESSAGE): List<SlashCommand> =
         cachedOrNull(channelId, menuType).orEmpty()
@@ -83,6 +87,7 @@ object SlashCommandCatalog {
         sessionManager: SessionManager,
         ioDispatcher: CoroutineDispatcher,
     ): List<SlashCommand>? {
+        val key = Key(channelId, menuType)
         val response = try {
             sessionManager.withAutoRefresh { session ->
                 withContext(ioDispatcher) {
@@ -92,8 +97,10 @@ object SlashCommandCatalog {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            synchronized(lock) { lastFailures[key] = e }
             return null
         }
+        synchronized(lock) { lastFailures.remove(key) }
         return response.listMenusList
             .map(SlashCommand::fromProto)
             .filter { it.name.isNotBlank() }

@@ -36,6 +36,7 @@ import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.util.avatarImgproxyUrl
+import com.mezon.mobile.util.fixedSizeImageCacheKey
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -242,15 +243,16 @@ class NotificationHelper @Inject constructor(
     private fun avatarRequestUrl(url: String): String = avatarImgproxyUrl(url, AVATAR_ICON_SIZE)
 
     private fun cachedAvatar(url: String): Bitmap? =
-        if (url.isEmpty()) null else avatarBitmaps.get(avatarRequestUrl(url))
+        if (url.isEmpty()) null else avatarBitmaps.get(fixedSizeImageCacheKey(avatarRequestUrl(url)))
 
     private suspend fun cacheAvatarBitmap(url: String) {
         if (url.isEmpty()) return
         val requestUrl = avatarRequestUrl(url)
-        if (avatarBitmaps.get(requestUrl) != null) return
+        val cacheKey = fixedSizeImageCacheKey(requestUrl)
+        if (avatarBitmaps.get(cacheKey) != null) return
         val bitmap = withTimeoutOrNull(MAX_AVATAR_DELAY) { loadAvatarBitmap(requestUrl) } ?: return
         val cropped = runCatching { circleCrop(bitmap) }.getOrNull() ?: return
-        avatarBitmaps.put(requestUrl, cropped)
+        avatarBitmaps.put(cacheKey, cropped)
     }
 
     private suspend fun resolveClan(clanId: Long?): ClanEntity? {
