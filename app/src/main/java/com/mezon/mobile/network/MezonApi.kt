@@ -359,7 +359,8 @@ private data class ClanDiscoverJson(
     @SerialName("banner") val banner: String = "",
     @SerialName("about") val about: String = "",
     @SerialName("short_url") val short_url: String = "",
-    @SerialName("create_time_seconds") val create_time_seconds: Int = 0
+    @SerialName("create_time_seconds") val create_time_seconds: Int = 0,
+    @SerialName("hashtags") val hashtags: String = ""
 )
 
 @Singleton
@@ -1553,6 +1554,7 @@ class MezonApi @Inject constructor(
                     about = c.about
                     shortUrl = c.short_url
                     createTimeSeconds = c.create_time_seconds
+                    hashtags = c.hashtags
                 }
             }
         }

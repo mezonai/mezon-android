@@ -1496,8 +1496,16 @@
     <string name="discover_community">Community</string>
     <string name="discover_des_community">Weekly events and updates.</string>
     <string name="discover_about">About</string>
-    <string name="discover_tag_science">Science &amp; Tech</string>
+    <string name="discover_tag_gaming">Gaming</string>
+    <string name="discover_tag_technology">Technology</string>
+    <string name="discover_tag_education">Education</string>
     <string name="discover_tag_entertainment">Entertainment</string>
+    <string name="discover_tag_music">Music</string>
+    <string name="discover_tag_art">Art</string>
+    <string name="discover_tag_crypto">Crypto</string>
+    <string name="discover_tag_anime">Anime &amp; Manga</string>
+    <string name="discover_tag_sports">Sports</string>
+    <string name="discover_tag_community">Community</string>
     <string name="discover_list_load_error">Could not load communities. Pull down to try again.</string>
     <string name="discover_list_empty_search">No matching communities.</string>
 
