@@ -36,7 +36,11 @@ import com.mezon.mobile.ui.MezonToast
 import com.mezon.mobile.ui.cells.AvatarView
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.ToastOverlay
+import com.mezon.mobile.util.ContentUriTooLargeException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 
 class ClanSettingFragment : BaseFragment() {
 
@@ -60,7 +64,11 @@ class ClanSettingFragment : BaseFragment() {
 
     private lateinit var scrollInner: LinearLayout
     private lateinit var logoContainer: LinearLayout
+    private var logoStripState: Triple<String, String, Boolean>? = null
     private var logoUploadOverlay: FrameLayout? = null
+    private var isLogoUploading = false
+    private val isLogoBusy: Boolean
+        get() = isLogoUploading || (clanId != 0L && clanId in clansController.clanLogoUpdateInFlight.value)
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
         clansController = entryPoint.clansController()
@@ -198,9 +206,8 @@ class ClanSettingFragment : BaseFragment() {
 
         refreshMenu()
         fragmentScope.launch(entryPoint().mainDispatcher()) {
-            clansController.clanLogoUpdateInFlight.collect { ids ->
-                val show = clanId != 0L && clanId in ids
-                logoUploadOverlay?.visibility = if (show) View.VISIBLE else View.GONE
+            clansController.clanLogoUpdateInFlight.collect {
+                updateLogoUploadOverlay()
             }
         }
         fragmentView = root
@@ -212,16 +219,20 @@ class ClanSettingFragment : BaseFragment() {
         val clan = clansController.clans.value.firstOrNull { it.clanId == clanId } ?: return
         val perm = permissionPolicy.clanSettingsPermissionState(clanId)
 
-        logoContainer.removeAllViews()
-        logoContainer.addView(
-            buildClanLogoStrip(clan, perm.isShowOverviewOption),
-            LayoutHelper.createLinear(
-                LayoutHelper.MATCH_PARENT,
-                LayoutHelper.WRAP_CONTENT,
-                0f,
-                Gravity.CENTER_HORIZONTAL,
+        val logoState = Triple(clan.clanName, clan.logo, perm.isShowOverviewOption)
+        if (logoContainer.childCount == 0 || logoStripState != logoState) {
+            logoContainer.removeAllViews()
+            logoContainer.addView(
+                buildClanLogoStrip(clan, perm.isShowOverviewOption),
+                LayoutHelper.createLinear(
+                    LayoutHelper.MATCH_PARENT,
+                    LayoutHelper.WRAP_CONTENT,
+                    0f,
+                    Gravity.CENTER_HORIZONTAL,
+                )
             )
-        )
+            logoStripState = logoState
+        }
 
         scrollInner.removeAllViews()
 
@@ -325,10 +336,9 @@ class ClanSettingFragment : BaseFragment() {
                 }
             )
         }
-        val uploading = clanId != 0L && clanId in clansController.clanLogoUpdateInFlight.value
         val logoBusyOverlay = FrameLayout(ctx).apply {
-            visibility = if (uploading) View.VISIBLE else View.GONE
-            setBackgroundColor(0x66000000)
+            visibility = if (isLogoBusy) View.VISIBLE else View.GONE
+            setBackgroundColor(if (isLogoUploading) Color.TRANSPARENT else 0x66000000)
             isClickable = true
             val pb = ProgressBar(ctx).apply {
                 isIndeterminate = true
@@ -375,6 +385,7 @@ class ClanSettingFragment : BaseFragment() {
     }
 
     private fun openClanLogoPicker() {
+        if (isLogoBusy) return
         val pick = Intent(Intent.ACTION_PICK).apply { type = "image/*" }
         val getContent = Intent(Intent.ACTION_GET_CONTENT).apply {
             type = "image/*"
@@ -389,11 +400,68 @@ class ClanSettingFragment : BaseFragment() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (resultCode != Activity.RESULT_OK || requestCode != REQUEST_CODE_PICK_CLAN_LOGO) return
+        if (clanId == 0L || isLogoBusy) return
         val clip = data?.clipData
         val uri = clip?.getItemAt(0)?.uri ?: data?.data ?: return
-        presentFragment(ClanLogoTransformFragment.newInstance(clanId, uri.toString()))
+        val resolver = getContext()?.contentResolver ?: return
+        val mimeType = try {
+            resolver.getType(uri)?.substringBefore(';')?.trim()?.lowercase()
+        } catch (_: Exception) {
+            MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.clan_settings_logo_update_failed))
+            return
+        }
+        if (mimeType == "image/gif" || mimeType == "image/webp") {
+            isLogoUploading = true
+            updateLogoUploadOverlay()
+            fragmentScope.launch(entryPoint().mainDispatcher()) {
+                try {
+                    val url = clansController.uploadClanImage(
+                        uri, resolver, 1 * 1024 * 1024, mimeType,
+                        fallbackFilename = "${System.currentTimeMillis() / 1000}_avatar.jpg",
+                    )
+                    val (ok, msg) = suspendCancellableCoroutine<Pair<Boolean, String?>> { continuation ->
+                        clansController.updateClanLogo(clanId, url) { success, message ->
+                            continuation.resume(success to message)
+                        }
+                    }
+                    if (!ok) {
+                        val text = msg?.takeIf { it.isNotBlank() }
+                            ?: getString(R.string.clan_settings_logo_update_failed)
+                        MezonToast.show(this@ClanSettingFragment, ToastOverlay.ToastType.ERROR, text)
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    val text = if (e is ContentUriTooLargeException) {
+                        getString(R.string.clan_settings_logo_too_large)
+                    } else {
+                        getString(R.string.clan_settings_logo_update_failed)
+                    }
+                    MezonToast.show(this@ClanSettingFragment, ToastOverlay.ToastType.ERROR, text)
+                } finally {
+                    isLogoUploading = false
+                    updateLogoUploadOverlay()
+                }
+            }
+        } else {
+            presentFragment(ClanLogoTransformFragment.newInstance(clanId, uri.toString()))
+        }
     }
+
+    private fun updateLogoUploadOverlay() {
+        val busy = isLogoBusy
+        logoUploadOverlay?.apply {
+            if (isLogoUploading) {
+                setBackgroundColor(Color.TRANSPARENT)
+            } else if (!busy) {
+                setBackgroundColor(0x66000000)
+            }
+            visibility = if (busy) View.VISIBLE else View.GONE
+        }
+    }
+
     private fun removeClanLogo() {
+        if (isLogoBusy) return
         clansController.updateClanLogo(clanId, "") { ok, msg ->
             if (!ok) {
                 val text = msg?.takeIf { it.isNotBlank() }

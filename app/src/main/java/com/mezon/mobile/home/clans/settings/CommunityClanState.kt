@@ -48,12 +48,6 @@ data class CommunityFormDraft(
     }
 }
 
-private fun ByteArray?.contentEquals(other: ByteArray?): Boolean {
-    if (this == null && other == null) return true
-    if (this == null || other == null) return false
-    return this.contentEquals(other)
-}
-
 enum class CommunityScreenMode {
     LOADING,
     LANDING,

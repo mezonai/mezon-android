@@ -10,7 +10,9 @@ import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.ui.shared.ImageTransformFragment
 import com.mezon.mobile.util.FileUtils
 import com.mezon.mobile.util.NetworkErrorMessages
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -93,9 +95,10 @@ class ClanBannerTransformFragment : ImageTransformFragment() {
         val resolver = getContext()?.contentResolver
         fragmentScope.launch(mainDispatcher) {
             runCatching {
-                val bytes = withContext(ioDispatcher) { jpegFile.readBytes() }
-                val originalFilename = withContext(ioDispatcher) {
-                    resolver?.let { FileUtils.getPickedFileName(it, imageUri) }
+                val (bytes, originalFilename) = withContext(ioDispatcher) {
+                    val bytes = jpegFile.readBytes()
+                    ensureActive()
+                    bytes to resolver?.let { FileUtils.getPickedFileName(it, imageUri) }
                 }
                 runCatching { jpegFile.delete() }
                 val url = clansController.uploadClanBannerJpeg(bytes, originalFilename)
@@ -108,6 +111,7 @@ class ClanBannerTransformFragment : ImageTransformFragment() {
                 finishFragment()
             }.onFailure { error ->
                 runCatching { jpegFile.delete() }
+                if (error is CancellationException) throw error
                 onWorkFinished()
                 MezonToast.show(
                     this@ClanBannerTransformFragment,

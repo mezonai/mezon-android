@@ -1,5 +1,6 @@
 package com.mezon.mobile.util
 
+import com.mezon.mobile.BuildConfig
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -8,6 +9,10 @@ object PresignFinishContent {
     const val CREATE_TIME_KEY = "create_time_seconds"
     const val FOR_10_MINUTES_SEC = 10 * 60
     const val PRESIGN_PENDING_TICK_MS = 30_000L
+
+    private val attachmentCdnBases = listOf(BuildConfig.CLOUDFLARE_CDN_URL, BuildConfig.MEZON_CDN_URL)
+        .map { it.trim().trimEnd('/') }
+        .filter { it.isNotEmpty() }
 
     class PresignFilterContext private constructor(
         val hasPresignField: Boolean,
@@ -117,7 +122,7 @@ object PresignFinishContent {
             trimmed.startsWith("https://cdn.komu") ||
             trimmed.startsWith("http://cdn.mezon") ||
             trimmed.startsWith("http://cdn.komu") ||
-            isConfiguredMediaUrl(trimmed)
+            attachmentCdnBases.any { trimmed.startsWith("$it/") }
     }
 
     fun presignKey(cdnUrl: String): String {

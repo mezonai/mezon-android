@@ -63,6 +63,7 @@ import com.mezon.mezon.rtapi.UserChannelRemoved
 import com.mezon.mezon.rtapi.UserProfileRedis
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -736,15 +737,12 @@ class DialogsController @Inject constructor(
             if (size > maxBytes) {
                 return DmGroupAvatarUploadResult.TooLarge
             }
-            val normalized = withContext(ioDispatcher) {
-                prepareDmGroupAvatarUpload(contentResolver, uri, sourceMimeType, maxBytes)
-            }
-            val originalFilename = withContext(ioDispatcher) {
-                FileUtils.getPickedFileName(contentResolver, uri)
-            }
-            if (normalized.bytes.isEmpty()) {
-                return DmGroupAvatarUploadResult.Failed
-            }
+            val (normalized, originalFilename) = withContext(ioDispatcher) {
+                val payload = prepareDmGroupAvatarUpload(contentResolver, uri, sourceMimeType, maxBytes)
+                if (payload.bytes.isEmpty()) return@withContext null
+                ensureActive()
+                payload to FileUtils.getPickedFileName(contentResolver, uri)
+            } ?: return DmGroupAvatarUploadResult.Failed
             val ext = when {
                 normalized.mimeType.contains("png", ignoreCase = true) -> "png"
                 normalized.mimeType.contains("webp", ignoreCase = true) -> "webp"

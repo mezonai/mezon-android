@@ -395,7 +395,7 @@ object AttachmentUploader {
         bytes: ByteArray,
         originalFilename: String? = null,
     ): String {
-        val filename = publicImageUploadFilename(originalFilename, fallbackFilename)
+        val filename = publicImageUploadFilename(originalFilename, fallbackFilename, mimeType)
         val presign = api.uploadOauthFile(apiUrl, token, filename, mimeType, bytes.size)
         require(presign.filename.isNotBlank()) { "public image presign returned an empty filename" }
         api.putFileToPresignedUrl(presign.url, bytes, mimeType)

@@ -1,6 +1,8 @@
 package com.mezon.mobile.home.clans
 
+import android.content.ContentResolver
 import android.content.Context
+import android.net.Uri
 import com.mezon.mobile.R
 import android.util.Log
 import com.mezon.mobile.core.LayoutHelper
@@ -25,6 +27,7 @@ import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.util.avatarImgproxyUrl
 import com.mezon.mobile.util.createImgproxyUrl
 import com.mezon.mobile.util.AttachmentUploader
+import com.mezon.mobile.util.FileUtils
 import com.mezon.mobile.home.BadgeCoordinator
 import com.mezon.mobile.home.TopicBadgeTracker
 import com.mezon.mobile.home.clans.channelapp.ChannelAppController
@@ -37,6 +40,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -494,6 +498,34 @@ class ClansController @Inject constructor(
         return sessionManager.withAutoRefresh { session ->
             withContext(ioDispatcher) {
                 api.updateSystemMessage(session.apiUrl, session.token, body)
+            }
+        }
+    }
+
+    suspend fun uploadClanImage(
+        uri: Uri,
+        resolver: ContentResolver,
+        maxBytes: Int,
+        mimeType: String,
+        fallbackFilename: String,
+    ): String {
+        val (bytes, originalFilename) = withContext(ioDispatcher) {
+            val bytes = FileUtils.readContentUriBytesCapped(resolver, uri, maxBytes)
+            require(bytes.isNotEmpty())
+            bytes to FileUtils.getPickedFileName(resolver, uri)
+        }
+        return sessionManager.withAutoRefresh { session ->
+            withContext(ioDispatcher) {
+                ensureActive()
+                AttachmentUploader.uploadPublicImage(
+                    api,
+                    session.apiUrl,
+                    session.token,
+                    fallbackFilename,
+                    mimeType,
+                    bytes,
+                    originalFilename = originalFilename,
+                )
             }
         }
     }

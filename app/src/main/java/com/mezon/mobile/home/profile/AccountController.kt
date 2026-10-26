@@ -24,6 +24,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -464,14 +465,12 @@ class AccountController @Inject constructor(
         appScope.launch {
             try {
                 val mimeType = contentResolver.getType(uri) ?: "image/jpeg"
-                val fileBytes = withContext(ioDispatcher) {
-                    com.mezon.mobile.util.AttachmentUploader.readUriBytesSafely(
+                val (fileBytes, originalFilename) = withContext(ioDispatcher) {
+                    val bytes = com.mezon.mobile.util.AttachmentUploader.readUriBytesSafely(
                         contentResolver, uri, mimeType, appContext.cacheDir
-                    )
-                } ?: throw RuntimeException("Cannot read file or over size limit")
-
-                val originalFilename = withContext(ioDispatcher) {
-                    FileUtils.getPickedFileName(contentResolver, filenameUri)
+                    ) ?: throw RuntimeException("Cannot read file or over size limit")
+                    ensureActive()
+                    bytes to FileUtils.getPickedFileName(contentResolver, filenameUri)
                 }
                 val timestamp = System.currentTimeMillis() / 1000
                 val filename = "${timestamp}_avatar.jpg"

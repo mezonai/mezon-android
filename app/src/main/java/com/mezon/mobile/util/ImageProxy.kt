@@ -76,7 +76,11 @@ private fun resizeExistingImgproxyUrl(
     return options + sourceUrl.substring(optionsEnd)
 }
 
-private val CONFIGURED_MEDIA_BASES = listOf(BuildConfig.CLOUDFLARE_CDN_URL, BuildConfig.MEZON_CDN_URL)
+private val CONFIGURED_MEDIA_BASES = listOf(
+    BuildConfig.CLOUDFLARE_CDN_URL,
+    BuildConfig.MEZON_CDN_URL,
+    BuildConfig.PROFILE_CDN_URL,
+)
     .map { it.trim().trimEnd('/') }
     .filter { it.isNotEmpty() }
 
