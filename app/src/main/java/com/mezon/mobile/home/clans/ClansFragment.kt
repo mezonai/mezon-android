@@ -76,6 +76,7 @@ import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.ui.MezonToast
 import com.mezon.mobile.home.qr.QrScanFragment
 import com.mezon.mobile.home.profile.UserController
+import com.mezon.mobile.util.NetworkErrorMessages
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
@@ -1646,8 +1647,7 @@ class ClansFragment : BaseFragment() {
             val result = channelController.leaveThread(clanId, channel.channelId, channel.parentId)
             withContext(Dispatchers.Main.immediate) {
                 if (!result.isSuccess) {
-                    val msg = result.exceptionOrNull()?.message?.takeIf { it.length < 200 }
-                        ?: getString(R.string.common_something_went_wrong)
+                    val msg = NetworkErrorMessages.userMessage(requireContext(), result.exceptionOrNull())
                     MezonToast.show(
                         this@ClansFragment,
                         ToastOverlay.ToastType.ERROR,
@@ -1714,8 +1714,7 @@ class ClansFragment : BaseFragment() {
                 if (result.isSuccess) {
                     updateChannelList()
                 } else {
-                    val msg = result.exceptionOrNull()?.message?.takeIf { it.length < 200 }
-                        ?: getString(R.string.common_something_went_wrong)
+                    val msg = NetworkErrorMessages.userMessage(requireContext(), result.exceptionOrNull())
                     MezonToast.show(
                         this@ClansFragment,
                         ToastOverlay.ToastType.ERROR,

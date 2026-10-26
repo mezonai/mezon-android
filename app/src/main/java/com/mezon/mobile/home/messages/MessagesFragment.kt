@@ -42,6 +42,7 @@ import com.mezon.mobile.search.GlobalSearchFragment
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.MezonToast
 import com.mezon.mobile.ui.cells.ToastOverlay
+import com.mezon.mobile.util.NetworkErrorMessages
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -693,7 +694,7 @@ class MessagesFragment : BaseFragment() {
                     MezonToast.show(
                         this@MessagesFragment,
                         ToastOverlay.ToastType.ERROR,
-                        getString(R.string.common_something_went_wrong),
+                        NetworkErrorMessages.userMessage(requireContext(), result.exceptionOrNull()),
                     )
                 }
             }
@@ -708,7 +709,7 @@ class MessagesFragment : BaseFragment() {
                     MezonToast.show(
                         this@MessagesFragment,
                         ToastOverlay.ToastType.ERROR,
-                        getString(R.string.common_something_went_wrong),
+                        NetworkErrorMessages.userMessage(requireContext(), result.exceptionOrNull()),
                     )
                 }
             }
@@ -723,7 +724,7 @@ class MessagesFragment : BaseFragment() {
                     MezonToast.show(
                         this@MessagesFragment,
                         ToastOverlay.ToastType.ERROR,
-                        getString(R.string.common_something_went_wrong),
+                        NetworkErrorMessages.userMessage(requireContext(), result.exceptionOrNull()),
                     )
                 }
             }
@@ -731,19 +732,15 @@ class MessagesFragment : BaseFragment() {
     }
 
     private fun performAddFriend(dm: DirectMessage) {
-        friendController.sendFriendRequest(dm.otherUserId, dm.username) { success ->
-            if (!success) {
-                MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.common_something_went_wrong))
-            }
-        }
+        friendController.sendFriendRequest(dm.otherUserId, dm.username, onError = ::showFriendRelationError) {}
     }
 
     private fun performRemoveFriend(dm: DirectMessage) {
-        friendController.deleteFriendRelation(dm.otherUserId, dm.username) { success ->
-            if (!success) {
-                MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.common_something_went_wrong))
-            }
-        }
+        friendController.deleteFriendRelation(dm.otherUserId, dm.username, onError = ::showFriendRelationError) {}
+    }
+
+    private fun showFriendRelationError(error: Throwable) {
+        MezonToast.show(this, ToastOverlay.ToastType.ERROR, NetworkErrorMessages.userMessage(requireContext(), error))
     }
 
     private fun performBlockUser(dm: DirectMessage, block: Boolean) {

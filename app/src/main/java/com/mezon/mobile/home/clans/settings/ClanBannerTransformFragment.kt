@@ -9,6 +9,7 @@ import com.mezon.mobile.ui.MezonToast
 import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.ui.shared.ImageTransformFragment
 import com.mezon.mobile.util.FileUtils
+import com.mezon.mobile.util.NetworkErrorMessages
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -75,7 +76,7 @@ class ClanBannerTransformFragment : ImageTransformFragment() {
         MezonToast.show(
             this,
             ToastOverlay.ToastType.ERROR,
-            getString(R.string.clan_overview_save_error),
+            getString(R.string.image_editor_failed),
         )
         finishFragment()
     }
@@ -105,13 +106,13 @@ class ClanBannerTransformFragment : ImageTransformFragment() {
                     url,
                 )
                 finishFragment()
-            }.onFailure {
+            }.onFailure { error ->
                 runCatching { jpegFile.delete() }
                 onWorkFinished()
                 MezonToast.show(
                     this@ClanBannerTransformFragment,
                     ToastOverlay.ToastType.ERROR,
-                    getString(R.string.clan_overview_save_error),
+                    NetworkErrorMessages.userMessage(requireContext(), error),
                 )
                 finishFragment()
             }

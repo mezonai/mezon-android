@@ -36,6 +36,7 @@ import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.chat.EmojiController
 import com.mezon.mobile.home.chat.MezonImageLoader
+import com.mezon.mobile.util.iconImgproxyUrl
 import com.mezon.mobile.home.chat.StickerItem
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.util.resolveStickerSourceUrl
@@ -515,13 +516,14 @@ class VoiceReactionPickerBottomSheet(
             logoLoad = null
             logoBitmap = null
             if (url.isNullOrBlank()) return
-            val cached = loader.getBitmapFromMemory(url, CATEGORY_ICON_SIZE, CATEGORY_ICON_SIZE)
+            val requestUrl = iconImgproxyUrl(url)
+            val cached = loader.getBitmapFromMemory(requestUrl, CATEGORY_ICON_SIZE, CATEGORY_ICON_SIZE)
             if (cached != null) {
                 logoBitmap = cached
                 return
             }
             logoLoad = loader.load(
-                url,
+                requestUrl,
                 CATEGORY_ICON_SIZE,
                 CATEGORY_ICON_SIZE,
                 onSuccess = { bmp ->

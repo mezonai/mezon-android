@@ -25,6 +25,7 @@ import com.mezon.mobile.ui.cells.ActionBarView
 import com.mezon.mobile.ui.cells.AvatarView
 import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mezon.api.BannedUser
+import com.mezon.mobile.util.NetworkErrorMessages
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -227,7 +228,7 @@ class ChannelBanListFragment : BaseFragment() {
                     MezonToast.show(this@ChannelBanListFragment, ToastOverlay.ToastType.SUCCESS, getString(R.string.channel_ban_unban_success))
                     reloadBanList()
                 } else {
-                    MezonToast.show(this@ChannelBanListFragment, ToastOverlay.ToastType.ERROR, getString(R.string.common_something_went_wrong))
+                    MezonToast.show(this@ChannelBanListFragment, ToastOverlay.ToastType.ERROR, NetworkErrorMessages.userMessage(requireContext(), result.exceptionOrNull()))
                 }
             }
         }

@@ -19,6 +19,8 @@ import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.constraintlayout.helper.widget.Flow
+import androidx.constraintlayout.widget.ConstraintLayout
 import com.mezon.mobile.R
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
@@ -51,6 +53,7 @@ class DiscoverClanDetailFragment : BaseFragment() {
         private const val ARG_ABOUT = "about"
         private const val ARG_TOTAL_MEMBERS = "totalMembers"
         private const val ARG_CREATE_TIME = "createTimeSeconds"
+        private const val ARG_HASHTAGS = "hashtags"
 
         fun newInstance(item: DiscoverClanItem): DiscoverClanDetailFragment {
             return DiscoverClanDetailFragment().apply {
@@ -63,6 +66,7 @@ class DiscoverClanDetailFragment : BaseFragment() {
                     putString(ARG_ABOUT, item.about)
                     putInt(ARG_TOTAL_MEMBERS, item.totalMembers)
                     putInt(ARG_CREATE_TIME, item.createTimeSeconds)
+                    putString(ARG_HASHTAGS, item.hashtags)
                 }
             }
         }
@@ -98,6 +102,7 @@ class DiscoverClanDetailFragment : BaseFragment() {
         val about = args.getString(ARG_ABOUT).orEmpty()
         val totalMembers = args.getInt(ARG_TOTAL_MEMBERS)
         val createTimeSeconds = args.getInt(ARG_CREATE_TIME)
+        val hashtags = parseDiscoverClanHashtags(args.getString(ARG_HASHTAGS))
 
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -246,11 +251,13 @@ class DiscoverClanDetailFragment : BaseFragment() {
             }
             layoutParams = LinearLayout.LayoutParams(LayoutHelper.dp(8), LayoutHelper.dp(8)).apply {
                 rightMargin = LayoutHelper.dp(6)
-                topMargin = LayoutHelper.dp(4)
             }
         }
         membersRow.addView(dot)
-        membersRow.addView(label(context, "$totalMembers ${getString(R.string.discover_members)}", 14f, true, themeColors.onSurface))
+        membersRow.addView(label(context, "$totalMembers ${getString(R.string.discover_members)}", 14f, true, themeColors.onSurface).apply {
+            includeFontPadding = false
+            gravity = Gravity.CENTER
+        })
         inner.addView(membersRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
             bottomMargin = LayoutHelper.dp(24)
         })
@@ -287,19 +294,33 @@ class DiscoverClanDetailFragment : BaseFragment() {
 
         if (about.isNotEmpty()) {
             inner.addView(label(context, getString(R.string.discover_about), 16f, true, themeColors.onSurface).apply {
+                gravity = Gravity.START
                 setPadding(0, 0, 0, LayoutHelper.dp(12))
             })
             inner.addView(label(context, about, 14f, false, themeColors.onSurfaceVariant).apply {
-                setPadding(0, 0, 0, LayoutHelper.dp(16))
+                gravity = Gravity.START
             })
         }
 
-        val tagsRow = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
+        if (hashtags.isNotEmpty()) {
+            inner.addView(createHashtagsView(context, hashtags), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
+                topMargin = if (about.isNotEmpty()) LayoutHelper.dp(16) else 0
+            })
         }
-        listOf(getString(R.string.discover_tag_science), getString(R.string.discover_tag_entertainment)).forEach { tagText ->
+
+        scroll.addView(content)
+        root.addView(scroll, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
+
+        fragmentView = root
+        return root
+    }
+
+    private fun createHashtagsView(context: Context, hashtags: List<String>): View {
+        val tagsLayout = ConstraintLayout(context)
+        val tagIds = hashtags.map { tagText ->
             val tag = TextView(context).apply {
-                text = tagText
+                id = View.generateViewId()
+                text = hashtagLabel(tagText)
                 textSize = 12f
                 setTextColor(themeColors.onSurface)
                 setPadding(LayoutHelper.dp(12), LayoutHelper.dp(6), LayoutHelper.dp(12), LayoutHelper.dp(6))
@@ -309,17 +330,41 @@ class DiscoverClanDetailFragment : BaseFragment() {
                     setStroke(LayoutHelper.dp(1), themeColors.borderDim)
                 }
             }
-            tagsRow.addView(tag, LinearLayout.LayoutParams(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT).apply {
-                rightMargin = LayoutHelper.dp(8)
+            tagsLayout.addView(tag, ConstraintLayout.LayoutParams(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT).apply {
+                constrainedWidth = true
             })
+            tag.id
+        }.toIntArray()
+        val flow = Flow(context).apply {
+            id = View.generateViewId()
+            referencedIds = tagIds
+            setWrapMode(Flow.WRAP_CHAIN)
+            setHorizontalStyle(Flow.CHAIN_PACKED)
+            setHorizontalBias(0f)
+            setHorizontalGap(LayoutHelper.dp(8))
+            setVerticalGap(LayoutHelper.dp(8))
         }
-        inner.addView(tagsRow)
+        tagsLayout.addView(flow, ConstraintLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT).apply {
+            startToStart = ConstraintLayout.LayoutParams.PARENT_ID
+            endToEnd = ConstraintLayout.LayoutParams.PARENT_ID
+            topToTop = ConstraintLayout.LayoutParams.PARENT_ID
+            bottomToBottom = ConstraintLayout.LayoutParams.PARENT_ID
+        })
+        return tagsLayout
+    }
 
-        scroll.addView(content)
-        root.addView(scroll, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
-
-        fragmentView = root
-        return root
+    private fun hashtagLabel(tag: String): String = when (tag) {
+        "Gaming" -> getString(R.string.discover_tag_gaming)
+        "Technology" -> getString(R.string.discover_tag_technology)
+        "Education" -> getString(R.string.discover_tag_education)
+        "Entertainment" -> getString(R.string.discover_tag_entertainment)
+        "Music" -> getString(R.string.discover_tag_music)
+        "Art" -> getString(R.string.discover_tag_art)
+        "Crypto" -> getString(R.string.discover_tag_crypto)
+        "Anime" -> getString(R.string.discover_tag_anime)
+        "Sports" -> getString(R.string.discover_tag_sports)
+        "Community" -> getString(R.string.discover_tag_community)
+        else -> tag
     }
 
     private fun heroBannerHeightPx(context: Context): Int {

@@ -26,6 +26,7 @@ import com.mezon.mobile.ui.MezonToast
 import com.mezon.mobile.ui.cells.ActionBarView
 import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.util.ChannelSettingsNameValidator
+import com.mezon.mobile.util.NetworkErrorMessages
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -285,7 +286,7 @@ class ChannelChangeCategoryFragment : BaseFragment() {
             name, ChannelSettingsNameValidator.TYPE_CHANNEL, channel.categoryId,
         )
         if (duplicate.isFailure) {
-            MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.common_something_went_wrong))
+            MezonToast.show(this, ToastOverlay.ToastType.ERROR, NetworkErrorMessages.userMessage(requireContext(), duplicate.exceptionOrNull()))
             return false
         }
         if (duplicate.getOrDefault(false)) {
@@ -296,7 +297,7 @@ class ChannelChangeCategoryFragment : BaseFragment() {
             clanId, channelId, name, channel.categoryId, channel.topic, ageRestricted = channel.ageRestricted,
         )
         MezonToast.show(this, if (result.isSuccess) ToastOverlay.ToastType.SUCCESS else ToastOverlay.ToastType.ERROR,
-            getString(if (result.isSuccess) R.string.channel_settings_updated else R.string.common_something_went_wrong))
+            if (result.isSuccess) getString(R.string.channel_settings_updated) else NetworkErrorMessages.userMessage(requireContext(), result.exceptionOrNull()))
         return result.isSuccess
     }
 

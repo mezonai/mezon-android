@@ -629,7 +629,7 @@ class MyQrFragment : BaseFragment() {
         }.getOrNull()
         bmp.recycle()
         if (uri == null) {
-            showToast(getString(R.string.common_something_went_wrong), ToastOverlay.ToastType.ERROR)
+            showToast(getString(R.string.message_toast_share_failed), ToastOverlay.ToastType.ERROR)
             return
         }
         val intent = Intent(Intent.ACTION_SEND).apply {

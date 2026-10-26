@@ -23,7 +23,6 @@
     <string name="mention_suggestions_loading">Đang tải thành viên…</string>
     <string name="common_failed_to_load">Không thể tải dữ liệu</string>
     <string name="common_no_results_found">Không tìm thấy kết quả</string>
-    <string name="common_something_went_wrong">Đã xảy ra lỗi</string>
     <string name="common_log_out">Đăng xuất</string>
     <string name="common_confirm_log_out">Bạn có chắc chắn muốn đăng xuất?</string>
     <string name="common_appearance">Giao diện</string>
@@ -62,6 +61,14 @@
     <string name="common_poor_connection">Bạn đang ngoại tuyến.</string>
     <string name="error_network_no_connection">Không có kết nối mạng. Vui lòng bật Wi‑Fi hoặc dữ liệu di động rồi thử lại.</string>
     <string name="error_network_timeout">Kết nối quá lâu. Kiểm tra mạng và thử lại.</string>
+    <string name="error_request_failed">Yêu cầu thất bại. Vui lòng thử lại.</string>
+    <string name="error_server_code">Lỗi máy chủ (mã %1$d)</string>
+    <string name="error_server_invalid_argument">Yêu cầu không hợp lệ.</string>
+    <string name="error_server_not_found">Không tìm thấy dữ liệu hoặc bạn không còn quyền truy cập.</string>
+    <string name="error_server_already_exists">Dữ liệu đã tồn tại.</string>
+    <string name="error_server_permission_denied">Bạn không có quyền thực hiện thao tác này.</string>
+    <string name="error_server_rate_limited">Thao tác quá nhanh. Vui lòng thử lại sau.</string>
+    <string name="error_message_too_long">Tin nhắn quá dài</string>
 
     <!-- qr -->
     <string name="qr_my_code">Mã QR của tôi</string>
@@ -123,6 +130,7 @@
     <string name="share_location_cancel">Hủy</string>
     <string name="share_location_send">Gửi</string>
     <string name="share_location_fetching">Đang lấy vị trí của bạn…</string>
+    <string name="share_location_accuracy">Chính xác trong khoảng %1$s</string>
     <string name="share_location_unavailable">Không lấy được vị trí của bạn. Vui lòng thử lại.</string>
     <string name="location_card_your_location">Vị trí của bạn</string>
     <string name="location_card_location_of">Vị trí của %1$s</string>
@@ -759,7 +767,6 @@
     <string name="menu_clan_roles">Vai trò</string>
     <string name="menu_clan_notification_setting">Cài đặt thông báo</string>
     <string name="clan_overview_save_success">Cài đặt clan đã được cập nhật thành công</string>
-    <string name="clan_overview_save_error">Lỗi khi cập nhật cài đặt clan</string>
     <string name="clan_overview_name_label">Tên clan</string>
     <string name="clan_overview_name_invalid">Nhập tên clan hợp lệ (tối đa 64 ký tự: chữ, số, khoảng trắng, _ hoặc -).</string>
     <string name="clan_overview_name_duplicate">Tên clan đã tồn tại. Hãy chọn tên khác.</string>
@@ -1265,8 +1272,16 @@
     <string name="discover_community">Cộng đồng</string>
     <string name="discover_des_community">Sự kiện và cập nhật hàng tuần.</string>
     <string name="discover_about">Giới thiệu</string>
-    <string name="discover_tag_science">Khoa học &amp; Công nghệ</string>
+    <string name="discover_tag_gaming">Gaming</string>
+    <string name="discover_tag_technology">Công nghệ</string>
+    <string name="discover_tag_education">Học tập</string>
     <string name="discover_tag_entertainment">Giải trí</string>
+    <string name="discover_tag_music">Âm nhạc</string>
+    <string name="discover_tag_art">Nghệ thuật</string>
+    <string name="discover_tag_crypto">Tiền mã hóa</string>
+    <string name="discover_tag_anime">Anime &amp; Manga</string>
+    <string name="discover_tag_sports">Thể thao</string>
+    <string name="discover_tag_community">Cộng đồng</string>
     <string name="discover_list_load_error">Không tải được danh sách cộng đồng. Kéo xuống để thử lại.</string>
     <string name="discover_list_empty_search">Không có cộng đồng phù hợp.</string>
 

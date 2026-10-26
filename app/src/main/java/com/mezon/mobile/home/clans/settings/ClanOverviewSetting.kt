@@ -41,6 +41,7 @@ import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.TextCheckCell
 import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.util.CLAN_OVERVIEW_NAME_MAX_LENGTH
+import com.mezon.mobile.util.NetworkErrorMessages
 import com.mezon.mobile.util.createImgproxyUrl
 import com.mezon.mobile.util.isClanNameValid
 import com.mezon.mezon.api.SystemMessage
@@ -886,7 +887,7 @@ class ClanOverviewSettingFragment : BaseFragment() {
                 MezonToast.show(this@ClanOverviewSettingFragment, ToastOverlay.ToastType.SUCCESS, getString(R.string.clan_overview_save_success))
                 updateSaveUi()
             }.onFailure {
-                MezonToast.show(this@ClanOverviewSettingFragment, ToastOverlay.ToastType.ERROR, getString(R.string.clan_overview_save_error))
+                MezonToast.show(this@ClanOverviewSettingFragment, ToastOverlay.ToastType.ERROR, NetworkErrorMessages.userMessage(requireContext(), it))
             }
         }
     }

@@ -37,6 +37,7 @@ import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.MezonToast
 import com.mezon.mobile.ui.cells.ToastOverlay
+import com.mezon.mobile.util.NetworkErrorMessages
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -534,16 +535,20 @@ class NotificationsFragment : BaseFragment() {
                 )
             } catch (e: CancellationException) {
                 throw e
-            } catch (_: Exception) {
-                if (!isPaused && !isFinished) showTopicOpenError()
+            } catch (e: Exception) {
+                if (!isPaused && !isFinished) showTopicOpenError(e)
             } finally {
                 topicOpeningProgress?.visibility = View.GONE
             }
         }
     }
 
-    private fun showTopicOpenError() {
-        MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.common_something_went_wrong))
+    private fun showTopicOpenError(error: Throwable? = null) {
+        MezonToast.show(
+            this,
+            ToastOverlay.ToastType.ERROR,
+            NetworkErrorMessages.userMessage(requireContext(), error, getString(R.string.error_server_not_found))
+        )
     }
 
     override fun onPause() {

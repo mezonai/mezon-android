@@ -29,6 +29,7 @@ import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.chat.MezonImageLoader
+import com.mezon.mobile.util.iconImgproxyUrl
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.clans.ChannelPickerSheet
 import com.mezon.mobile.home.clans.ClanChannelEntity
@@ -40,6 +41,7 @@ import com.mezon.mobile.ui.cells.ActionBarView
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.util.FileUtils
+import com.mezon.mobile.util.NetworkErrorMessages
 import com.mezon.mobile.util.Webhook as WebhookUtil
 import com.mezon.mezon.api.ClanWebhook
 import com.mezon.mezon.api.Webhook
@@ -494,7 +496,7 @@ class WebhookEditFragment : BaseFragment() {
                 bindAvatarImage()
                 refreshSaveUi()
             }.onFailure {
-                MezonToast.show(this@WebhookEditFragment, ToastOverlay.ToastType.ERROR, getString(R.string.clan_overview_save_error))
+                MezonToast.show(this@WebhookEditFragment, ToastOverlay.ToastType.ERROR, NetworkErrorMessages.userMessage(requireContext(), it))
             }
             busy?.visibility = View.GONE
         }
@@ -506,7 +508,7 @@ class WebhookEditFragment : BaseFragment() {
         val s = LayoutHelper.dp(100f)
         if (draftAvatar.isNotBlank()) {
             avatarLoadDisposable = MezonImageLoader.getInstance(ctx).loadDrawable(
-                draftAvatar,
+                iconImgproxyUrl(draftAvatar),
                 s,
                 s,
                 cacheAnimated = true,
