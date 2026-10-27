@@ -426,8 +426,14 @@ class ChannelListView(
         }
         return rows.map { row ->
             when (row) {
-                is ChannelRow.Channel -> row.copy(hasBuzz = buzzChecker?.invoke(row.channel.channelId) == true)
+                is ChannelRow.Channel -> row.copy(
+                    hasBuzz = buzzChecker?.invoke(row.channel.channelId) == true,
+                    streamViewerCount = if (row.channel.type == CHANNEL_TYPE_STREAMING && row.voiceActive)
+                        voiceMembersByChannel[row.channel.channelId]?.firstOrNull()?.streamViewerCount else null,
+                )
                 is ChannelRow.Thread -> row.copy(hasBuzz = buzzChecker?.invoke(row.thread.channelId) == true)
+                is ChannelRow.VoiceMember -> if (row.member.streamViewerCount != null)
+                    row.copy(member = row.member.copy(streamViewerCount = null)) else row
                 else -> row
             }
         }
@@ -577,7 +583,7 @@ class ChannelListView(
                     (holder as SectionVH).cell.bind(row.categoryName, row.isExpanded, row.isFavorite)
                 }
                 is ChannelRow.Channel -> {
-                    (holder as ChannelVH).cell.bind(row.channel, row.isActive, row.voiceActive, row.hasBuzz)
+                    (holder as ChannelVH).cell.bind(row.channel, row.isActive, row.voiceActive, row.hasBuzz, row.streamViewerCount)
                 }
                 is ChannelRow.Thread -> {
                     (holder as ThreadVH).cell.bind(row.thread, row.isFirst, row.isLast, row.isActive, row.hasBuzz)
@@ -587,7 +593,7 @@ class ChannelListView(
                         row.member.userId,
                         row.member.displayName,
                         row.member.avatarUrl,
-                        row.member.isSharingScreen
+                        row.member.isSharingScreen,
                     )
                 }
                 is ChannelRow.VoiceCollapsedMembers -> {
@@ -651,7 +657,8 @@ data class VoiceMemberDisplay(
     val userId: Long,
     val displayName: String,
     val avatarUrl: String?,
-    val isSharingScreen: Boolean = false
+    val isSharingScreen: Boolean = false,
+    val streamViewerCount: Int? = null,
 )
 
 sealed class ChannelRow {
@@ -667,7 +674,8 @@ sealed class ChannelRow {
         val isActive: Boolean,
         val isFavorite: Boolean = false,
         val voiceActive: Boolean = false,
-        val hasBuzz: Boolean = false
+        val hasBuzz: Boolean = false,
+        val streamViewerCount: Int? = null,
     ) : ChannelRow()
     data class Thread(val thread: ClanChannelEntity, val isFirst: Boolean, val isLast: Boolean, val isActive: Boolean, val hasBuzz: Boolean = false) : ChannelRow()
     data class VoiceMember(

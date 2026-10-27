@@ -1108,11 +1108,13 @@ class GlobalSearchFragment : BaseFragment() {
         val activity = getParentActivity() ?: return
         val targetClanId = channel.clanId
         val memberIds = streamingController.getStreamMembersForChannel(channel.channelId, targetClanId)
-        val displays = buildMemberDisplays(memberIds, targetClanId)
+        val displays = buildMemberDisplays(memberIds.take(6), targetClanId)
         val sheet = JoinVoiceBottomSheet(
-            activity, themeColors, channel.channelLabel, channel.channelId, targetClanId, displays, channel.unreadCount,
+            activity, themeColors, channel.channelLabel, channel.channelId, targetClanId, displays.drop(1), channel.unreadCount,
             JoinMediaSheetKind.STREAMING,
             canJoin = memberIds.isNotEmpty(),
+            streamPublisher = displays.firstOrNull(),
+            streamViewerCount = streamingController.getViewerCount(channel.channelId, targetClanId),
         )
         sheet.onJoinVoice = { _ ->
             (activity as? MainActivity)?.showStreamingRoom(channel.channelId, targetClanId, channel.channelLabel)

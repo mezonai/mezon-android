@@ -1330,7 +1330,7 @@ class ClansFragment : BaseFragment() {
         val result = HashMap<Long, List<VoiceMemberDisplay>>()
         for (vc in voiceChannels) {
             val userIds = when (vc.type) {
-                CHANNEL_TYPE_STREAMING -> streamingController.getStreamMembersForChannel(vc.channelId, clanId)
+                CHANNEL_TYPE_STREAMING -> streamingController.getStreamMembersForChannel(vc.channelId, clanId).take(6)
                 else -> voiceController.getVoiceMembersForChannel(vc.channelId, clanId)
             }
             if (userIds.isEmpty()) continue
@@ -1338,12 +1338,13 @@ class ClansFragment : BaseFragment() {
                 CHANNEL_TYPE_STREAMING -> emptySet()
                 else -> voiceController.getScreenSharingUsersForChannel(vc.channelId, clanId)
             }
-            val displays = userIds.map { uid ->
+            val displays = userIds.mapIndexed { index, uid ->
                 val identity = resolveVoiceMemberIdentity(
                     uid, memberMap[uid], userClanController.getUserById(uid), "User"
                 )
                 VoiceMemberDisplay(
-                    uid, identity.displayName, identity.avatarUrl, uid in sharingIds
+                    uid, identity.displayName, identity.avatarUrl, uid in sharingIds,
+                    if (vc.type == CHANNEL_TYPE_STREAMING && index == 0) streamingController.getViewerCount(vc.channelId, clanId) else null,
                 )
             }
             if (displays.isNotEmpty()) result[vc.channelId] = displays
@@ -1736,7 +1737,7 @@ class ClansFragment : BaseFragment() {
         val memberMap = HashMap<Long, ClanMember>(clanMembers.size)
         for (m in clanMembers) memberMap[m.userId] = m
 
-        val displays = members.map { uid ->
+        val displays = members.take(6).map { uid ->
             val identity = resolveVoiceMemberIdentity(
                 uid, memberMap[uid], userClanController.getUserById(uid), "User"
             )
@@ -1744,9 +1745,11 @@ class ClansFragment : BaseFragment() {
         }
 
         val sheet = JoinVoiceBottomSheet(
-            activity, themeColors, channel.channelLabel, channel.channelId, clanId, displays, channel.unreadCount,
+            activity, themeColors, channel.channelLabel, channel.channelId, clanId, displays.drop(1), channel.unreadCount,
             JoinMediaSheetKind.STREAMING,
             canJoin = members.isNotEmpty(),
+            streamPublisher = displays.firstOrNull(),
+            streamViewerCount = streamingController.getViewerCount(channel.channelId, clanId),
         )
         sheet.onJoinVoice = { _ ->
             (getParentActivity() as? MainActivity)?.showStreamingRoom(

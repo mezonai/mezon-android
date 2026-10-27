@@ -36,6 +36,8 @@ class JoinVoiceBottomSheet(
     private val unreadCount: Int = 0,
     private val kind: JoinMediaSheetKind = JoinMediaSheetKind.VOICE,
     private val canJoin: Boolean = true,
+    private val streamPublisher: VoiceMemberDisplay? = null,
+    private val streamViewerCount: Int? = null,
 ) : BottomSheet(context) {
 
     var onJoinVoice: ((role: SfuRole) -> Unit)? = null
@@ -106,8 +108,8 @@ class JoinVoiceBottomSheet(
             gravity = Gravity.CENTER
         }
         val maxDisplay = 3
-        val displayMembers = members.take(maxDisplay)
-        val avatarSizePx = LayoutHelper.dp(40)
+        val displayMembers = if (kind == JoinMediaSheetKind.STREAMING && streamPublisher != null) listOf(streamPublisher) else members.take(maxDisplay)
+        val avatarSizePx = LayoutHelper.dp(if (streamPublisher != null) 76 else 40)
         val overlapPx = LayoutHelper.dp(5)
 
         if (displayMembers.isNotEmpty()) {
@@ -125,18 +127,18 @@ class JoinVoiceBottomSheet(
                         setColor(0xFFFFFFFF.toInt())
                     }
                     addView(avatarView, FrameLayout.LayoutParams(
-                        LayoutHelper.dp(38), LayoutHelper.dp(38), Gravity.CENTER
+                        avatarSizePx - LayoutHelper.dp(2), avatarSizePx - LayoutHelper.dp(2), Gravity.CENTER
                     ))
                 }
                 val holder = AvatarHolder(avatarDrawable, avatarView)
                 avatarHolders.add(holder)
-                loadAvatar(holder, member.avatarUrl, LayoutHelper.dp(38))
+                loadAvatar(holder, member.avatarUrl, avatarSizePx - LayoutHelper.dp(2))
                 val lp = LinearLayout.LayoutParams(avatarSizePx, avatarSizePx)
                 if (i > 0) lp.marginStart = -overlapPx
                 avatarRow.addView(avatarWrap, lp)
             }
 
-            if (members.size > maxDisplay) {
+            if (streamPublisher == null && members.size > maxDisplay) {
                 val overflowText = TextView(context).apply {
                     text = "+${members.size - maxDisplay}"
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
@@ -182,7 +184,7 @@ class JoinVoiceBottomSheet(
         root.addView(avatarContainer, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
         val roomLabel = TextView(context).apply {
-            text = if (kind == JoinMediaSheetKind.STREAMING) "Stream" else "Voice Room"
+            text = streamPublisher?.let { it.displayName + "  LIVE" } ?: if (kind == JoinMediaSheetKind.STREAMING) "Stream" else "Voice Room"
             setTextColor(themeColors.onSurface)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
             typeface = Typeface.DEFAULT_BOLD
@@ -194,7 +196,9 @@ class JoinVoiceBottomSheet(
 
         val statusLabel = TextView(context).apply {
             text = if (kind == JoinMediaSheetKind.STREAMING) {
-                when {
+                if (streamPublisher != null) context.getString(com.mezon.mobile.R.string.stream_is_live, streamPublisher.displayName) + "\n" +
+                    context.getString(com.mezon.mobile.R.string.stream_viewers, streamViewerCount ?: members.size)
+                else when {
                     members.size == 1 -> "1 person is in the stream"
                     members.size > 1 -> "${members.size} people are in the stream"
                     else -> "No one is currently in the stream"
@@ -217,6 +221,29 @@ class JoinVoiceBottomSheet(
         val buttonRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
+        }
+
+        if (kind == JoinMediaSheetKind.STREAMING && streamPublisher != null && (streamViewerCount ?: members.size) > 0) {
+            val viewers = LinearLayout(context).apply { gravity = Gravity.CENTER; orientation = LinearLayout.HORIZONTAL }
+            val visible = members.take(3)
+            for ((index, member) in visible.withIndex()) {
+                val drawable = AvatarDrawable().apply { setUserId(member.userId) }
+                val image = ImageView(context).apply { setImageDrawable(drawable) }
+                val holder = AvatarHolder(drawable, image)
+                avatarHolders.add(holder)
+                loadAvatar(holder, member.avatarUrl, LayoutHelper.dp(36))
+                viewers.addView(image, LinearLayout.LayoutParams(LayoutHelper.dp(36), LayoutHelper.dp(36)).apply {
+                    if (index > 0) marginStart = -LayoutHelper.dp(5)
+                })
+            }
+            val overflow = ((streamViewerCount ?: members.size) - visible.size).coerceAtLeast(0)
+            if (overflow > 0) viewers.addView(TextView(context).apply {
+                text = "+" + java.text.NumberFormat.getIntegerInstance().format(overflow)
+                gravity = Gravity.CENTER; setTextColor(themeColors.onSurface); textSize = 12f
+                setPadding(LayoutHelper.dp(8), 0, LayoutHelper.dp(8), 0)
+                background = GradientDrawable().apply { setColor(themeColors.surfaceVariant); cornerRadius = LayoutHelper.dp(18).toFloat() }
+            }, LinearLayout.LayoutParams(-2, LayoutHelper.dp(36)).apply { marginStart = -LayoutHelper.dp(5) })
+            root.addView(viewers, LinearLayout.LayoutParams(-1, -2).apply { topMargin = LayoutHelper.dp(12); bottomMargin = LayoutHelper.dp(12) })
         }
 
         val joinControl: View = if (kind == JoinMediaSheetKind.STREAMING) {

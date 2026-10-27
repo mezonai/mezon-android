@@ -1913,4 +1913,27 @@
     <string name="external_meeting_link_prompt">Join this call in the app or open it in your browser.</string>
     <string name="external_meeting_link_invalid">This meeting link is invalid or has expired.</string>
     <string name="external_meeting_guest">Guest</string>
+
+    <string name="stream_unavailable">Stream is not available</string>
+    <string name="stream_connecting">Connecting…</string>
+    <string name="stream_quality_title">Quality</string>
+    <string name="stream_quality_description">Choose your playback quality</string>
+    <string name="stream_quality_auto">Auto</string>
+    <string name="stream_quality_high">High</string>
+    <string name="stream_quality_medium">Medium</string>
+    <string name="stream_quality_low">Low</string>
+    <string name="stream_quality_auto_detail">Adapts to your connection</string>
+    <string name="stream_quality_high_detail">Best picture quality</string>
+    <string name="stream_quality_medium_detail">Balanced quality and data</string>
+    <string name="stream_quality_low_detail">Uses less data</string>
+    <string name="stream_quality_default">Default quality</string>
+    <string name="stream_quality_save_default">Use as default</string>
+    <string name="stream_quality_default_detail">%1$s for new streams</string>
+    <string name="stream_speaker">Switch to speaker</string>
+    <string name="stream_receiver">Switch to receiver</string>
+    <string name="stream_viewers">%1$d viewers</string>
+    <string name="stream_more_viewers">%1$d more viewers</string>
+    <string name="stream_close">Close</string>
+    <string name="stream_join">Join stream</string>
+    <string name="stream_is_live">%1$s is live</string>
 </resources>

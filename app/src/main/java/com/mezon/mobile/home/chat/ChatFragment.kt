@@ -9126,7 +9126,7 @@ open class ChatFragment : BaseFragment() {
         val clanMembers = userClanController.getClanMembers(targetClanId)
         val memberMap = HashMap<Long, ClanMember>(clanMembers.size)
         for (m in clanMembers) memberMap[m.userId] = m
-        val displays = memberIds.map { uid ->
+        val displays = memberIds.take(6).map { uid ->
             val identity = resolveVoiceMemberIdentity(
                 uid, memberMap[uid], userClanController.getUserById(uid), "User"
             )
@@ -9138,10 +9138,12 @@ open class ChatFragment : BaseFragment() {
             channel.channelLabel,
             channel.channelId,
             targetClanId,
-            displays,
+            displays.drop(1),
             channel.unreadCount,
             JoinMediaSheetKind.STREAMING,
             canJoin = memberIds.isNotEmpty(),
+            streamPublisher = displays.firstOrNull(),
+            streamViewerCount = streamingController.getViewerCount(channel.channelId, targetClanId),
         )
         sheet.onJoinVoice = { _ ->
             (activity as? MainActivity)?.showStreamingRoom(
