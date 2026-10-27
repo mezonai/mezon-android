@@ -37,6 +37,7 @@ import android.widget.TextView
 import androidx.core.graphics.ColorUtils
 import androidx.core.view.NestedScrollingParent3
 import androidx.core.view.NestedScrollingParentHelper
+import androidx.core.view.OneShotPreDrawListener
 import androidx.core.view.ViewCompat
 
 
@@ -187,6 +188,8 @@ open class BottomSheet(
 
     // Open animation
     protected var openInterpolator: Interpolator = CubicBezierInterpolator.EASE_OUT_QUINT
+    protected var openAnimationDurationMs = 200L
+    protected var openAnimationStartDelayMs = 0L
     protected var currentSheetAnimation: AnimatorSet? = null
     protected var currentSheetAnimationType = 0
     protected var navigationBarAnimation: ValueAnimator? = null
@@ -195,9 +198,9 @@ open class BottomSheet(
     private var currentPanTranslationY = 0f
     private var lastInsets: WindowInsets? = null
     private var lastKeyboardHeight = 0
-    private var layoutCount = 0
     protected var startAnimationRunnable: Runnable? = null
-    private var openNoDelay = false
+    private var openPreDrawListener: OneShotPreDrawListener? = null
+    private var openNoDelay = true
     private var allowDrawContent = true
     private var useHardwareLayer = true
     private var useLightStatusBar = true
@@ -564,7 +567,6 @@ open class BottomSheet(
         }
 
         backDrawable.alpha = 0
-        layoutCount = 2
 
         containerView?.translationY = (statusBarHeight +
                 (containerView?.measuredHeight ?: AndroidUtilities.dp(300)) +
@@ -572,13 +574,23 @@ open class BottomSheet(
                 ).toFloat()
         onContainerViewTranslation()
 
-        val delay = if (openNoDelay) 0L else 150L
-        startAnimationRunnable = Runnable {
-            if (startAnimationRunnable != this@BottomSheet.startAnimationRunnable || dismissed) return@Runnable
-            startAnimationRunnable = null
-            startOpenAnimation()
+        val startAnimation = object : Runnable {
+            override fun run() {
+                if (startAnimationRunnable !== this || dismissed) return
+                startAnimationRunnable = null
+                openPreDrawListener?.removeListener()
+                openPreDrawListener = null
+                startOpenAnimation()
+            }
         }
-        AndroidUtilities.runOnUIThread(startAnimationRunnable!!, delay)
+        startAnimationRunnable = startAnimation
+        if (openNoDelay) {
+            // The first pre-draw has the final sheet size and window insets.
+            // Start there instead of waiting a fixed delay or a second layout.
+            openPreDrawListener = OneShotPreDrawListener.add(container, startAnimation)
+        } else {
+            AndroidUtilities.runOnUIThread(startAnimation, 150L)
+        }
     }
 
     private fun startOpenAnimation() {
@@ -628,9 +640,9 @@ open class BottomSheet(
                     duration = 250
                     interpolator = CubicBezierInterpolator.DEFAULT
                 } else {
-                    duration = 400
+                    duration = openAnimationDurationMs
                     interpolator = openInterpolator
-                    startDelay = 20
+                    startDelay = openAnimationStartDelayMs
                 }
 
                 addListener(object : AnimatorListenerAdapter() {
@@ -669,6 +681,10 @@ open class BottomSheet(
     protected open fun onCustomCloseAnimation(): Boolean = false
 
     fun cancelSheetAnimation() {
+        startAnimationRunnable?.let { AndroidUtilities.cancelRunOnUIThread(it) }
+        startAnimationRunnable = null
+        openPreDrawListener?.removeListener()
+        openPreDrawListener = null
         currentSheetAnimation?.cancel()
         currentSheetAnimation = null
         currentSheetAnimationType = 0
@@ -1314,7 +1330,6 @@ open class BottomSheet(
         }
 
         override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
-            layoutCount--
             val layoutBottom = if (lastInsets != null && !drawNavigationBar) {
                 if (this@BottomSheet.needFocusable && this@BottomSheet.keyboardVisible) {
                     bottom - (lastInsets!!.systemWindowInsetBottom - this@BottomSheet.bottomInset)
@@ -1353,12 +1368,6 @@ open class BottomSheet(
                     else -> lp.topMargin
                 }
                 child.layout(childLeft, childTop, childLeft + childWidth, childTop + childHeight)
-            }
-
-            if (layoutCount == 0 && startAnimationRunnable != null) {
-                AndroidUtilities.cancelRunOnUIThread(startAnimationRunnable!!)
-                startAnimationRunnable?.run()
-                startAnimationRunnable = null
             }
         }
 

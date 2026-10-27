@@ -1163,16 +1163,21 @@ class DialogsController @Inject constructor(
                     !markDmMessageCounted(msg.messageId) -> baseDm.unreadCount
                     else -> baseDm.unreadCount + 1
                 }
-                val newPreview = if (!isContentMutation ||
+                val isLatestMessage = msg.messageId >= baseDm.lastSentMessageId
+                val canUpdatePreview = if (isContentMutation) {
+                    msg.messageId == baseDm.lastSentMessageId
+                } else isLatestMessage && !isEphemeralControl
+                val newPreview = if (canUpdatePreview && (!isContentMutation ||
                     msg.code == CODE_CHAT_UPDATE ||
                     msg.code == MessageEntity.CODE_UPDATE_EPHEMERAL
-                ) {
+                )) {
                     formatDirectMessagePreview(messagePreviewForDialog(appContext, msg.content, msg.attachments, msg.code))
                 } else {
                     baseDm.lastMessageContent
                 }
 
-                val canAdvanceTimeline = !isContentMutation && !isEphemeralControl && msg.messageId > 0L
+                val canAdvanceTimeline = !isContentMutation && !isEphemeralControl &&
+                    msg.messageId > 0L && isLatestMessage
 
                 val newSentMessageId = if (canAdvanceTimeline) msg.messageId else baseDm.lastSentMessageId
 
@@ -1191,7 +1196,9 @@ class DialogsController @Inject constructor(
                 )
                 updatedDm = result
                 dialogsDict.put(msg.channelId, result)
-                orderChanged = reorderDialogInPlace(msg.channelId, result, isContentMutation || isEphemeralControl)
+                orderChanged = reorderDialogInPlace(
+                    msg.channelId, result, isContentMutation || isEphemeralControl || !isLatestMessage
+                )
             }
         }
         updatedDm?.let { dm ->

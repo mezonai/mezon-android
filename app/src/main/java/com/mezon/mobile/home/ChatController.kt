@@ -17,6 +17,7 @@ import com.mezon.mobile.home.chat.canEditMessage
 import com.mezon.mobile.home.chat.ForwardDestination
 import com.mezon.mobile.home.chat.mergeChannelContentMentionsAndRefs
 import com.mezon.mobile.home.chat.isGifAttachment
+import com.mezon.mobile.home.chat.isCallLogMessage
 import com.mezon.mobile.home.chat.isImageAttachmentType
 import com.mezon.mobile.home.chat.isVideoAttachmentType
 import com.mezon.mobile.home.chat.toMessageEntity
@@ -1629,6 +1630,9 @@ class ChatController @Inject constructor(
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
         val tempId = generateTempId(channelId)
+        // iOS sends a nonzero client ID on SendChannelMessage. Keep it stable
+        // across retries and token refreshes instead of serializing the default 0.
+        val clientMessageId = MezonSnowflake.generate()
         val uc = userController.get()
         val anon = isAnonymousSend(clanId)
         val (optName, optAvatar) = optimisticSenderPresentation(uc, clanId, channelType, anon)
@@ -1652,6 +1656,7 @@ class ChatController @Inject constructor(
             sessionManager.withAutoRefresh { session ->
                 ensureActiveArchivedThreadIfNeeded(session.apiUrl, session.token, channelId, clanId, channelType)
                 val request = channelMessageSend {
+                    this.id = clientMessageId
                     this.clanId = clanId
                     this.channelId = channelId
                     this.mode = mode
@@ -1666,12 +1671,31 @@ class ChatController @Inject constructor(
                 notificationCenter.postNotificationOnMainThread(
                     NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
                 )
+                if (ack.messageId != 0L) {
+                    try {
+                        publishAcknowledgedRawMessage(
+                            optimistic.copy(
+                                id = ack.messageId,
+                                timestampSeconds = (ack.createTimeSeconds.toLong() and 0xFFFF_FFFFL)
+                                    .takeIf { it > 0L } ?: optimistic.timestampSeconds,
+                                sendState = MessageEntity.SEND_STATE_SENT
+                            ),
+                            clanId,
+                            channelType
+                        )
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        // The server accepted the message; a cache failure is not a send failure.
+                        Log.e(TAG, "Failed to cache acknowledged message channelId=$channelId", e)
+                    }
+                }
                 ack.messageId
             }
         } catch (e: Exception) {
             Log.e(
                 TAG,
-                "sendRawChannelMessage failed channelId=$channelId clanId=$clanId mode=$mode isPublic=$isPublic",
+                "sendRawChannelMessage failed channelId=$channelId clientMessageId=$clientMessageId clanId=$clanId mode=$mode isPublic=$isPublic",
                 e
             )
             sentryReporter.logChatFailure("sendRawChannelMessage", channelId, clanId, e)
@@ -1681,6 +1705,78 @@ class ChatController @Inject constructor(
             0L
         }
     }
+
+    private suspend fun publishAcknowledgedRawMessage(
+        message: MessageEntity,
+        clanId: Long,
+        channelType: Int
+    ) = withContext(ioDispatcher) {
+        val stored = messageDao.cacheAcknowledgedMessage(message)
+        synchronized(this@ChatController) {
+            val last = dialogMessage.get(stored.channelId)
+            if (last == null || stored.id >= last.id) dialogMessage.put(stored.channelId, stored)
+            if (stored.id > lastMessageByChannel.get(stored.channelId, 0L)) {
+                lastMessageByChannel.put(stored.channelId, stored.id)
+            }
+        }
+        // An HTTP send need not produce a realtime echo when the DM is not open.
+        // Treat this as a new message even if a final call-result edit arrived first.
+        dialogsController.updateOnNewMessage(
+            stored.toDialogChannelMessage(clanId, channelType, message.code), userController.get().userId
+        )
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.didReceiveNewMessages, stored.channelId, stored
+        )
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_NEW_MESSAGE
+        )
+    }
+
+    suspend fun applyCallLogUpdate(
+        channelId: Long,
+        clanId: Long,
+        channelType: Int,
+        messageId: Long,
+        content: String
+    ) = withContext(ioDispatcher) {
+        val existing = messageDao.getById(channelId, messageId) ?: return@withContext
+        val updated = messageDao.upsertPreservingReactions(existing.copy(
+            content = content,
+            updateTimeSeconds = System.currentTimeMillis() / 1000L,
+            hideEditted = true,
+            code = CODE_CHAT_UPDATE
+        ))
+        synchronized(this@ChatController) {
+            if (dialogMessage.get(channelId)?.id == messageId) dialogMessage.put(channelId, updated)
+        }
+        dialogsController.updateOnNewMessage(
+            updated.toDialogChannelMessage(clanId, channelType), userController.get().userId
+        )
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.messageDidUpdate, channelId, updated,
+            NotificationCenter.UPDATE_MASK_MESSAGE_TEXT
+        )
+    }
+
+    private fun MessageEntity.toDialogChannelMessage(
+        clanId: Long,
+        channelType: Int,
+        messageCode: Int = code
+    ): ChannelMessage = ChannelMessage.newBuilder()
+        .setClanId(clanId)
+        .setChannelId(channelId)
+        .setMessageId(id)
+        .setSenderId(senderId)
+        .setUsername(senderUsername)
+        .setDisplayName(senderName)
+        .setAvatar(senderAvatar)
+        .setContent(content)
+        .setMode(channelTypeToStreamMode(channelType))
+        .setCode(messageCode)
+        .setCreateTimeSeconds(timestampSeconds.toInt())
+        .setUpdateTimeSeconds(updateTimeSeconds.toInt())
+        .setHideEditted(hideEditted)
+        .build()
 
     fun sendDirectAttachment(
         channelId: Long,
@@ -3342,6 +3438,11 @@ class ChatController @Inject constructor(
         incoming: MessageEntity,
         forceContentReplace: Boolean = false,
     ): MessageEntity {
+        if (!forceContentReplace && existing?.code == CODE_CHAT_UPDATE &&
+            incoming.code == MessageEntity.CODE_CHAT && existing.isCallLogMessage()) {
+            // A delayed STARTCALL echo must not replace an already saved end result.
+            return existing
+        }
         val base = existing ?: incoming
         val job = synchronized(this) { attachmentJobsByRealId.get(incoming.id) }
         val incomingCount = incoming.allAttachmentsInfo.size
@@ -3798,7 +3899,15 @@ class ChatController @Inject constructor(
                         notificationCenter.postNotificationOnMainThread(
                             NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_NEW_MESSAGE
                         )
+                        dialogsController.updateOnNewMessage(
+                            msg.toBuilder()
+                                .setContent(merged.content)
+                                .setCode(merged.code)
+                                .build(),
+                            currentUserId
+                        )
                     }
+                    return@collect
                 }
             }
 

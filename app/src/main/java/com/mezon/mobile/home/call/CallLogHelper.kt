@@ -3,6 +3,7 @@ package com.mezon.mobile.home.call
 import android.util.Log
 import com.mezon.mezon.rtapi.channelMessageUpdate
 import com.mezon.mobile.di.IoDispatcher
+import com.mezon.mobile.home.ChatController
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.network.channelTypeToStreamMode
 import com.mezon.mobile.session.SessionManager
@@ -12,6 +13,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
+import dagger.Lazy
 
 private const val TAG = "CallLogHelper"
 
@@ -19,6 +21,7 @@ private const val TAG = "CallLogHelper"
 class CallLogHelper @Inject constructor(
     private val api: MezonApi,
     private val sessionManager: SessionManager,
+    private val chatController: Lazy<ChatController>,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) {
 
@@ -42,8 +45,7 @@ class CallLogHelper @Inject constructor(
         val content = buildCallLogJson(t, type, isVideo)
         scope.launch(ioDispatcher) {
             try {
-                // A profile call can target a DM that was never joined on this socket.
-                // Persist the result through the API independently of that subscription.
+                // Match iOS: prefer the socket API and retain its HTTP fallback.
                 val request = channelMessageUpdate {
                     this.clanId = clanId
                     this.channelId = channelId
@@ -54,8 +56,9 @@ class CallLogHelper @Inject constructor(
                     this.hideEditted = true
                 }
                 sessionManager.withAutoRefresh { session ->
-                    api.updateChannelMessage(session.apiUrl, session.token, request, httpOnly = true)
+                    api.updateChannelMessage(session.apiUrl, session.token, request)
                 }
+                chatController.get().applyCallLogUpdate(channelId, clanId, channelType, messageId, content)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

@@ -59,6 +59,7 @@ import com.mezon.mobile.home.chat.thread.ThreadListFragment
 import com.mezon.mobile.home.messages.NewGroupFragment
 import com.mezon.mobile.home.messages.DmMuteBottomSheet
 import com.mezon.mobile.home.ChatController
+import com.mezon.mobile.home.chat.UserShortProfileActions
 import com.mezon.mobile.home.PinMessageController
 import com.mezon.mobile.MainActivity
 import com.mezon.mobile.search.GlobalSearchFragment
@@ -132,6 +133,7 @@ class ChannelInfoFragment : BaseFragment() {
     private lateinit var clansController: ClansController
     private lateinit var voiceController: VoiceController
     private lateinit var permissionPolicy: PermissionPolicy
+    private lateinit var shortProfileActions: UserShortProfileActions
     private var settingsActionGap: View? = null
     private var settingsActionView: View? = null
     private var muteActionIconView: ImageView? = null
@@ -315,6 +317,14 @@ class ChannelInfoFragment : BaseFragment() {
         channelFilesController = entryPoint.channelFilesController()
         channelGalleryController = entryPoint.channelGalleryController()
         channelCanvasController = entryPoint.channelCanvasController()
+        shortProfileActions = UserShortProfileActions(
+            fragment = this,
+            entryPoint = entryPoint,
+            onOpenDm = { dmId, name ->
+                (getParentActivity() as? MainActivity)?.openChat(dmId, name, 0L, CHANNEL_TYPE_DM)
+            },
+            onTransferFunds = { userId, username -> openProfileTransferFunds(userId, username) }
+        )
     }
 
     override fun createView(context: Context): View {
@@ -728,8 +738,7 @@ class ChannelInfoFragment : BaseFragment() {
             adapter = memberListAdapter
             setOnItemClickListener(RecyclerListView.OnItemClickListener { _, position ->
                 val member = memberListAdapter?.getMember(position) ?: return@OnItemClickListener
-                if (member.userId == userController.userId) return@OnItemClickListener
-                navigateToDm(member)
+                showMemberProfile(member)
             })
         }
         container.addView(membersRecyclerView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
@@ -1088,17 +1097,20 @@ class ChannelInfoFragment : BaseFragment() {
         )
     }
 
-    private fun navigateToDm(member: ClanMember) {
-        fragmentScope.launch {
-            val dmChannelId = dialogsController.getOrCreateDm(member.userId)
-            if (dmChannelId != 0L) {
-                launch(Dispatchers.Main.immediate) {
-                    (getParentActivity() as? MainActivity)?.openChat(
-                        dmChannelId, member.displayName.ifBlank { member.username }, 0L, CHANNEL_TYPE_DM
-                    )
-                }
-            }
-        }
+    private fun showMemberProfile(member: ClanMember) {
+        shortProfileActions.show(
+            userId = member.userId,
+            username = member.username,
+            displayName = member.clanNick.ifBlank { member.displayName },
+            avatarUrl = member.clanAvatar.ifBlank { member.avatarUrl },
+            clanId = clanId,
+            roleIds = member.roleIds
+        )
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        shortProfileActions.onRequestPermissionsResult(requestCode, permissions, grantResults)
     }
 
     private fun reloadMembers() {
