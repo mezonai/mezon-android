@@ -1936,4 +1936,15 @@
     <string name="stream_close">Close</string>
     <string name="stream_join">Join stream</string>
     <string name="stream_is_live">%1$s is live</string>
+
+    <!-- Voice breakout participant invitations -->
+    <string name="voice_breakout_title">Breakout rooms</string>
+    <string name="voice_breakout_assigned">The host assigned you to a breakout room.</string>
+    <string name="voice_breakout_choose">The host opened breakout rooms. Pick one to join.</string>
+    <string name="voice_breakout_return">The host closed the breakout rooms. Return to the main room?</string>
+    <string name="voice_breakout_return_to_main">Return to main room</string>
+    <string name="voice_breakout_join">Join</string>
+    <string name="voice_breakout_not_now">Not now</string>
+    <string name="voice_breakout_room">Room %1$s</string>
+    <string name="voice_breakout_unavailable">Could not join this voice room. Please try again.</string>
 </resources>

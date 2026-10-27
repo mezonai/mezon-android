@@ -37,6 +37,8 @@ import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.util.createImgproxyUrl
 import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.util.Locale
 
@@ -68,7 +70,11 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
         val senderAvatarUrl: String?,
         val timestamp: Long,
         val isVideo: Boolean = false,
-        val uploaderId: Long = 0L
+        val uploaderId: Long = 0L,
+        val channelId: Long = 0L,
+        val clanId: Long = 0L,
+        val messageId: Long = 0L,
+        val senderInfoResolved: Boolean = false
     )
 
     private val backgroundDrawable = ColorDrawable(Color.BLACK)
@@ -85,6 +91,8 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
     private var oldestEdgeBaselinePosition = -1
     private val currentUrl get() = items.getOrNull(currentIndex)?.url ?: ""
     private val currentItem get() = items.getOrNull(currentIndex)
+    private var senderInfoJob: Job? = null
+    private val resolvedSenders = HashMap<Pair<Long, Long>, MediaViewerSender>()
 
     var onReachedOldestEdge: (() -> Unit)? = null
     var onCurrentUrlChanged: ((String) -> Unit)? = null
@@ -392,6 +400,8 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
     }
 
     override fun dismiss() {
+        senderInfoJob?.cancel()
+        senderInfoJob = null
         InAppOverlayHost.unregister(this)
         if (activeInstance?.get() === this) {
             activeInstance = null
@@ -426,6 +436,8 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
             viewPager.setCurrentItem(currentIndex, false)
         }
         updateCounter()
+        updateHeader()
+        updateThumbnailSelection()
     }
 
     private fun toggleToolbar() {
@@ -457,8 +469,13 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
     }
 
     private fun updateHeader() {
+        senderInfoJob?.cancel()
+        senderInfoJob = null
         val item = currentItem ?: return
-        nameLabel?.text = item.senderName.takeIf { it.isNotBlank() } ?: "User"
+        val key = item.channelId to item.messageId
+        val sender = resolvedSenders[key]?.takeUnless { item.senderInfoResolved }
+            ?: resolveMediaViewerSender(item.uploaderId, item.senderName, item.senderAvatarUrl)
+        nameLabel?.text = sender.name
         
         val formattedDate = formatViewerHeaderDate(context, item.timestamp)
         dateLabel?.apply {
@@ -471,13 +488,26 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
         }
 
         avatarView?.let { view ->
-            if (item.uploaderId == ANONYMOUS_USER_ID && item.senderAvatarUrl.isNullOrEmpty()) {
+            if (item.uploaderId == ANONYMOUS_USER_ID && sender.avatarUrl == null) {
                 view.setImageDrawable(com.mezon.mobile.ui.cells.MezonIcon.anonymousAvatar.getDrawable(context))
-            } else if (!item.senderAvatarUrl.isNullOrEmpty()) {
-                val proxyUrl = com.mezon.mobile.util.avatarImgproxyUrl(item.senderAvatarUrl, LayoutHelper.dp(40))
+            } else if (sender.avatarUrl != null) {
+                val proxyUrl = com.mezon.mobile.util.avatarImgproxyUrl(sender.avatarUrl, LayoutHelper.dp(40))
                 view.setImage(proxyUrl, item.uploaderId)
             } else {
                 view.setImage(null, item.uploaderId)
+            }
+        }
+        if (item.uploaderId == ANONYMOUS_USER_ID && !item.senderInfoResolved &&
+            item.channelId != 0L && item.messageId != 0L && key !in resolvedSenders
+        ) {
+            senderInfoJob = entryPoint.applicationScope().launch(entryPoint.mainDispatcher()) {
+                val loaded = entryPoint.channelGalleryController().loadAnonymousSenderInfo(
+                    item.channelId, item.clanId, item.messageId
+                ) ?: return@launch
+                if (!isActive) return@launch
+                resolvedSenders[key] = loaded
+                senderInfoJob = null
+                if (currentItem?.let { it.channelId to it.messageId } == key) updateHeader()
             }
         }
     }

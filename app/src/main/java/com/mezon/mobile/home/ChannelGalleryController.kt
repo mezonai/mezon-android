@@ -8,6 +8,10 @@ import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.home.chat.AttachmentInfo
 import com.mezon.mobile.home.chat.MessageEntity
+import com.mezon.mobile.home.chat.MEDIA_ANONYMOUS_USER_ID
+import com.mezon.mobile.home.chat.MediaViewerSender
+import com.mezon.mobile.home.chat.resolveMediaViewerSender
+import com.mezon.mobile.home.chat.toMessageEntity
 import com.mezon.mobile.home.chat.isImageAttachmentType
 import com.mezon.mobile.home.chat.isVideoAttachmentType
 import com.mezon.mobile.network.ApiCacheTracker
@@ -15,6 +19,7 @@ import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.network.apiCacheKey
 import com.mezon.mobile.session.SessionManager
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -42,7 +47,10 @@ data class ChannelGalleryMediaItem(
     val size: Int = 0,
     val duration: Int = 0,
     val isPending: Boolean = false,
-    val senderUsername: String = ""
+    val senderUsername: String = "",
+    val senderName: String = "",
+    val senderAvatar: String = "",
+    val senderInfoResolved: Boolean = false
 ) {
     val isVideo: Boolean get() = isVideoAttachmentType(filetype)
 }
@@ -79,6 +87,46 @@ class ChannelGalleryController @Inject constructor(
     private val stateByGallery = HashMap<ChannelGalleryKey, ChannelGalleryState>()
     private val mutexByGallery = HashMap<ChannelGalleryKey, Mutex>()
     private val loadingGalleries = Collections.synchronizedSet(HashSet<ChannelGalleryKey>())
+    private val anonymousSenders = Collections.synchronizedMap(HashMap<Pair<Long, Long>, MediaViewerSender>())
+
+    suspend fun loadAnonymousSenderInfo(channelId: Long, clanId: Long, messageId: Long): MediaViewerSender? =
+        withContext(ioDispatcher) {
+            if (channelId == 0L || messageId == 0L) return@withContext null
+            val key = channelId to messageId
+            anonymousSenders[key]?.let { return@withContext it }
+            val cached = messageDao.getById(channelId, messageId)
+            if (cached?.senderId == MEDIA_ANONYMOUS_USER_ID) {
+                return@withContext rememberAnonymousSender(cached)
+            }
+            try {
+                sessionManager.withAutoRefresh { session ->
+                    val response = api.listChannelMessages(
+                        apiUrl = session.apiUrl,
+                        token = session.token,
+                        channelId = channelId,
+                        clanId = clanId,
+                        messageId = messageId,
+                        direction = 2,
+                        limit = 25
+                    )
+                    response.messagesList
+                        .filter { it.channelId == channelId && it.senderId == MEDIA_ANONYMOUS_USER_ID }
+                        .forEach { rememberAnonymousSender(it.toMessageEntity(0L)) }
+                    anonymousSenders[key]
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Log.w(TAG, "Unable to load media sender for message $messageId", error)
+                null
+            }
+        }
+
+    private fun rememberAnonymousSender(message: MessageEntity): MediaViewerSender {
+        val sender = resolveMediaViewerSender(message.senderId, message.senderName, message.senderAvatar)
+        anonymousSenders[message.channelId to message.id] = sender
+        return sender
+    }
 
     private val messageObserver = object : NotificationCenter.NotificationCenterDelegate {
         override fun didReceivedNotification(id: Int, account: Int, vararg args: Any?) {
@@ -98,6 +146,7 @@ class ChannelGalleryController @Inject constructor(
                 NotificationCenter.messageDidDelete -> {
                     val channelId = args.getOrNull(0) as? Long ?: return
                     val messageId = args.getOrNull(1) as? Long ?: return
+                    anonymousSenders.remove(channelId to messageId)
                     if (removeByMessageId(channelId, messageId)) {
                         notificationCenter.postNotificationOnMainThread(
                             NotificationCenter.channelGalleryDidLoad,
@@ -381,6 +430,7 @@ class ChannelGalleryController @Inject constructor(
     }
 
     private fun tryPrependFromMessage(message: MessageEntity): Boolean {
+        if (message.senderId == MEDIA_ANONYMOUS_USER_ID) rememberAnonymousSender(message)
         if (!message.mightHaveGalleryMedia()) return false
         if (!message.isRenderable) return false
         if (message.code != MessageEntity.CODE_CHAT && message.code != MessageEntity.CODE_CHAT_UPDATE) return false
@@ -513,7 +563,10 @@ private fun AttachmentInfo.toGalleryMediaItem(message: MessageEntity, index: Int
         size = size,
         duration = duration,
         isPending = message.isSending,
-        senderUsername = message.senderUsername
+        senderUsername = message.senderUsername,
+        senderName = message.senderName,
+        senderAvatar = message.senderAvatar,
+        senderInfoResolved = true
     )
 }
 
@@ -544,8 +597,13 @@ private fun ChannelAttachment.toFilteredMediaOrNull(): ChannelGalleryMediaItem? 
 }
 
 private fun ChannelGalleryMediaItem.enrichFromMessage(message: MessageEntity?): ChannelGalleryMediaItem {
-    if (message == null) return this
-    val enriched = copy(senderUsername = senderUsername.ifBlank { message.senderUsername })
+    if (message == null || message.senderId != uploaderId || message.id != messageId) return this
+    val enriched = copy(
+        senderUsername = senderUsername.ifBlank { message.senderUsername },
+        senderName = message.senderName,
+        senderAvatar = message.senderAvatar,
+        senderInfoResolved = true
+    )
     val attachment = message.allImageAttachments.firstOrNull { it.url == url } ?: return enriched
     return enriched.copy(
         thumbnail = thumbnail.ifBlank { attachment.thumb },

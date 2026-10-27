@@ -342,6 +342,7 @@ class MezonSfuSession @Inject constructor(
     private var hasReachedConnected = false
     var connectionState = SfuConnectionState.DISCONNECTED
         private set
+    private var pendingJoinMicEnabled = false
 
     private data class CallIdentity(
         val channelId: Long,
@@ -385,6 +386,7 @@ class MezonSfuSession @Inject constructor(
     private var joined = false
     private var localTracksAdded = false
     private var micEnabled = false
+    val isMicrophoneEnabled: Boolean get() = micEnabled
     private var cameraEnabled = false
     private var screenOn = false
     private var pttActive = false
@@ -559,7 +561,8 @@ class MezonSfuSession @Inject constructor(
         token: String,
         role: SfuRole,
         sfuUrl: String? = null,
-        externalRoomName: String? = null
+        externalRoomName: String? = null,
+        initialMicEnabled: Boolean = false,
     ) {
         leave()
         callIdentity = CallIdentity(channelId, clanId, userId, externalRoomName?.takeIf { it.isNotBlank() })
@@ -569,6 +572,7 @@ class MezonSfuSession @Inject constructor(
         this.sfuUrl = sfuUrl?.takeIf { it.isNotBlank() }
         this.role = role
         this.micEnabled = false
+        pendingJoinMicEnabled = initialMicEnabled && role == SfuRole.SPEAKER
         this.cameraEnabled = false
         this.screenOn = false
         this.pttActive = false
@@ -905,6 +909,7 @@ class MezonSfuSession @Inject constructor(
     }
 
     fun leave() {
+        pendingJoinMicEnabled = false
         recoveryDeadline.cancel()
         stopAudioSendProbe()
         noiseChangeGeneration++
@@ -1736,6 +1741,7 @@ class MezonSfuSession @Inject constructor(
 
     private suspend fun handleRoleChanged(newRole: SfuRole) {
         if (role == newRole) return
+        pendingJoinMicEnabled = false
         role = newRole
         createLocalAudioTrack()
         val pc = peerConnection
@@ -3045,6 +3051,10 @@ class MezonSfuSession @Inject constructor(
             clearTransportWatchdog()
             clearConnectionDeadline()
             if (!wasConnected) {
+                if (pendingJoinMicEnabled) {
+                    pendingJoinMicEnabled = false
+                    applyMicEnabled(true)
+                }
                 restoreCommunicationAudio()
                 scheduleHealthyConnectionReset(connectionGen)
                 requestMissingScreenKeyframes()

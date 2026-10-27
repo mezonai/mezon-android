@@ -100,7 +100,11 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
         val width: Int = 0,
         val height: Int = 0,
         val size: Int = 0,
-        val duration: Int = 0
+        val duration: Int = 0,
+        val channelId: Long = 0L,
+        val clanId: Long = 0L,
+        val messageId: Long = 0L,
+        val senderInfoResolved: Boolean = false
     )
 
     private val backgroundDrawable = ColorDrawable(Color.BLACK)
@@ -115,6 +119,8 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
 
     private var player: ExoPlayer? = null
     private lateinit var currentItem: VideoItem
+    private var senderInfoJob: Job? = null
+    private var resolvedSender: MediaViewerSender? = null
     private var optionsMenu: PopupMenu? = null
     private var lastMenuDismissTime = 0L
     private var saveProgressJob: Job? = null
@@ -429,6 +435,8 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
     }
 
     override fun dismiss() {
+        senderInfoJob?.cancel()
+        senderInfoJob = null
         InAppOverlayHost.unregister(this)
         resumePlaybackOnForeground = false
         stoppedForLifecycle = false
@@ -510,8 +518,12 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
     }
 
     private fun updateHeader() {
+        senderInfoJob?.cancel()
+        senderInfoJob = null
         val item = currentItem
-        nameLabel.text = item.senderName.takeIf { it.isNotBlank() } ?: "User"
+        val sender = resolvedSender
+            ?: resolveMediaViewerSender(item.uploaderId, item.senderName, item.senderAvatarUrl)
+        nameLabel.text = sender.name
 
         val formattedDate = formatViewerHeaderDate(context, item.timestamp)
         if (formattedDate != null) {
@@ -522,16 +534,29 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
         }
 
         when {
-            item.uploaderId == VIDEO_ANONYMOUS_USER_ID && item.senderAvatarUrl.isNullOrEmpty() -> {
+            item.uploaderId == VIDEO_ANONYMOUS_USER_ID && sender.avatarUrl == null -> {
                 avatarView.setImageDrawable(com.mezon.mobile.ui.cells.MezonIcon.anonymousAvatar.getDrawable(context))
             }
-            !item.senderAvatarUrl.isNullOrEmpty() -> {
+            sender.avatarUrl != null -> {
                 avatarView.setImage(
-                    avatarImgproxyUrl(item.senderAvatarUrl, LayoutHelper.dp(40)),
+                    avatarImgproxyUrl(sender.avatarUrl, LayoutHelper.dp(40)),
                     item.uploaderId
                 )
             }
             else -> avatarView.setImage(null, item.uploaderId)
+        }
+        if (item.uploaderId == VIDEO_ANONYMOUS_USER_ID && !item.senderInfoResolved &&
+            item.channelId != 0L && item.messageId != 0L && resolvedSender == null
+        ) {
+            senderInfoJob = entryPoint.applicationScope().launch(entryPoint.mainDispatcher()) {
+                val loaded = entryPoint.channelGalleryController().loadAnonymousSenderInfo(
+                    item.channelId, item.clanId, item.messageId
+                ) ?: return@launch
+                if (!isActive || currentItem != item) return@launch
+                resolvedSender = loaded
+                senderInfoJob = null
+                updateHeader()
+            }
         }
     }
 
