@@ -81,7 +81,7 @@ class ClanLogoTransformFragment : ImageTransformFragment() {
         }
         val authority = "${authCtx.packageName}.fileprovider"
         val uploadUri = FileProvider.getUriForFile(authCtx, authority, jpegFile)
-        accountController.uploadAvatar(uploadUri, authCtx.contentResolver) { success, urlOrErr ->
+        accountController.uploadAvatar(uploadUri, authCtx.contentResolver, filenameUri = imageUri) { success, urlOrErr ->
             if (!success || urlOrErr.isBlank()) {
                 jpegFile.delete()
                 onWorkFinished()

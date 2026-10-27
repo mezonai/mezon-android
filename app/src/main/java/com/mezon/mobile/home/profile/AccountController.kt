@@ -3,7 +3,6 @@ package com.mezon.mobile.home.profile
 import android.content.ContentResolver
 import android.net.Uri
 import android.util.Log
-import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.R
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
@@ -20,10 +19,12 @@ import com.mezon.mobile.network.apiCacheKey
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.util.avatarImgproxyUrl
 import com.mezon.mobile.util.AttachmentUploader
+import com.mezon.mobile.util.FileUtils
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -458,33 +459,33 @@ class AccountController @Inject constructor(
     fun uploadAvatar(
         uri: Uri,
         contentResolver: ContentResolver,
+        filenameUri: Uri = uri,
         onResult: (success: Boolean, avatarUrl: String) -> Unit
     ) {
         appScope.launch {
             try {
                 val mimeType = contentResolver.getType(uri) ?: "image/jpeg"
-                val fileBytes = withContext(ioDispatcher) {
-                    com.mezon.mobile.util.AttachmentUploader.readUriBytesSafely(
+                val (fileBytes, originalFilename) = withContext(ioDispatcher) {
+                    val bytes = com.mezon.mobile.util.AttachmentUploader.readUriBytesSafely(
                         contentResolver, uri, mimeType, appContext.cacheDir
-                    )
-                } ?: throw RuntimeException("Cannot read file or over size limit")
-
+                    ) ?: throw RuntimeException("Cannot read file or over size limit")
+                    ensureActive()
+                    bytes to FileUtils.getPickedFileName(contentResolver, filenameUri)
+                }
                 val timestamp = System.currentTimeMillis() / 1000
                 val filename = "${timestamp}_avatar.jpg"
 
                 val cdnUrl = sessionManager.withAutoRefresh { session ->
                     withContext(ioDispatcher) {
-                        AttachmentUploader.uploadAttachmentBytes(
+                        AttachmentUploader.uploadPublicImage(
                             api,
                             session.apiUrl,
                             session.token,
                             filename,
                             mimeType,
                             fileBytes,
-                            400,
-                            400,
-                            BuildConfig.CLOUDFLARE_CDN_URL,
-                        ).cdnUrl
+                            originalFilename = originalFilename,
+                        )
                     }
                 }
                 withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(true, cdnUrl) }

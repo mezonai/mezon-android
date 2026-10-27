@@ -490,7 +490,8 @@ class WebhookEditFragment : BaseFragment() {
                     return@launch
                 }
                 val mime = cr.getType(uri) ?: "image/jpeg"
-                val url = clansController.uploadWebhookAvatar(bytes, mime)
+                val originalFilename = withContext(ioDispatcher) { FileUtils.getPickedFileName(cr, uri) }
+                val url = clansController.uploadWebhookAvatar(bytes, mime, originalFilename)
                 draftAvatar = url
                 bindAvatarImage()
                 refreshSaveUi()

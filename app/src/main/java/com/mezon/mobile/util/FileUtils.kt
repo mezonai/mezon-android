@@ -64,6 +64,19 @@ object FileUtils {
         }
     }
 
+    fun getPickedFileName(cr: ContentResolver, uri: Uri): String? {
+        return runCatching {
+            if (uri.scheme == ContentResolver.SCHEME_FILE) {
+                uri.path?.let { File(it).name }
+            } else {
+                cr.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                    val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (idx >= 0 && cursor.moveToFirst() && !cursor.isNull(idx)) cursor.getString(idx) else null
+                }
+            }
+        }.getOrNull()?.takeIf { it.isNotBlank() }
+    }
+
     fun getPickedFileSize(cr: ContentResolver, uri: Uri): Long {
         if (uri.scheme == ContentResolver.SCHEME_FILE) {
             val path = uri.path ?: return -1L

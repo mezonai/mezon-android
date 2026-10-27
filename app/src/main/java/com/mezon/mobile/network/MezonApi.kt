@@ -2124,6 +2124,22 @@ class MezonApi @Inject constructor(
         return UploadAttachment.parseFrom(bytes)
     }
 
+    suspend fun uploadOauthFile(
+        apiUrl: String,
+        token: String,
+        filename: String,
+        filetype: String,
+        size: Int,
+    ): UploadAttachment {
+        val request = uploadAttachmentRequest {
+            this.filename = fittedUploadFilename(filename)
+            this.filetype = filetype
+            this.size = size
+        }
+        val bytes = rpc(apiUrl, token, "UploadOauthFile", request.toByteArray())
+        return UploadAttachment.parseFrom(bytes)
+    }
+
     suspend fun multipartUploadAttachmentFileStart(
         apiUrl: String,
         token: String,

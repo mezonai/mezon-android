@@ -41,11 +41,13 @@ import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.TextCheckCell
 import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.util.CLAN_OVERVIEW_NAME_MAX_LENGTH
+import com.mezon.mobile.util.ContentUriTooLargeException
 import com.mezon.mobile.util.NetworkErrorMessages
 import com.mezon.mobile.util.createImgproxyUrl
 import com.mezon.mobile.util.isClanNameValid
 import com.mezon.mezon.api.SystemMessage
 import com.mezon.mezon.api.systemMessageRequest
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -111,6 +113,7 @@ class ClanOverviewSettingFragment : BaseFragment() {
     private var bannerRenderSeq = 0
     private var bannerPickTarget: View? = null
     private var bannerEditBadge: ImageView? = null
+    private var isBannerUploading = false
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
         api = entryPoint.mezonApi()
@@ -144,13 +147,7 @@ class ClanOverviewSettingFragment : BaseFragment() {
             val id = args.firstOrNull() as? Long ?: return@observe
             if (id != clanId) return@observe
             val url = args.getOrNull(1) as? String ?: return@observe
-            val prev = draftBanner.trim()
-            draftBanner = url
-            if (prev.isNotBlank() && prev != url.trim()) {
-                invalidateBannerCachesForSources(listOf(prev))
-            }
-            renderBanner()
-            updateSaveUi()
+            applyPickedBanner(url)
         }
         return true
     }
@@ -594,17 +591,17 @@ class ClanOverviewSettingFragment : BaseFragment() {
         if (::nameInput.isInitialized && ::scrollContent.isInitialized) {
             nameInput.editText.isEnabled = allow
             nameInput.alpha = alpha
-            bannerPickTarget?.isEnabled = allow
+            bannerPickTarget?.isEnabled = allow && !isBannerUploading
             bannerPickTarget?.alpha = alpha
-            bannerEditBadge?.isEnabled = allow
+            bannerEditBadge?.isEnabled = allow && !isBannerUploading
             bannerEditBadge?.alpha = alpha
-            bannerClear?.isEnabled = allow
+            bannerClear?.isEnabled = allow && !isBannerUploading
             bannerClear?.alpha = alpha
             listOf(welcomeRandomCell, welcomeStickerCell, auditLogCell, anonymousCell).forEach { c ->
                 c.isEnabled = allow
                 c.alpha = alpha
             }
-            saveButton?.isEnabled = allow
+            saveButton?.isEnabled = allow && !isBannerUploading
         }
     }
 
@@ -747,7 +744,7 @@ class ClanOverviewSettingFragment : BaseFragment() {
 
     private fun updateSaveUi() {
         val dirty = (clanFieldsDirty() || systemMessageDirty()) && isClanNameValid(draftName)
-        saveButton?.alpha = if (dirty && canEditClanFields()) 1f else 0.45f
+        saveButton?.alpha = if (dirty && canEditClanFields() && !isBannerUploading) 1f else 0.45f
     }
 
     private fun invalidateBannerCachesForSources(urls: Collection<String>) {
@@ -757,6 +754,7 @@ class ClanOverviewSettingFragment : BaseFragment() {
     }
 
     private fun pickBanner() {
+        if (isBannerUploading) return
         val pick = Intent(Intent.ACTION_PICK).apply { type = "image/*" }
         val getContent = Intent(Intent.ACTION_GET_CONTENT).apply {
             type = "image/*"
@@ -771,8 +769,54 @@ class ClanOverviewSettingFragment : BaseFragment() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode != REQ_PICK_BANNER || resultCode != Activity.RESULT_OK) return
+        if (clanId == 0L || isBannerUploading) return
         val uri = data?.clipData?.getItemAt(0)?.uri ?: data?.data ?: return
-        presentFragment(ClanBannerTransformFragment.newInstance(clanId, uri.toString()))
+        val resolver = getContext()?.contentResolver ?: return
+        val mimeType = try {
+            resolver.getType(uri)?.substringBefore(';')?.trim()?.lowercase()
+        } catch (e: Exception) {
+            MezonToast.show(this, ToastOverlay.ToastType.ERROR, NetworkErrorMessages.userMessage(requireContext(), e))
+            return
+        }
+        if (mimeType == "image/gif" || mimeType == "image/webp") {
+            isBannerUploading = true
+            applyPermissionUi()
+            updateSaveUi()
+            fragmentScope.launch(mainDispatcher) {
+                try {
+                    val url = clansController.uploadClanImage(
+                        uri, resolver, 10 * 1024 * 1024, mimeType,
+                        fallbackFilename = "${System.currentTimeMillis() / 1000}_banner.jpg",
+                    )
+                    applyPickedBanner(url)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    val text = if (e is ContentUriTooLargeException) {
+                        getString(R.string.clan_image_too_large, 10)
+                    } else {
+                        NetworkErrorMessages.userMessage(requireContext(), e)
+                    }
+                    MezonToast.show(this@ClanOverviewSettingFragment, ToastOverlay.ToastType.ERROR, text)
+                } finally {
+                    isBannerUploading = false
+                    applyPermissionUi()
+                    updateSaveUi()
+                }
+            }
+        } else {
+            presentFragment(ClanBannerTransformFragment.newInstance(clanId, uri.toString()))
+        }
+    }
+
+    private fun applyPickedBanner(url: String) {
+        val prev = draftBanner.trim()
+        draftBanner = url
+        if (prev.isNotBlank() && prev != url.trim()) {
+            invalidateBannerCachesForSources(listOf(prev))
+        }
+        renderBanner()
+        updateSaveUi()
     }
 
     private fun layoutBannerCameraBadge() {
@@ -822,6 +866,7 @@ class ClanOverviewSettingFragment : BaseFragment() {
     }
 
     private fun onSaveClicked() {
+        if (isBannerUploading) return
         if (!canEditClanFields()) return
         if (!isClanNameValid(draftName)) {
             MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.clan_overview_name_invalid))

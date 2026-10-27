@@ -10,7 +10,6 @@ import android.util.LongSparseArray
 import android.util.Log
 import com.mezon.mezon.api.AllUsersAddChannelResponse
 import com.mezon.mezon.api.ChannelMessage
-import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.StartupCache
 import com.mezon.mobile.data.db.DirectMessageDao
@@ -64,6 +63,7 @@ import com.mezon.mezon.rtapi.UserChannelRemoved
 import com.mezon.mezon.rtapi.UserProfileRedis
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -737,12 +737,12 @@ class DialogsController @Inject constructor(
             if (size > maxBytes) {
                 return DmGroupAvatarUploadResult.TooLarge
             }
-            val normalized = withContext(ioDispatcher) {
-                prepareDmGroupAvatarUpload(contentResolver, uri, sourceMimeType, maxBytes)
-            }
-            if (normalized.bytes.isEmpty()) {
-                return DmGroupAvatarUploadResult.Failed
-            }
+            val (normalized, originalFilename) = withContext(ioDispatcher) {
+                val payload = prepareDmGroupAvatarUpload(contentResolver, uri, sourceMimeType, maxBytes)
+                if (payload.bytes.isEmpty()) return@withContext null
+                ensureActive()
+                payload to FileUtils.getPickedFileName(contentResolver, uri)
+            } ?: return DmGroupAvatarUploadResult.Failed
             val ext = when {
                 normalized.mimeType.contains("png", ignoreCase = true) -> "png"
                 normalized.mimeType.contains("webp", ignoreCase = true) -> "webp"
@@ -751,17 +751,15 @@ class DialogsController @Inject constructor(
             val filename = "${System.currentTimeMillis() / 1000}_dm_group.$ext"
             val cdnUrl = sessionManager.withAutoRefresh { session ->
                 withContext(ioDispatcher) {
-                    AttachmentUploader.uploadAttachmentBytes(
+                    AttachmentUploader.uploadPublicImage(
                         api,
                         session.apiUrl,
                         session.token,
                         filename,
                         normalized.mimeType,
                         normalized.bytes,
-                        512,
-                        512,
-                        BuildConfig.CLOUDFLARE_CDN_URL,
-                    ).cdnUrl
+                        originalFilename = originalFilename,
+                    )
                 }
             }
             DmGroupAvatarUploadResult.Success(cdnUrl)

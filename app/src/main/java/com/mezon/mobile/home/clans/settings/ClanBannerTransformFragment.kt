@@ -8,8 +8,11 @@ import com.mezon.mobile.home.clans.ClansController
 import com.mezon.mobile.ui.MezonToast
 import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.ui.shared.ImageTransformFragment
+import com.mezon.mobile.util.FileUtils
 import com.mezon.mobile.util.NetworkErrorMessages
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -89,11 +92,16 @@ class ClanBannerTransformFragment : ImageTransformFragment() {
     }
 
     override fun onExportReady(jpegFile: File, onWorkFinished: () -> Unit) {
+        val resolver = getContext()?.contentResolver
         fragmentScope.launch(mainDispatcher) {
             runCatching {
-                val bytes = withContext(ioDispatcher) { jpegFile.readBytes() }
+                val (bytes, originalFilename) = withContext(ioDispatcher) {
+                    val bytes = jpegFile.readBytes()
+                    ensureActive()
+                    bytes to resolver?.let { FileUtils.getPickedFileName(it, imageUri) }
+                }
                 runCatching { jpegFile.delete() }
-                val url = clansController.uploadClanBannerJpeg(bytes)
+                val url = clansController.uploadClanBannerJpeg(bytes, originalFilename)
                 onWorkFinished()
                 notificationCenter.postNotificationNameOnUIThread(
                     NotificationCenter.clanBannerCropped,
@@ -103,6 +111,7 @@ class ClanBannerTransformFragment : ImageTransformFragment() {
                 finishFragment()
             }.onFailure { error ->
                 runCatching { jpegFile.delete() }
+                if (error is CancellationException) throw error
                 onWorkFinished()
                 MezonToast.show(
                     this@ClanBannerTransformFragment,

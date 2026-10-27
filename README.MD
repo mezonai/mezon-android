@@ -86,14 +86,15 @@ mezon/app/google-services.json
 
 Copy `mezon/mezon.secrets.properties.example` to `mezon/mezon.secrets.properties` and fill in values (the real file is not committed; obtain from your team or internal secret store). Gradle fails early if this file is missing.
 
-Both attachment CDN keys are required, with no trailing slash:
+All CDN keys below are required, with no trailing slash:
 
-| Key | Used when the server returns |
+| Key | Used for |
 | --- | --- |
 | `CLOUDFLARE_CDN_URL` | `type_cdn = 2` |
 | `MEZON_CDN_URL` | `type_cdn = 1` |
+| `PROFILE_CDN_URL` | Public images uploaded through `UploadOauthFile`, including avatars, clan images, group DM avatars, webhook avatars, role icons, and event covers |
 
-For existing setups, use `CLOUDFLARE_CDN_URL` and `MEZON_CDN_URL` in your `mezon.secrets.properties` and obtain their values from your team or internal secret store. Gradle rejects missing or empty values during configuration. These origins are used to construct attachment URLs for viewing; uploads continue to use the presigned URL returned by the server.
+For existing local and CI setups, provide `CLOUDFLARE_CDN_URL`, `MEZON_CDN_URL`, and `PROFILE_CDN_URL` in `mezon.secrets.properties` using values from your team's environment configuration or internal secret store. Gradle rejects missing or empty values during configuration. These origins are used to construct image URLs for viewing; uploads continue to use the presigned URL returned by the server.
 
 ---
 

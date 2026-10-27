@@ -1,6 +1,5 @@
 package com.mezon.mobile.home.clans.settings
 
-import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.home.clans.ClansController
@@ -121,12 +120,13 @@ class CommunitySettingsController @Inject constructor(
     fun onDescriptionChanged(v: String) = updateDraft { copy(description = v) }
     fun onShortUrlChanged(raw: String) = updateDraft { copy(shortUrl = sanitizeVanity(raw)) }
 
-    fun onBannerPicked(bytes: ByteArray, mime: String, ext: String, previewUrl: String?) {
+    fun onBannerPicked(bytes: ByteArray, mime: String, ext: String, previewUrl: String?, originalFilename: String? = null) {
         updateDraft {
             copy(
                 pendingBannerBytes = bytes,
                 pendingBannerMime = mime,
                 pendingBannerExt = ext,
+                pendingBannerFilename = originalFilename,
                 bannerPreviewUrl = previewUrl,
             )
         }
@@ -187,6 +187,7 @@ class CommunitySettingsController @Inject constructor(
                                 api, session.apiUrl, session.token, clanId, bytes,
                                 state.draft.pendingBannerMime ?: "image/jpeg",
                                 state.draft.pendingBannerExt,
+                                state.draft.pendingBannerFilename,
                             )
                             api.updateClanDesc(
                                 session.apiUrl, session.token, clanId,
@@ -222,7 +223,7 @@ class CommunitySettingsController @Inject constructor(
                 }
                 invalidateServerCache(clanId)
                 clansController.mergeCommunityFlag(clanId, enabled = true)
-                val newDraft = state.draft.copy(pendingBannerBytes = null)
+                val newDraft = state.draft.copy(pendingBannerBytes = null, pendingBannerFilename = null)
                 _uiState.update {
                     it.copy(
                         mode = CommunityScreenMode.ENABLED_EDITOR,
@@ -262,6 +263,7 @@ class CommunitySettingsController @Inject constructor(
                                 d.pendingBannerBytes,
                                 d.pendingBannerMime ?: "image/jpeg",
                                 d.pendingBannerExt,
+                                d.pendingBannerFilename,
                             )
                             api.updateClanDesc(
                                 session.apiUrl, session.token, clanId,
@@ -293,7 +295,7 @@ class CommunitySettingsController @Inject constructor(
                     }
                 }
                 invalidateServerCache(clanId)
-                val newDraft = state.draft.copy(pendingBannerBytes = null)
+                val newDraft = state.draft.copy(pendingBannerBytes = null, pendingBannerFilename = null)
                 _uiState.update {
                     it.copy(
                         server = it.server.copy(isSaving = false),
@@ -427,7 +429,7 @@ class CommunitySettingsController @Inject constructor(
                 }
                 invalidateServerCache(clanId)
                 _uiState.update {
-                    val newDraft = it.draft.copy(bannerPreviewUrl = null, pendingBannerBytes = null)
+                    val newDraft = it.draft.copy(bannerPreviewUrl = null, pendingBannerBytes = null, pendingBannerFilename = null)
                     val newInitial = it.initial.copy(bannerPreviewUrl = null)
                     it.copy(draft = newDraft, initial = newInitial, showSaveBar = newDraft.hasChangesComparedTo(newInitial))
                 }
@@ -464,11 +466,12 @@ private suspend fun uploadCommunityBanner(
     bytes: ByteArray,
     mimeType: String,
     ext: String,
+    originalFilename: String?,
 ): String {
     require(bytes.isNotEmpty())
     val filename = "community-banner/$clanId.$ext"
-    return AttachmentUploader.uploadAttachmentBytes(
+    return AttachmentUploader.uploadPublicImage(
         api, apiUrl, token, filename, mimeType, bytes,
-        cdnBaseUrl = BuildConfig.CLOUDFLARE_CDN_URL,
-    ).cdnUrl
+        originalFilename = originalFilename,
+    )
 }
