@@ -77,6 +77,14 @@ class ChannelItemCell(
     private var cachedIconColor: Int = 0
     private val voiceActiveColorFilter = PorterDuffColorFilter(themeColors.voiceActiveGreen, PorterDuff.Mode.SRC_IN)
     private val badgeRectF = RectF()
+    private var streamViewerCount: Int? = null
+    private var streamViewerCountText = ""
+    private var viewerEyeDrawable: Drawable? = null
+    private val viewerCountPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = LayoutHelper.sp(11f)
+        textAlign = Paint.Align.RIGHT
+    }
+
 
     private val cellHeightPx = LayoutHelper.dp(34)
     private val paddingHPx = LayoutHelper.dp(16)
@@ -87,11 +95,13 @@ class ChannelItemCell(
 
 
 
-    fun bind(channel: ClanChannelEntity, active: Boolean, voiceActive: Boolean = false, hasBuzz: Boolean = false) {
+    fun bind(channel: ClanChannelEntity, active: Boolean, voiceActive: Boolean = false, hasBuzz: Boolean = false, streamViewerCount: Int? = null) {
         this.channel = channel
         this.hasBuzz = hasBuzz
         this.isActive = active
         this.voiceActive = voiceActive
+        this.streamViewerCount = if (channel.type == CHANNEL_TYPE_STREAMING && voiceActive) streamViewerCount?.coerceAtLeast(0) else null
+        streamViewerCountText = this.streamViewerCount?.let { java.text.NumberFormat.getIntegerInstance().format(it) }.orEmpty()
         truncatedName = ""
         invalidate()
     }
@@ -206,8 +216,11 @@ class ChannelItemCell(
             (unreadBadgeTextPaint.measureText(badgeText) + BADGE_TEXT_PAD).coerceAtLeast(badgeSizePx.toFloat())
         } else 0f
         val buzzWidth = if (hasBuzz) themeColors.buzzBadgeTextPaint.measureText("Buzz!!") + LayoutHelper.dp(8) else 0f
+        val viewerWidth = if (streamViewerCount != null)
+            viewerCountPaint.measureText(streamViewerCountText) + LayoutHelper.dp(14 + 6) else 0f
+        val viewerInset = if (streamViewerCount != null) viewerWidth + BADGE_GAP else 0f
         val badgeWidth = (if (showMentionBadge) mentionWidth + BADGE_GAP else 0f) +
-            (if (hasBuzz) buzzWidth + BADGE_GAP else 0f)
+            (if (hasBuzz) buzzWidth + BADGE_GAP else 0f) + viewerInset
         val availW = (width - textX - paddingHPx - badgeWidth).coerceAtLeast(0f)
 
         if (truncatedName.isEmpty() || truncatedNameWidth != availW) {
@@ -218,13 +231,25 @@ class ChannelItemCell(
         canvas.drawText(truncatedName, textX.toFloat(), textY, namePaint)
 
         if (hasBuzz) {
-            val right = width - paddingHPx.toFloat() - if (showMentionBadge) mentionWidth + BADGE_GAP else 0f
+            val right = width - paddingHPx.toFloat() - viewerInset - (if (showMentionBadge) mentionWidth + BADGE_GAP else 0f)
             val left = right - buzzWidth
             val halfHeight = LayoutHelper.dp(10).toFloat()
             badgeRectF.set(left, cy - halfHeight, right, cy + halfHeight)
             canvas.drawRoundRect(badgeRectF, LayoutHelper.dpf(4f), LayoutHelper.dpf(4f), themeColors.buzzBadgePaint)
             val buzzY = cy - (themeColors.buzzBadgeTextPaint.descent() + themeColors.buzzBadgeTextPaint.ascent()) / 2
             canvas.drawText("Buzz!!", left + LayoutHelper.dp(4), buzzY, themeColors.buzzBadgeTextPaint)
+        }
+
+        if (streamViewerCount != null) {
+            viewerCountPaint.color = textColor
+            val textRight = (width - paddingHPx).toFloat()
+            val iconRight = textRight - viewerCountPaint.measureText(streamViewerCountText) - LayoutHelper.dp(6)
+            val iconSize = LayoutHelper.dp(14)
+            val eye = viewerEyeDrawable ?: MezonIcon.eyeIcon.getDrawable(context).mutate().also { viewerEyeDrawable = it }
+            eye.setTint(textColor)
+            eye.setBounds((iconRight - iconSize).toInt(), (cy - iconSize / 2f).toInt(), iconRight.toInt(), (cy + iconSize / 2f).toInt())
+            eye.draw(canvas)
+            canvas.drawText(streamViewerCountText, textRight, cy - (viewerCountPaint.descent() + viewerCountPaint.ascent()) / 2, viewerCountPaint)
         }
 
         if (showMentionBadge) {

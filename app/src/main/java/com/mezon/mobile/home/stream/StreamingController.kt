@@ -1,151 +1,192 @@
 package com.mezon.mobile.home.stream
 
 import android.util.Log
-import com.mezon.mezon.rtapi.StreamingJoinedEvent
-import com.mezon.mezon.rtapi.StreamingLeavedEvent
+import com.mezon.mezon.api.StreamingChannelUser
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.network.ApiCacheTracker
 import com.mezon.mobile.network.MezonApi
+import com.mezon.mobile.network.MezonSocket
 import com.mezon.mobile.network.SocketEventDispatcher
 import com.mezon.mobile.network.apiCacheKey
 import com.mezon.mobile.session.SessionManager
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
-private const val TAG = "StreamingController"
-
+/** Server-owned stream presence, independent of voice/SFU membership. */
 @Singleton
 class StreamingController @Inject constructor(
     private val api: MezonApi,
-    private val dispatcher: SocketEventDispatcher,
+    dispatcher: SocketEventDispatcher,
+    socket: MezonSocket,
     private val sessionManager: SessionManager,
     private val notificationCenter: NotificationCenter,
     private val cacheTracker: ApiCacheTracker,
     @ApplicationScope private val appScope: CoroutineScope,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
 ) {
-    private val streamMembersByClan = HashMap<Long, HashMap<Long, ArrayList<Long>>>()
-    private val streamMemberListFetchInflight = ConcurrentHashMap.newKeySet<Long>()
-    private val streamStateRevisions = HashMap<Long, Long>()
+    private val members = HashMap<Long, MutableMap<Long, LinkedHashMap<Long, StreamingChannelUser>>>()
+    private val viewerCounts = HashMap<Long, MutableMap<Long, Int>>()
+    private val revisions = HashMap<Long, Long>()
+    private val inflight = ConcurrentHashMap.newKeySet<Long>()
     private var lifecycleGeneration = 0L
+    private val notificationJobs = HashMap<Long, Job>()
+    private val _changes = MutableStateFlow<Map<Long, Long>>(emptyMap())
+    val changes = _changes.asStateFlow()
 
     init {
-        appScope.launch { dispatcher.streamingJoinedEvents.collect { onStreamingJoined(it) } }
-        appScope.launch { dispatcher.streamingLeavedEvents.collect { onStreamingLeaved(it) } }
-    }
-
-    fun cleanup() {
-        synchronized(this) {
-            lifecycleGeneration++
-            streamMembersByClan.clear()
-            streamStateRevisions.clear()
-        }
-        streamMemberListFetchInflight.clear()
-        cacheTracker.invalidateByPrefix("ListStreamingChannelUsers")
-    }
-
-    @Synchronized
-    fun getStreamMembersForChannel(channelId: Long, clanId: Long): List<Long> {
-        return streamMembersByClan[clanId]?.get(channelId)?.let { ArrayList(it) } ?: emptyList()
-    }
-
-    fun fetchStreamChannelMembers(clanId: Long, noCache: Boolean = false) {
-        if (clanId == 0L) return
-        val key = apiCacheKey("ListStreamingChannelUsers", clanId)
-        if (cacheTracker.shouldCall(key, noCache = noCache) == ApiCacheTracker.ShouldCall.SKIP) return
-        if (!streamMemberListFetchInflight.add(clanId)) return
-
-        val requestState = synchronized(this) {
-            (streamStateRevisions[clanId] ?: 0L) to lifecycleGeneration
+        appScope.launch {
+            dispatcher.streamingJoinedEvents.collect { event ->
+                applyStreamJoined(event.clanId, event.streamingChannelId, event.userId, event.isPublisher, event.participant)
+            }
         }
         appScope.launch {
-            try {
-                val requestedRevision = requestState.first
-                val requestedLifecycle = requestState.second
-                sessionManager.withAutoRefresh { session ->
-                    val response = withContext(ioDispatcher) {
-                        api.listStreamingChannelUsers(session.apiUrl, session.token, clanId)
-                    }
-                    var changed = false
-                    var applySnapshot = false
-                    synchronized(this@StreamingController) {
-                        val currentRevision = streamStateRevisions[clanId] ?: 0L
-                        if (lifecycleGeneration == requestedLifecycle && currentRevision == requestedRevision) {
-                            applySnapshot = true
-                            val next = HashMap<Long, ArrayList<Long>>()
-                            for (user in response.streamingChannelUsersList) {
-                                val channelId = user.channelId
-                                val userId = user.userId
-                                if (channelId == 0L || userId == 0L) continue
-                                val ids = next.getOrPut(channelId) { ArrayList() }
-                                if (!ids.contains(userId)) ids.add(userId)
-                            }
-                            val previous = streamMembersByClan[clanId]
-                            changed = previous != next
-                            if (changed) streamMembersByClan[clanId] = next
-                        }
-                    }
-                    if (applySnapshot) cacheTracker.markCalled(key)
-                    if (applySnapshot && changed) {
-                        notificationCenter.postNotificationOnMainThread(
-                            NotificationCenter.voiceChannelMembersChanged, clanId
-                        )
-                    }
+            dispatcher.streamingLeavedEvents.collect { event ->
+                applyStreamLeaved(event.clanId, event.streamingChannelId.toLongOrNull() ?: 0, event.streamingUserId.toLongOrNull() ?: 0)
+            }
+        }
+        appScope.launch {
+            dispatcher.streamingEndedEvents.collect { event -> endStream(event.clanId, event.channelId) }
+        }
+        appScope.launch {
+            dispatcher.streamingViewerCountEvents.collect { event ->
+                synchronized(this@StreamingController) {
+                    viewerCounts.getOrPut(event.clanId) { HashMap() }[event.channelId] = event.viewerCount.coerceAtLeast(0)
+                    changed(event.clanId, membership = false)
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "fetchStreamChannelMembers failed", e)
-                cacheTracker.invalidate(key)
-            } finally {
-                streamMemberListFetchInflight.remove(clanId)
+            }
+        }
+        appScope.launch {
+            socket.reconnected.collect {
+                val clans = synchronized(this@StreamingController) { members.keys.toList() }
+                clans.forEach { fetchStreamChannelMembers(it, noCache = true) }
             }
         }
     }
 
-    @Synchronized
-    fun applyStreamJoined(
-        clanId: Long,
-        channelId: Long,
-        userId: Long,
-    ) {
+    @Synchronized fun cleanup() {
+        lifecycleGeneration++
+        members.clear()
+        viewerCounts.clear()
+        revisions.clear()
+        _changes.value = emptyMap()
+        inflight.clear()
+        notificationJobs.values.forEach { it.cancel() }; notificationJobs.clear()
+        cacheTracker.invalidateByPrefix("ListStreamingChannelUsers")
+    }
+
+    @Synchronized fun getStreamMembersForChannel(channelId: Long, clanId: Long): List<Long> {
+        val entries = members[clanId]?.get(channelId)?.values ?: return emptyList()
+        val publisher = entries.firstOrNull { it.isPublisher } ?: entries.firstOrNull() ?: return emptyList()
+        return listOf(publisher.userId) + entries.asSequence().filter { it.userId != publisher.userId }.map { it.userId }.toList()
+    }
+
+    @Synchronized fun getViewerCount(channelId: Long, clanId: Long): Int =
+        viewerCounts[clanId]?.get(channelId) ?: ((members[clanId]?.get(channelId)?.size ?: 0) - 1).coerceAtLeast(0)
+
+    @Synchronized fun getParticipantName(channelId: Long, clanId: Long, userId: Long): String =
+        members[clanId]?.get(channelId)?.get(userId)?.participant.orEmpty()
+
+    fun fetchStreamChannelMembers(clanId: Long, noCache: Boolean = false) {
+        if (clanId == 0L) return
+        val key = apiCacheKey("ListStreamingChannelUsers", clanId)
+        if (cacheTracker.shouldCall(key, noCache = noCache) == ApiCacheTracker.ShouldCall.SKIP || !inflight.add(clanId)) return
+        val lifecycle = synchronized(this) { lifecycleGeneration }
+        appScope.launch {
+            try {
+                // A snapshot racing a socket event must not overwrite newer presence.
+                repeat(3) {
+                    val revision = synchronized(this@StreamingController) { revisions[clanId] ?: 0L }
+                    val response = sessionManager.withAutoRefresh { session ->
+                        withContext(ioDispatcher) { api.listStreamingChannelUsers(session.apiUrl, session.token, clanId) }
+                    }
+                    var applied = false
+                    synchronized(this@StreamingController) {
+                        if (lifecycle != lifecycleGeneration) return@launch
+                        if (revision == (revisions[clanId] ?: 0L)) {
+                            val next = HashMap<Long, LinkedHashMap<Long, StreamingChannelUser>>()
+                            response.streamingChannelUsersList.forEach { user ->
+                                if (user.channelId != 0L && user.userId != 0L) {
+                                    val channel = next.getOrPut(user.channelId) { LinkedHashMap() }
+                                    if (channel[user.userId]?.isPublisher != true || user.isPublisher) channel[user.userId] = user
+                                }
+                            }
+                            val old = members[clanId]
+                            members[clanId] = next
+                            // Empty authoritative channels cannot retain an old aggregate count.
+                            viewerCounts[clanId]?.keys?.retainAll(next.keys)
+                            cacheTracker.markCalled(key)
+                            applied = true
+                            if (old != next) changed(clanId)
+                        }
+                    }
+                    if (applied) return@launch
+                }
+                cacheTracker.invalidate(key)
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                Log.w("StreamingController", "Presence refresh failed (${e.javaClass.simpleName})")
+                cacheTracker.invalidate(key)
+            } finally {
+                synchronized(this@StreamingController) { if (lifecycle == lifecycleGeneration) inflight.remove(clanId) }
+            }
+        }
+    }
+
+    @Synchronized fun applyStreamJoined(clanId: Long, channelId: Long, userId: Long, isPublisher: Boolean = false, participant: String = "") {
         if (clanId == 0L || channelId == 0L || userId == 0L) return
-        val clanMap = streamMembersByClan.getOrPut(clanId) { HashMap() }
-        val ids = clanMap.getOrPut(channelId) { ArrayList() }
-        if (ids.contains(userId)) return
-        ids.add(userId)
-        streamStateRevisions[clanId] = (streamStateRevisions[clanId] ?: 0L) + 1L
-        notificationCenter.postNotificationOnMainThread(
-            NotificationCenter.voiceChannelMembersChanged, clanId
-        )
+        val channel = members.getOrPut(clanId) { HashMap() }.getOrPut(channelId) { LinkedHashMap() }
+        val existing = channel[userId]
+        val entry = StreamingChannelUser.newBuilder().setChannelId(channelId).setUserId(userId)
+            .setParticipant(participant.ifBlank { existing?.participant.orEmpty() })
+            .setIsPublisher(isPublisher || existing?.isPublisher == true).build()
+        if (existing == entry) return
+        channel[userId] = entry
+        changed(clanId)
     }
 
-    @Synchronized
-    fun applyStreamLeaved(clanId: Long, channelId: Long, userId: Long) {
-        if (clanId == 0L || channelId == 0L || userId == 0L) return
-        val clanMap = streamMembersByClan[clanId] ?: return
-        val ids = clanMap[channelId] ?: return
-        if (!ids.remove(userId)) return
-        if (ids.isEmpty()) clanMap.remove(channelId)
-        if (clanMap.isEmpty()) streamMembersByClan.remove(clanId)
-        streamStateRevisions[clanId] = (streamStateRevisions[clanId] ?: 0L) + 1L
-        notificationCenter.postNotificationOnMainThread(
-            NotificationCenter.voiceChannelMembersChanged, clanId
-        )
+    @Synchronized fun applyStreamLeaved(clanId: Long, channelId: Long, userId: Long) {
+        val channel = members[clanId]?.get(channelId) ?: return
+        val publisher = channel.values.firstOrNull { it.isPublisher }?.userId ?: channel.keys.firstOrNull()
+        if (publisher == userId) { endStream(clanId, channelId); return }
+        if (channel.remove(userId) == null) return
+        changed(clanId)
     }
 
-    private fun onStreamingJoined(event: StreamingJoinedEvent) {
-        applyStreamJoined(event.clanId, event.streamingChannelId, event.userId)
+    @Synchronized fun endStream(clanId: Long, channelId: Long) {
+        if (clanId == 0L || channelId == 0L) return
+        members[clanId]?.remove(channelId)
+        viewerCounts[clanId]?.remove(channelId)
+        // An ended event must stop an active session even if no member snapshot was cached.
+        changed(clanId)
     }
 
-    private fun onStreamingLeaved(event: StreamingLeavedEvent) {
-        val channelId = event.streamingChannelId.toLongOrNull() ?: return
-        val userId = event.streamingUserId.toLongOrNull() ?: return
-        applyStreamLeaved(event.clanId, channelId, userId)
+    private fun changed(clanId: Long, membership: Boolean = true) {
+        if (membership) {
+            revisions[clanId] = (revisions[clanId] ?: 0L) + 1L
+            // Retain the latest revision of every clan so a busy channel cannot drop a publisher-end update.
+            _changes.value = HashMap(revisions)
+        }
+        if (notificationJobs[clanId]?.isActive == true) return
+        val lifecycle = lifecycleGeneration
+        notificationJobs[clanId] = appScope.launch {
+            delay(150)
+            synchronized(this@StreamingController) {
+                if (lifecycle != lifecycleGeneration) return@launch
+                notificationJobs.remove(clanId)
+                notificationCenter.postNotificationOnMainThread(NotificationCenter.voiceChannelMembersChanged, clanId)
+            }
+        }
     }
 }

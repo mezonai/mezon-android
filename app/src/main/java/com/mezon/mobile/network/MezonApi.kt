@@ -2847,6 +2847,18 @@ class MezonApi @Inject constructor(
         return VoiceChannelUserList.parseFrom(bytes)
     }
 
+    suspend fun getStreamPlayback(
+        apiUrl: String,
+        token: String,
+        channelId: Long,
+    ): com.mezon.mezon.api.GetStreamPlaybackResponse {
+        val request = com.mezon.mezon.api.GetStreamPlaybackRequest.newBuilder()
+            .setChannelId(channelId).setPublish(false).build()
+        return com.mezon.mezon.api.GetStreamPlaybackResponse.parseFrom(
+            rpc(apiUrl, token, "GetStreamPlayback", request.toByteArray())
+        )
+    }
+
     suspend fun listStreamingChannelUsers(
         apiUrl: String,
         token: String,

@@ -63,6 +63,11 @@ class VoiceOverlayView(
     private val nameText: TextView
     private var avatarDisposable: MezonImageLoader.Cancellable? = null
     private var currentAvatarUrl: String? = null
+    private var streamPlayback: com.mezon.mobile.home.stream.StreamingPlaybackView? = null
+    private var requestedStreamBanner: String? = null
+    private var streamBannerGeneration = 0
+    private var activeStreamSession: com.mezon.mobile.home.stream.StreamingWebRtcSession? = null
+
 
     init {
         val bgDrawable = GradientDrawable().apply {
@@ -160,12 +165,16 @@ class VoiceOverlayView(
         nameRow.visibility = VISIBLE
     }
 
-    fun setStreamContent(channelLabel: String, avatarUrl: String?) {
+    fun setStreamContent(channelLabel: String, avatarUrl: String?, session: com.mezon.mobile.home.stream.StreamingWebRtcSession? = null) {
+        activeStreamSession = session
         detachVideo()
         avatarView.visibility = GONE
-        avatarDisposable?.cancel()
-        avatarDisposable = null
-        backgroundImageView.visibility = VISIBLE
+        val playback = streamPlayback ?: com.mezon.mobile.home.stream.StreamingPlaybackView(context).also {
+            streamPlayback = it
+            addView(it, 0, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        }
+        playback.update(session)
+        backgroundImageView.visibility = if (session?.hasVideoFrames == true) GONE else VISIBLE
 
         val streamIcon = MezonIcon.channelStream.getDrawable(context)?.apply {
             colorFilter = PorterDuffColorFilter(0xFFFFFFFF.toInt(), PorterDuff.Mode.SRC_IN)
@@ -178,31 +187,21 @@ class VoiceOverlayView(
 
     private fun loadStreamBackground(rawUrl: String?) {
         backgroundImageView.scaleType = ImageView.ScaleType.FIT_CENTER
-        val absolute = rawUrl?.trim()?.takeIf { it.isNotEmpty() }?.let { absoluteResourceUrl(it).takeIf { url -> url.isNotEmpty() } }
-        if (absolute.isNullOrEmpty()) {
-            backgroundImageView.setImageDrawable(MezonIcon.channelStream.getDrawable(context))
-            return
-        }
+        val raw = rawUrl?.trim()?.takeUnless { it == "0" || it.contains("avatar-group.png") }.orEmpty()
+        if (requestedStreamBanner == raw) return
+        requestedStreamBanner = raw
+        val generation = ++streamBannerGeneration
+        avatarDisposable?.cancel(); avatarDisposable = null
+        backgroundImageView.setImageResource(com.mezon.mobile.R.drawable.mezon_stream_poster)
+        if (raw.isEmpty()) return
+        val absolute = absoluteResourceUrl(raw)
+        if (absolute.isBlank()) return
         val targetWidth = width.takeIf { it > 0 } ?: VoiceOverlayManager.MINI_W
         val targetHeight = height.takeIf { it > 0 } ?: VoiceOverlayManager.MINI_H
         val proxyUrl = createImgproxyUrl(absolute, targetWidth, targetHeight, "fit")
-        val loader = MezonImageLoader.getInstance(context)
-        val cached = loader.getBitmapFromMemory(proxyUrl, targetWidth, targetHeight)
-        if (cached != null) {
-            backgroundImageView.setImageBitmap(cached)
-            return
-        }
-        avatarDisposable = loader.load(
-            proxyUrl, targetWidth, targetHeight,
-            onSuccess = { bmp ->
-                avatarDisposable = null
-                backgroundImageView.setImageBitmap(bmp)
-            },
-            onError = {
-                avatarDisposable = null
-                backgroundImageView.setImageDrawable(MezonIcon.channelStream.getDrawable(context))
-            }
-        )
+        avatarDisposable = MezonImageLoader.getInstance(context).load(proxyUrl, targetWidth, targetHeight,
+            onSuccess = { bmp -> if (generation == streamBannerGeneration) { avatarDisposable = null; backgroundImageView.setImageBitmap(bmp) } },
+            onError = { if (generation == streamBannerGeneration) avatarDisposable = null })
     }
 
     private fun showVideoContent(videoTrack: VideoTrack, isScreenShare: Boolean) {
@@ -307,6 +306,10 @@ class VoiceOverlayView(
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        activeStreamSession?.let { session ->
+            streamPlayback?.update(session)
+            backgroundImageView.visibility = if (session.hasVideoFrames) GONE else VISIBLE
+        }
         currentVideoTrack?.let { onVideoVisibilityChanged?.invoke(it, isShown) }
     }
 
@@ -316,6 +319,12 @@ class VoiceOverlayView(
     }
 
     fun releaseRenderer() {
+        activeStreamSession = null
+        streamPlayback?.update(null)
+        streamPlayback?.let { removeView(it) }
+        streamPlayback = null
+        requestedStreamBanner = null
+        streamBannerGeneration++
         detachVideo()
         avatarDisposable?.cancel()
         avatarDisposable = null

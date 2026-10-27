@@ -36,6 +36,7 @@ class VoiceOverlayManager(
     }
     private var fullScreenView: View? = null
     private var miniOverlay: VoiceOverlayView? = null
+    private var streamSession: com.mezon.mobile.home.stream.StreamingWebRtcSession? = null
     private var currentAnimator: ValueAnimator? = null
 
     var onVideoVisibilityChanged: ((VideoTrack, Boolean) -> Unit)? = null
@@ -105,7 +106,8 @@ class VoiceOverlayManager(
         anim.start()
     }
 
-    fun minimizeStream(channelLabel: String, channelAvatarUrl: String?) {
+    fun minimizeStream(channelLabel: String, channelAvatarUrl: String?, session: com.mezon.mobile.home.stream.StreamingWebRtcSession) {
+        streamSession = session
         if (state != State.EXPANDED) return
         currentAnimator?.cancel()
 
@@ -116,7 +118,7 @@ class VoiceOverlayManager(
             it.onVideoVisibilityChanged = { track, visible -> onVideoVisibilityChanged?.invoke(track, visible) }
             miniOverlay = it
         }
-        overlay.setStreamContent(channelLabel, channelAvatarUrl)
+        overlay.setStreamContent(channelLabel, channelAvatarUrl, session)
 
         val anim = ValueAnimator.ofFloat(1f, 0f)
         anim.duration = ANIM_DURATION
@@ -143,7 +145,7 @@ class VoiceOverlayManager(
 
     fun updateMiniStream(channelLabel: String, channelAvatarUrl: String?) {
         if (state != State.MINIMIZED) return
-        miniOverlay?.setStreamContent(channelLabel, channelAvatarUrl)
+        miniOverlay?.setStreamContent(channelLabel, channelAvatarUrl, streamSession)
     }
 
     fun expand() {
@@ -183,6 +185,7 @@ class VoiceOverlayManager(
         overlayContainer.visibility = View.GONE
         fullScreenView = null
         miniOverlay = null
+        streamSession = null
         state = State.HIDDEN
     }
 

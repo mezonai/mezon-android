@@ -2,32 +2,50 @@ package com.mezon.mobile.home.stream
 
 import android.content.Context
 import android.os.Looper
-import com.mezon.mobile.BuildConfig
+import android.os.SystemClock
+import android.util.Log
+import android.widget.Toast
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.hls.HlsMediaSource
+import com.mezon.mezon.api.GetStreamPlaybackResponse
+import com.mezon.mobile.R
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.MainDispatcher
 import com.mezon.mobile.home.call.WebRtcInfra
-import com.mezon.mobile.home.voice.sfu.SFU_MEDIA_POOL_VERSION
+import com.mezon.mobile.network.MezonApi
+import com.mezon.mobile.network.MezonSocket
+import com.mezon.mobile.session.SessionManager
 import dagger.hilt.android.qualifiers.ApplicationContext
-import java.net.URLEncoder
-import javax.inject.Inject
-import javax.inject.Singleton
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
-import okhttp3.WebSocket
-import okhttp3.WebSocketListener
-import org.json.JSONObject
 import org.webrtc.AudioTrack
+import org.webrtc.IceCandidate
+import org.webrtc.MediaConstraints
 import org.webrtc.MediaStream
 import org.webrtc.MediaStreamTrack
 import org.webrtc.PeerConnection
@@ -35,587 +53,522 @@ import org.webrtc.RtpReceiver
 import org.webrtc.RtpTransceiver
 import org.webrtc.SdpObserver
 import org.webrtc.SessionDescription
+import org.webrtc.VideoSink
+import org.webrtc.VideoTrack
+import java.io.IOException
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import javax.inject.Inject
+import javax.inject.Singleton
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+import kotlin.random.Random
 
-private const val MAX_RECONNECT_DELAY_MS = 15_000L
-private const val ICE_DISCONNECTED_GRACE_MS = 3_000L
-private const val OFFER_REISSUE_DEADLINE_MS = 8_000L
+enum class StreamingQuality(val layer: String, val titleRes: Int, val detailRes: Int, val maxHeight: Int) {
+    AUTO("auto", R.string.stream_quality_auto, R.string.stream_quality_auto_detail, Int.MAX_VALUE),
+    HIGH("high", R.string.stream_quality_high, R.string.stream_quality_high_detail, Int.MAX_VALUE),
+    MEDIUM("mid", R.string.stream_quality_medium, R.string.stream_quality_medium_detail, 720),
+    LOW("low", R.string.stream_quality_low, R.string.stream_quality_low_detail, 360),
+}
 
-private data class SdpMediaSection(
-    val kind: String,
-    val mid: String,
-    val direction: String?,
-)
-
-/**
- * SFU audience transport for streaming channels.
- *
- * The SFU sends the offer. Android answers the complete SDP layout while
- * keeping every video section inactive and receiving audio only. There is no
- * local media source, local sender or trickle ICE signaling in this path.
- */
+/** HLS-first viewer transport, with WHEP when HLS is unavailable. */
 @Singleton
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 class StreamingWebRtcSession @Inject constructor(
     @ApplicationContext private val context: Context,
     private val webRtcInfra: WebRtcInfra,
-    private val okHttpClient: OkHttpClient,
+    okHttpClient: OkHttpClient,
+    private val api: MezonApi,
+    private val sessionManager: SessionManager,
+    private val socket: MezonSocket,
+    private val presence: StreamingController,
     @ApplicationScope private val appScope: CoroutineScope,
     @MainDispatcher private val mainDispatcher: CoroutineDispatcher,
 ) {
-    @Volatile var activeStreamChannelId: Long? = null
-        private set
-    @Volatile var isStreaming = false
-        private set
-    @Volatile var remoteAudioTrack: AudioTrack? = null
-        private set
+    var activeStreamChannelId: Long? = null; private set
+    var isStreaming = false; private set
+    var isBuffering = false; private set
+    var hasVideoFrames = false; private set
+    var remoteAudioTrack: AudioTrack? = null; private set
+    var remoteVideoTrack: VideoTrack? = null; private set
+    var player: ExoPlayer? = null; private set
+    var quality = StreamingQuality.AUTO; private set
+    val defaultQuality: StreamingQuality get() = StreamingQuality.entries.firstOrNull {
+        it.layer == preferences.getString("default-quality", "auto")
+    } ?: StreamingQuality.AUTO
+    val audioOutputIcon: com.mezon.mobile.ui.cells.MezonIcon get() = audioRouting.currentOutputIcon()
+    val isSpeakerOutput: Boolean get() = audioRouting.isSpeaker
+    val audioOutputName: String get() = audioRouting.deviceName
+    val eglContext get() = webRtcInfra.eglContext
+    var onStreamingStateChanged: (() -> Unit)? = null
 
-    @Volatile var onStreamingStateChanged: (() -> Unit)? = null
-
-    private val audioRouting by lazy { StreamingAudioManager(context) }
-
-    /* The app client may have a logging interceptor. Do not reuse it for a
-       WebSocket whose URL and join message contain bearer tokens. */
-    private val streamingHttpClient: OkHttpClient by lazy {
-        okHttpClient.newBuilder().apply {
-            interceptors().clear()
-            networkInterceptors().clear()
-        }.build()
-    }
-
-    private var webSocket: WebSocket? = null
-    private var peerConnection: PeerConnection? = null
-    private var activeToken = ""
-    private var activeSfuUrl = ""
-    private var tokenProvider: (suspend () -> String)? = null
-    private var reconnectJob: Job? = null
-    private var iceDisconnectedJob: Job? = null
-    private var offerReissueJob: Job? = null
-    private var reconnectAttempts = 0
-    private var sessionGeneration = 0L
+    private val preferences = context.getSharedPreferences("stream-playback", Context.MODE_PRIVATE)
+    private val audioRouting = StreamingAudioManager(context).apply { onChanged = { notifyState() } }
+    // Signed URLs and SDP must not reach the application's logging interceptors.
+    private val http = okHttpClient.newBuilder().apply {
+        interceptors().clear(); networkInterceptors().clear()
+        followRedirects(false); followSslRedirects(false)
+        connectTimeout(5, TimeUnit.SECONDS); callTimeout(15, TimeUnit.SECONDS)
+    }.build()
+    private var clanId = 0L
+    private var peer: PeerConnection? = null
+    private var firstFrameSink: VideoSink? = null
+    private var frameKeeper: com.mezon.mobile.home.voice.VideoTrackFrameKeeper? = null
+    private var whepResource: HttpUrl? = null
+    private var fallbackUrl: String? = null
     private var transportGeneration = 0L
-    private var negotiating = false
-    private var pendingOffer: Pair<Long, String>? = null
+    private var sessionGeneration = 0L
+    private var joinGeneration = 0L
+    private var pendingJoinChannelId: Long? = null
+    private var transportJob: Job? = null
+    private var reconnectJob: Job? = null
+    private var watchdogJob: Job? = null
+    private var watchdogDeadline: Long? = null
+    private var watchJob: Job? = null
+    private var renewWatchJob: Job? = null
+    private var disconnectedJob: Job? = null
+    private var reconnectAttempts = 0
+    private var mediaProgressJob: Job? = null
+    private var lastMediaProgressAt = 0L
+    private var lastMediaPosition: Long? = null
+    private var lastInboundBytes = 0L
 
-    fun join(
-        channelId: Long,
-        token: String,
-        sfuUrl: String = "",
-        tokenProvider: suspend () -> String,
-    ) {
-        runOnMain { joinOnMain(channelId, token, sfuUrl, tokenProvider) }
-    }
-
-    fun disconnect() {
-        runOnMain { disconnectOnMain() }
-    }
-
-    private fun joinOnMain(
-        channelId: Long,
-        token: String,
-        sfuUrl: String,
-        provider: suspend () -> String,
-    ) {
-        checkOnMainThread()
-        if (channelId == 0L || token.isBlank()) {
-            return
-        }
-        if (activeStreamChannelId == channelId && (webSocket != null || peerConnection != null)) {
-            return
-        }
-
-        disconnectOnMain()
-        activeStreamChannelId = channelId
-        activeToken = token
-        activeSfuUrl = sfuUrl.trim()
-        tokenProvider = provider
-        reconnectAttempts = 0
-        audioRouting.start()
-        webRtcInfra.ensureFactoryReady()
-        openTransportOnMain()
-    }
-
-    private fun disconnectOnMain() {
-        checkOnMainThread()
-        sessionGeneration++
-        reconnectJob?.cancel()
-        reconnectJob = null
-        iceDisconnectedJob?.cancel()
-        iceDisconnectedJob = null
-        offerReissueJob?.cancel()
-        offerReissueJob = null
-        closeTransportOnMain()
-        activeStreamChannelId = null
-        activeToken = ""
-        activeSfuUrl = ""
-        tokenProvider = null
-        pendingOffer = null
-        negotiating = false
-        reconnectAttempts = 0
-        remoteAudioTrack = null
-        audioRouting.stop()
-        setStreaming(false)
-    }
-
-    private fun openTransportOnMain() {
-        checkOnMainThread()
-        val channelId = activeStreamChannelId ?: return
-        val token = activeToken
-        if (token.isBlank()) {
-            scheduleReconnectOnMain()
-            return
-        }
-        val wsUrl = buildWebSocketUrl(token)
-        if (wsUrl.isEmpty()) {
-            scheduleReconnectOnMain()
-            return
-        }
-
-        closeTransportOnMain()
-        val sessionGen = sessionGeneration
-        val transportGen = transportGeneration
-        pendingOffer = null
-        negotiating = false
-
-        val pc = createPeerConnection(transportGen) ?: run {
-            scheduleReconnectOnMain()
-            return
-        }
-        peerConnection = pc
-        val request = Request.Builder().url(wsUrl).build()
-        webSocket = streamingHttpClient.newWebSocket(
-            request,
-            StreamWebSocketListener(sessionGen, transportGen, channelId),
-        )
-    }
-
-    private fun closeTransportOnMain() {
-        checkOnMainThread()
-        transportGeneration++
-        offerReissueJob?.cancel()
-        offerReissueJob = null
-        val socket = webSocket
-        webSocket = null
-        runCatching { socket?.close(1000, "reconnect") }
-
-        val pc = peerConnection
-        peerConnection = null
-        runCatching {
-            pc?.close()
-            pc?.dispose()
-        }
-        pendingOffer = null
-        negotiating = false
-        remoteAudioTrack = null
-        setStreaming(false)
-    }
-
-    private fun createPeerConnection(transportGen: Long): PeerConnection? {
-        /* SFU is ICE-lite. Keep this identical to the web audience path. */
-        val config = PeerConnection.RTCConfiguration(emptyList()).apply {
-            sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
-        }
-        return runCatching {
-            webRtcInfra.factory.createPeerConnection(config, createPeerObserver(transportGen))
-        }.getOrNull()
-    }
-
-    private fun createPeerObserver(transportGen: Long) = object : PeerConnection.Observer {
-        override fun onSignalingChange(state: PeerConnection.SignalingState?) {}
-
-        override fun onIceConnectionChange(state: PeerConnection.IceConnectionState?) {
-            runOnMain {
-                if (!isCurrentTransport(transportGen)) return@runOnMain
-                when (state) {
-                    PeerConnection.IceConnectionState.CONNECTED,
-                    PeerConnection.IceConnectionState.COMPLETED -> {
-                        iceDisconnectedJob?.cancel()
-                        iceDisconnectedJob = null
-                        reconnectAttempts = 0
-                        setStreaming(true)
-                    }
-                    PeerConnection.IceConnectionState.DISCONNECTED -> {
-                        iceDisconnectedJob?.cancel()
-                        val sessionGen = sessionGeneration
-                        iceDisconnectedJob = appScope.launch(mainDispatcher) {
-                            delay(ICE_DISCONNECTED_GRACE_MS)
-                            if (sessionGen == sessionGeneration && isCurrentTransport(transportGen)) {
-                                scheduleReconnectOnMain()
-                            }
-                        }
-                    }
-                    PeerConnection.IceConnectionState.FAILED,
-                    PeerConnection.IceConnectionState.CLOSED -> {
-                        scheduleReconnectOnMain()
-                    }
-                    else -> Unit
+    init {
+        appScope.launch(mainDispatcher) {
+            socket.reconnected.collect {
+                if (activeStreamChannelId != null) {
+                    renewWatch()
+                    presence.fetchStreamChannelMembers(clanId, noCache = true)
                 }
             }
         }
-
-        override fun onIceConnectionReceivingChange(receiving: Boolean) {}
-        override fun onIceGatheringChange(state: PeerConnection.IceGatheringState?) {}
-        override fun onIceCandidate(candidate: org.webrtc.IceCandidate?) {
-            /* Trickle ICE is not part of this SFU signaling contract. */
-        }
-        override fun onIceCandidatesRemoved(candidates: Array<out org.webrtc.IceCandidate>?) {}
-
-        override fun onAddStream(stream: MediaStream?) {
-            stream ?: return
-            runOnMain {
-                if (!isCurrentTransport(transportGen)) return@runOnMain
-                stream.audioTracks.forEach { handleRemoteTrack(it) }
-                stream.videoTracks.forEach { ignoreUnexpectedVideoTrack(it) }
+        appScope.launch(mainDispatcher) {
+            presence.changes.collect { changedClans ->
+                val channel = activeStreamChannelId ?: return@collect
+                if (changedClans.containsKey(clanId) && presence.getStreamMembersForChannel(channel, clanId).isEmpty()) {
+                    stopPlayback(sendUnwatch = false)
+                }
             }
         }
+    }
 
+    suspend fun join(channelId: Long, clanId: Long, canJoin: () -> Boolean = { true }): Boolean = withContext(mainDispatcher) {
+        if (channelId == 0L) return@withContext false
+        if (activeStreamChannelId == channelId) {
+            joinGeneration++; pendingJoinChannelId = null
+            return@withContext canJoin()
+        }
+        if (pendingJoinChannelId == channelId) return@withContext false
+        val request = ++joinGeneration
+        pendingJoinChannelId = channelId
+        try {
+            val playback = fetchPlayback(channelId)
+            if (request != joinGeneration || !isActive || !canJoin()) return@withContext false
+            // Fetch before disconnecting: failed/stale joins keep the current stream playing.
+            stopPlayback(sendUnwatch = true, notify = false)
+            activeStreamChannelId = channelId
+            this@StreamingWebRtcSession.clanId = clanId
+            quality = defaultQuality
+            reconnectAttempts = 0
+            audioRouting.start() // Defaults to speaker for every new room.
+            renewWatch()
+            watchJob = appScope.launch(mainDispatcher) {
+                while (isActive) { delay(30_000); renewWatch() }
+            }
+            startPlayback(playback)
+            true
+        } catch (e: CancellationException) { throw e }
+        catch (e: Exception) {
+            if (request == joinGeneration && canJoin()) showError()
+            false
+        } finally { if (request == joinGeneration) pendingJoinChannelId = null }
+    }
+
+    fun disconnect() = runOnMain {
+        joinGeneration++; pendingJoinChannelId = null
+        stopPlayback(sendUnwatch = true)
+    }
+
+    fun toggleSpeakerOutput() = runOnMain { audioRouting.toggleSpeaker(); notifyState() }
+
+    fun setDefaultQuality(value: StreamingQuality) { preferences.edit().putString("default-quality", value.layer).apply() }
+
+    fun setQuality(value: StreamingQuality) = runOnMain {
+        if (quality == value) return@runOnMain
+        quality = value
+        applyHlsQuality()
+        whepResource?.let { resource ->
+            val url = resource.newBuilder().addPathSegment("layer").setQueryParameter("layer", value.layer).build()
+            fireAndForget(Request.Builder().url(url).post(ByteArray(0).toRequestBody()).build())
+        }
+        notifyState()
+    }
+
+    fun replayVideoFrame(sink: VideoSink) { frameKeeper?.replay(sink) }
+
+    fun resumePresence() = runOnMain {
+        if (activeStreamChannelId != null) {
+            renewWatch()
+            presence.fetchStreamChannelMembers(clanId, noCache = true)
+        }
+    }
+
+    private suspend fun fetchPlayback(channelId: Long): GetStreamPlaybackResponse {
+        val response = sessionManager.withAutoRefresh { session -> api.getStreamPlayback(session.apiUrl, session.token, channelId) }
+        val playback = resolvedPlayback(response, channelId)
+        require(playbackUrl(playback.hlsUrl) != null ||
+            (playbackUrl(playback.whepUrl) != null && playback.token.isNotEmpty()))
+        return playback
+    }
+
+    private fun playbackUrl(raw: String): HttpUrl? = raw.toHttpUrlOrNull()
+
+    private fun resolvedPlayback(playback: GetStreamPlaybackResponse, channelId: Long): GetStreamPlaybackResponse {
+        // An omitted WHEP URL can mean no edge has capacity: honor an API-provided HLS URL.
+        if (channelId == 0L || playback.token.isEmpty() ||
+            playbackUrl(playback.whepUrl) != null || playbackUrl(playback.hlsUrl) != null) return playback
+        val baseUrl = "https://streaming.mezon.vn".toHttpUrlOrNull()!!
+        val whep = baseUrl.newBuilder().addPathSegment("whep").addPathSegment(channelId.toString()).build()
+        // The streaming server uses the channel's 16-digit hexadecimal ID for HLS.
+        val channelPath = java.lang.Long.toHexString(channelId).padStart(16, '0')
+        val hls = baseUrl.newBuilder().addPathSegment(channelPath).addPathSegment("live")
+            .addPathSegment("index.m3u8").addQueryParameter("token", playback.token).build()
+        return playback.toBuilder().setWhepUrl(whep.toString()).setHlsUrl(hls.toString()).build()
+    }
+
+    private fun renewWatch() {
+        val channel = activeStreamChannelId ?: return
+        if (renewWatchJob?.isActive == true) return
+        renewWatchJob = appScope.launch(mainDispatcher) {
+            try { socket.writeStreamingWatch(channel, true) }
+            catch (e: CancellationException) { throw e }
+            catch (e: Exception) { logFailure("watch", e) }
+        }
+    }
+
+    private fun startPlayback(playback: GetStreamPlaybackResponse) {
+        closeTransport()
+        fallbackUrl = playbackUrl(playback.hlsUrl)?.toString()
+        isBuffering = true
+        notifyState()
+        val generation = transportGeneration
+        if (fallbackUrl != null) { startHls(); return }
+        val url = playbackUrl(playback.whepUrl)
+        if (url == null || playback.token.isBlank()) { startHls(); return }
+        armWatchdog(generation, 15_000)
+        transportJob = appScope.launch(mainDispatcher) {
+            try {
+                webRtcInfra.ensureFactoryReady()
+                val connection = webRtcInfra.factory.createPeerConnection(
+                    PeerConnection.RTCConfiguration(emptyList()).apply { sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN },
+                    observer(generation),
+                ) ?: throw IOException("Peer unavailable")
+                if (!isCurrent(generation)) { connection.dispose(); return@launch }
+                peer = connection
+                startMediaProgressMonitoring(generation)
+                connection.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO, RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.RECV_ONLY))
+                connection.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO, RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.RECV_ONLY))
+                val offer = createOffer(connection)
+                if (!isCurrent(generation)) return@launch
+                setDescription(connection, offer, local = true)
+                withTimeout(4_000) {
+                    while (isCurrent(generation) && connection.iceGatheringState() != PeerConnection.IceGatheringState.COMPLETE) delay(50)
+                }
+                if (!isCurrent(generation)) return@launch
+                val target = url.newBuilder().setQueryParameter("layer", quality.layer).build()
+                val answer = postOffer(Request.Builder().url(target)
+                    .header("Authorization", "Bearer ${playback.token}")
+                    .post(connection.localDescription.description.toRequestBody("application/sdp".toMediaType())).build())
+                if (!isCurrent(generation)) { deleteResource(answer.resource); return@launch }
+                whepResource = answer.resource
+                if (Regex("(?m)^m=video 0 ").containsMatchIn(answer.sdp)) throw IOException("Video rejected")
+                setDescription(connection, SessionDescription(SessionDescription.Type.ANSWER, answer.sdp), local = false)
+                if (isCurrent(generation)) {
+                    if (connection.iceConnectionState() == PeerConnection.IceConnectionState.CONNECTED ||
+                        connection.iceConnectionState() == PeerConnection.IceConnectionState.COMPLETED) connected()
+                    else if (!isStreaming) armWatchdog(generation, 5_000)
+                }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                if (isCurrent(generation)) {
+                    logFailure("whep", e)
+                    if (e is WhepFailure && e.status == 404) failPlayback() else startHls()
+                }
+            }
+        }
+    }
+
+    private fun startHls() {
+        val url = fallbackUrl
+        closeTransport()
+        if (url == null) { scheduleReconnect(); return }
+        val generation = transportGeneration
+        isBuffering = true
+        val next = ExoPlayer.Builder(context).build()
+        player = next
+        next.setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_VOICE_COMMUNICATION).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), false)
+        applyHlsQuality()
+        next.addListener(object : Player.Listener {
+            override fun onIsPlayingChanged(playing: Boolean) { if (isCurrent(generation) && playing) connected() }
+            override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) { if (isCurrent(generation)) notifyState() }
+            override fun onRenderedFirstFrame() { if (isCurrent(generation)) { hasVideoFrames = true; notifyState() } }
+            override fun onPlaybackStateChanged(state: Int) {
+                if (!isCurrent(generation)) return
+                when (state) {
+                    Player.STATE_BUFFERING -> { isBuffering = true; armWatchdog(generation, 15_000); notifyState() }
+                    Player.STATE_ENDED -> scheduleReconnect()
+                }
+            }
+            override fun onPlayerError(error: PlaybackException) {
+                if (isCurrent(generation)) { logFailure("hls", error); scheduleReconnect() }
+            }
+        })
+        val media = MediaItem.Builder().setUri(url).setMimeType(MimeTypes.APPLICATION_M3U8).build()
+        next.setMediaSource(HlsMediaSource.Factory(DefaultHttpDataSource.Factory()).createMediaSource(media))
+        armWatchdog(generation, 15_000)
+        startMediaProgressMonitoring(generation)
+        next.prepare()
+        next.playWhenReady = true
+        notifyState()
+    }
+
+    private fun applyHlsQuality() {
+        player?.let { current ->
+            current.trackSelectionParameters = current.trackSelectionParameters.buildUpon()
+                .setMaxVideoSize(if (quality.maxHeight == Int.MAX_VALUE) Int.MAX_VALUE else quality.maxHeight * 16 / 9, quality.maxHeight)
+                .setForceHighestSupportedBitrate(quality == StreamingQuality.HIGH).build()
+        }
+    }
+
+    private fun observer(generation: Long) = object : PeerConnection.Observer {
+        override fun onSignalingChange(state: PeerConnection.SignalingState?) {}
+        override fun onIceConnectionChange(state: PeerConnection.IceConnectionState?) = runOnMain {
+            if (!isCurrent(generation)) return@runOnMain
+            when (state) {
+                PeerConnection.IceConnectionState.CONNECTED, PeerConnection.IceConnectionState.COMPLETED -> connected()
+                PeerConnection.IceConnectionState.FAILED -> startHls()
+                PeerConnection.IceConnectionState.DISCONNECTED -> {
+                    if (disconnectedJob?.isActive != true) disconnectedJob = appScope.launch(mainDispatcher) {
+                        delay(5_000)
+                        if (isCurrent(generation)) startHls()
+                    }
+                }
+                else -> Unit
+            }
+        }
+        override fun onIceConnectionReceivingChange(receiving: Boolean) {}
+        override fun onIceGatheringChange(state: PeerConnection.IceGatheringState?) {}
+        override fun onIceCandidate(candidate: IceCandidate?) {}
+        override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>?) {}
+        override fun onAddStream(stream: MediaStream?) { stream?.audioTracks?.forEach { remoteTrack(it, generation) }; stream?.videoTracks?.forEach { remoteTrack(it, generation) } }
         override fun onRemoveStream(stream: MediaStream?) {}
         override fun onDataChannel(channel: org.webrtc.DataChannel?) {}
         override fun onRenegotiationNeeded() {}
-
-        override fun onAddTrack(receiver: RtpReceiver?, streams: Array<out MediaStream>?) {
-            val track = receiver?.track() ?: return
-            runOnMain {
-                if (!isCurrentTransport(transportGen)) return@runOnMain
-                handleRemoteTrack(track)
-            }
-        }
+        override fun onAddTrack(receiver: RtpReceiver?, streams: Array<out MediaStream>?) { receiver?.track()?.let { remoteTrack(it, generation) } }
+        override fun onTrack(transceiver: RtpTransceiver?) { transceiver?.receiver?.track()?.let { remoteTrack(it, generation) } }
     }
 
-    private inner class StreamWebSocketListener(
-        private val sessionGen: Long,
-        private val transportGen: Long,
-        private val channelId: Long,
-    ) : WebSocketListener() {
-        override fun onOpen(webSocket: WebSocket, response: Response) {
-            runOnMain {
-                if (!isCurrent(sessionGen, transportGen, webSocket)) {
-                    runCatching { webSocket.close(1000, "stale") }
-                    return@runOnMain
+    private fun remoteTrack(track: MediaStreamTrack, generation: Long) = runOnMain {
+        if (!isCurrent(generation)) return@runOnMain
+        when (track) {
+            is AudioTrack -> { remoteAudioTrack = track; track.setEnabled(true); track.setVolume(1.0) }
+            is VideoTrack -> if (remoteVideoTrack?.id() != track.id()) {
+                firstFrameSink?.let { sink -> remoteVideoTrack?.removeSink(sink) }
+                frameKeeper?.let { keeper -> remoteVideoTrack?.removeSink(keeper); keeper.clear() }
+                remoteVideoTrack = track
+                frameKeeper = com.mezon.mobile.home.voice.VideoTrackFrameKeeper().also { track.addSink(it) }
+                track.setEnabled(true)
+                hasVideoFrames = false
+                val first = AtomicBoolean(false)
+                val sink = VideoSink { frame ->
+                    if (frame.buffer.width > 0 && frame.buffer.height > 0 && first.compareAndSet(false, true)) runOnMain {
+                        if (isCurrent(generation) && remoteVideoTrack === track) { hasVideoFrames = true; notifyState() }
+                    }
                 }
-                send(
-                    JSONObject()
-                        .put("type", "join")
-                        .put("room", channelId.toString())
-                        .put("token", activeToken)
-                        .put("role", "audience")
-                        .put("media_pool_version", SFU_MEDIA_POOL_VERSION),
-                )
+                firstFrameSink = sink
+                track.addSink(sink)
             }
         }
-
-        override fun onMessage(webSocket: WebSocket, text: String) {
-            runOnMain {
-                if (isCurrent(sessionGen, transportGen, webSocket)) {
-                    handleIncomingMessage(text, sessionGen, transportGen)
-                }
-            }
-        }
-
-        override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-            runOnMain {
-                if (isCurrent(sessionGen, transportGen, webSocket)) {
-                    scheduleReconnectOnMain()
-                }
-            }
-        }
-
-        override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-            runOnMain {
-                if (isCurrent(sessionGen, transportGen, webSocket)) {
-                    scheduleReconnectOnMain()
-                }
-            }
-        }
+        notifyState()
     }
 
-    private fun handleIncomingMessage(text: String, sessionGen: Long, transportGen: Long) {
-        val json = runCatching { JSONObject(text) }.getOrNull() ?: return
-        when (json.optString("type")) {
-            "ping" -> send(JSONObject().put("type", "pong"))
-            "pong", "joined", "room_snapshot" -> Unit
-            "offer" -> {
-                val generation = json.optLong("offer_generation", -1L)
-                val sdp = json.optString("sdp")
-                if (generation >= 0L && sdp.isNotBlank()) {
-                    offerReissueJob?.cancel()
-                    offerReissueJob = null
-                    negotiate(generation, sdp, sessionGen, transportGen)
-                }
-            }
-            "error" -> {
-                val detail = json.optString("message")
-                if (detail == "stale_offer_generation" || detail == "future_offer_generation") {
-                    armOfferReissueDeadline(sessionGen, transportGen)
-                } else {
-                    scheduleReconnectOnMain()
-                }
-            }
-        }
+    private fun noteMediaProgress() {
+        lastMediaProgressAt = SystemClock.elapsedRealtime()
+        reconnectAttempts = 0
+        watchdogJob?.cancel(); watchdogJob = null; watchdogDeadline = null
+        if (!isStreaming || isBuffering) connected()
     }
 
-    private fun armOfferReissueDeadline(sessionGen: Long, transportGen: Long) {
-        if (offerReissueJob?.isActive == true) return
-        offerReissueJob = appScope.launch(mainDispatcher) {
-            delay(OFFER_REISSUE_DEADLINE_MS)
-            offerReissueJob = null
-            if (sessionGen == sessionGeneration && isCurrentTransport(transportGen)) {
-                scheduleReconnectOnMain()
-            }
-        }
-    }
-
-    private fun negotiate(
-        firstGeneration: Long,
-        firstSdp: String,
-        sessionGen: Long,
-        transportGen: Long,
-    ) {
-        if (!isCurrentTransport(transportGen) || sessionGen != sessionGeneration) return
-        if (negotiating) {
-            pendingOffer = firstGeneration to firstSdp
-            return
-        }
-        negotiating = true
-        appScope.launch(mainDispatcher) {
-            var offer: Pair<Long, String>? = firstGeneration to firstSdp
-            try {
-                while (offer != null && isCurrentTransport(transportGen) && sessionGen == sessionGeneration) {
-                    val (generation, sdp) = offer
-                    negotiateOne(generation, sdp, sessionGen, transportGen)
-                    offer = pendingOffer
-                    pendingOffer = null
-                    if (offer != null) delay(50)
-                }
-            } catch (e: Exception) {
-                if (isCurrentTransport(transportGen) && sessionGen == sessionGeneration) {
-                    scheduleReconnectOnMain()
-                }
-            } finally {
-                negotiating = false
-            }
-        }
-    }
-
-    private suspend fun negotiateOne(
-        generation: Long,
-        offerSdp: String,
-        sessionGen: Long,
-        transportGen: Long,
-    ) {
-        val pc = peerConnection ?: error("missing peer connection")
-        if (!isCurrentTransport(transportGen) || sessionGen != sessionGeneration) return
-        awaitSetRemoteDescription(pc, SessionDescription(SessionDescription.Type.OFFER, offerSdp))
-        if (!isCurrentTransport(transportGen) || sessionGen != sessionGeneration) return
-
-        val transceivers = pc.transceivers
-        val offeredSections = parseMediaSections(offerSdp)
-        if (transceivers.size != offeredSections.size) {
-            error("SFU offer/PeerConnection m-line count mismatch")
-        }
-        transceivers.forEachIndexed { index, transceiver ->
-            val section = offeredSections[index]
-            if (transceiver.mid != section.mid) {
-                error("SFU offer/PeerConnection mid order mismatch")
-            }
-            transceiver.direction = if (section.kind == "video") {
-                RtpTransceiver.RtpTransceiverDirection.INACTIVE
-            } else {
-                RtpTransceiver.RtpTransceiverDirection.RECV_ONLY
-            }
-        }
-
-        val answer = awaitCreateAnswer(pc)
-        validateFullSdpAnswer(offerSdp, answer.description)
-        if (!isCurrentTransport(transportGen) || sessionGen != sessionGeneration) return
-        awaitSetLocalDescription(pc, SessionDescription(SessionDescription.Type.ANSWER, answer.description))
-        if (!isCurrentTransport(transportGen) || sessionGen != sessionGeneration) return
-        send(
-            JSONObject()
-                .put("type", "answer")
-                .put("sdp", answer.description)
-                .put("offer_generation", generation),
-        )
-    }
-
-    private fun handleRemoteTrack(track: MediaStreamTrack) {
-        if (track is AudioTrack) {
-            track.setEnabled(true)
-            remoteAudioTrack = track
-        } else {
-            ignoreUnexpectedVideoTrack(track)
-        }
-    }
-
-    private fun ignoreUnexpectedVideoTrack(track: MediaStreamTrack) {
-        track.setEnabled(false)
-    }
-
-    private suspend fun awaitSetRemoteDescription(
-        pc: PeerConnection,
-        description: SessionDescription,
-    ) = withContext(mainDispatcher) {
-        suspendCancellableCoroutine<Unit> { continuation ->
-            pc.setRemoteDescription(object : SdpObserver {
-                override fun onCreateSuccess(p0: SessionDescription?) {}
-                override fun onSetSuccess() {
-                    if (continuation.isActive) continuation.resume(Unit)
-                }
-                override fun onCreateFailure(error: String?) {
-                    if (continuation.isActive) continuation.resumeWithException(RuntimeException(error ?: "set remote failed"))
-                }
-                override fun onSetFailure(error: String?) {
-                    if (continuation.isActive) continuation.resumeWithException(RuntimeException(error ?: "set remote failed"))
-                }
-            }, description)
-        }
-    }
-
-    private suspend fun awaitCreateAnswer(pc: PeerConnection): SessionDescription =
-        withContext(mainDispatcher) {
-            suspendCancellableCoroutine { continuation ->
-                pc.createAnswer(object : SdpObserver {
-                    override fun onCreateSuccess(description: SessionDescription?) {
-                        if (!continuation.isActive) return
-                        if (description == null) {
-                            continuation.resumeWithException(RuntimeException("create answer returned null"))
-                        } else {
-                            continuation.resume(description)
+    private fun startMediaProgressMonitoring(generation: Long) {
+        mediaProgressJob?.cancel()
+        lastMediaProgressAt = SystemClock.elapsedRealtime()
+        lastMediaPosition = null
+        lastInboundBytes = 0L
+        mediaProgressJob = appScope.launch(mainDispatcher) {
+            while (isActive && isCurrent(generation)) {
+                delay(1_000)
+                if (!isCurrent(generation)) return@launch
+                player?.let { current ->
+                    val position = current.currentPosition
+                    if (current.isPlaying && lastMediaPosition?.let { position > it } == true) noteMediaProgress()
+                    lastMediaPosition = position
+                } ?: peer?.let { connection ->
+                    connection.getStats { report ->
+                        val bytes = report.statsMap.values.filter { it.type == "inbound-rtp" }
+                            .sumOf { (it.members["bytesReceived"] as? Number)?.toLong() ?: 0L }
+                        runOnMain {
+                            if (isCurrent(generation) && peer === connection) {
+                                if (bytes > lastInboundBytes) {
+                                    lastInboundBytes = bytes
+                                    noteMediaProgress()
+                                }
+                            }
                         }
                     }
-                    override fun onSetSuccess() {}
-                    override fun onCreateFailure(error: String?) {
-                        if (continuation.isActive) continuation.resumeWithException(RuntimeException(error ?: "create answer failed"))
-                    }
-                    override fun onSetFailure(error: String?) {}
-                }, org.webrtc.MediaConstraints())
+                }
+                val stalledFor = SystemClock.elapsedRealtime() - lastMediaProgressAt
+                if (stalledFor >= 15_000) {
+                    if (player == null) startHls() else scheduleReconnect()
+                    return@launch
+                }
+                if (stalledFor >= 3_000 && !isBuffering) { isBuffering = true; notifyState() }
             }
-        }
-
-    private suspend fun awaitSetLocalDescription(
-        pc: PeerConnection,
-        description: SessionDescription,
-    ) = withContext(mainDispatcher) {
-        suspendCancellableCoroutine<Unit> { continuation ->
-            pc.setLocalDescription(object : SdpObserver {
-                override fun onCreateSuccess(p0: SessionDescription?) {}
-                override fun onSetSuccess() {
-                    if (continuation.isActive) continuation.resume(Unit)
-                }
-                override fun onCreateFailure(error: String?) {
-                    if (continuation.isActive) continuation.resumeWithException(RuntimeException(error ?: "set local failed"))
-                }
-                override fun onSetFailure(error: String?) {
-                    if (continuation.isActive) continuation.resumeWithException(RuntimeException(error ?: "set local failed"))
-                }
-            }, description)
         }
     }
 
-    private fun scheduleReconnectOnMain() {
-        checkOnMainThread()
-        if (activeStreamChannelId == null || reconnectJob?.isActive == true) return
-        setStreaming(false)
-        closeTransportOnMain()
-        val sessionGen = sessionGeneration
-        val delayMs = (1_000L shl reconnectAttempts.coerceAtMost(4)).coerceAtMost(MAX_RECONNECT_DELAY_MS)
-        reconnectAttempts++
-        reconnectJob = appScope.launch(mainDispatcher) {
+    private fun connected() {
+        watchdogJob?.cancel(); watchdogJob = null; watchdogDeadline = null
+        disconnectedJob?.cancel(); disconnectedJob = null
+        isStreaming = true; isBuffering = false
+        notifyState()
+    }
+
+    private fun armWatchdog(generation: Long, delayMs: Long) {
+        val deadline = SystemClock.elapsedRealtime() + delayMs
+        if ((watchdogDeadline ?: Long.MAX_VALUE) <= deadline) return
+        watchdogJob?.cancel()
+        watchdogDeadline = deadline
+        watchdogJob = appScope.launch(mainDispatcher) {
             delay(delayMs)
-            reconnectJob = null
-            if (!isActive || sessionGen != sessionGeneration || activeStreamChannelId == null) return@launch
-            val provider = tokenProvider ?: return@launch
-            val refreshedToken = runCatching { provider() }.getOrNull()
-            if (refreshedToken.isNullOrBlank()) {
-                scheduleReconnectOnMain()
-                return@launch
+            if (!isCurrent(generation)) return@launch
+            watchdogJob = null; watchdogDeadline = null
+            if (player == null) startHls() else scheduleReconnect()
+        }
+    }
+
+    private fun scheduleReconnect() {
+        if (activeStreamChannelId == null || reconnectJob?.isActive == true) return
+        closeTransport()
+        if (reconnectAttempts >= 3) { failPlayback(); return }
+        val wait = ((1L shl reconnectAttempts++) * Random.nextLong(500, 1001))
+        val generation = sessionGeneration
+        val channel = activeStreamChannelId ?: return
+        isBuffering = true; notifyState()
+        reconnectJob = appScope.launch(mainDispatcher) {
+            delay(wait)
+            try {
+                val playback = fetchPlayback(channel)
+                if (generation == sessionGeneration && activeStreamChannelId == channel) {
+                    reconnectJob = null
+                    renewWatch()
+                    startPlayback(playback)
+                }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                if (generation == sessionGeneration) { reconnectJob = null; scheduleReconnect() }
             }
-            if (sessionGen != sessionGeneration || activeStreamChannelId == null) return@launch
-            activeToken = refreshedToken
-            openTransportOnMain()
         }
     }
 
-    private fun send(payload: JSONObject): Boolean = webSocket?.send(payload.toString()) == true
-
-    private fun setStreaming(value: Boolean) {
-        if (isStreaming == value) return
-        isStreaming = value
-        onStreamingStateChanged?.invoke()
+    private fun closeTransport() {
+        transportGeneration++
+        transportJob?.cancel(); transportJob = null
+        watchdogJob?.cancel(); watchdogJob = null; watchdogDeadline = null
+        disconnectedJob?.cancel(); disconnectedJob = null
+        mediaProgressJob?.cancel(); mediaProgressJob = null
+        firstFrameSink?.let { sink -> remoteVideoTrack?.removeSink(sink) }
+        firstFrameSink = null
+        frameKeeper?.let { keeper -> remoteVideoTrack?.removeSink(keeper); keeper.clear() }
+        frameKeeper = null
+        remoteAudioTrack = null; remoteVideoTrack = null
+        peer?.let { connection -> connection.close(); connection.dispose() }; peer = null
+        whepResource?.let { deleteResource(it) }; whepResource = null
+        player?.release(); player = null
+        isStreaming = false; hasVideoFrames = false
     }
 
-    private fun isCurrentTransport(transportGen: Long): Boolean =
-        transportGen == transportGeneration && peerConnection != null && activeStreamChannelId != null
-
-    private fun isCurrent(sessionGen: Long, transportGen: Long, socket: WebSocket): Boolean =
-        sessionGen == sessionGeneration &&
-            transportGen == transportGeneration &&
-            webSocket === socket &&
-            activeStreamChannelId != null
-
-    private fun buildWebSocketUrl(token: String): String {
-        var base = activeSfuUrl.ifEmpty { BuildConfig.MEZON_SFU_WS_URL.trim() }
-        if (base.isEmpty()) return ""
-        if (base.startsWith("https://")) base = "wss://${base.removePrefix("https://")}"
-        if (base.startsWith("http://")) base = "ws://${base.removePrefix("http://")}"
-        val separator = when {
-            base.endsWith("?") || base.endsWith("&") -> ""
-            base.contains("?") -> "&"
-            else -> "?"
-        }
-        return base + separator + "access_token=" + URLEncoder.encode(token, Charsets.UTF_8.name())
+    private fun stopPlayback(sendUnwatch: Boolean, notify: Boolean = true) {
+        val previous = activeStreamChannelId
+        sessionGeneration++
+        reconnectJob?.cancel(); reconnectJob = null
+        watchJob?.cancel(); watchJob = null
+        renewWatchJob?.cancel(); renewWatchJob = null
+        closeTransport()
+        activeStreamChannelId = null; clanId = 0
+        fallbackUrl = null; isBuffering = false
+        audioRouting.stop()
+        if (sendUnwatch && previous != null) socket.sendStreamingUnwatch(previous)
+        if (notify) notifyState()
     }
 
-    private fun parseMediaSections(sdp: String): List<SdpMediaSection> {
-        val result = ArrayList<SdpMediaSection>()
-        var kind: String? = null
-        var mid: String? = null
-        var direction: String? = null
+    private fun failPlayback() { stopPlayback(sendUnwatch = true); showError() }
+    private fun showError() { Toast.makeText(context, R.string.stream_unavailable, Toast.LENGTH_SHORT).show() }
+    private fun isCurrent(generation: Long) = generation == transportGeneration && activeStreamChannelId != null
+    private fun notifyState() { onStreamingStateChanged?.invoke() }
+    private fun logFailure(stage: String, error: Exception) { Log.w("MezonStream", "$stage failed (${error.javaClass.simpleName})") }
+    private fun runOnMain(block: () -> Unit) { if (Looper.myLooper() == Looper.getMainLooper()) block() else appScope.launch(mainDispatcher) { block() } }
 
-        fun flush() {
-            val currentKind = kind ?: return
-            result.add(SdpMediaSection(currentKind, mid.orEmpty(), direction))
-        }
+    private data class WhepAnswer(val resource: HttpUrl, val sdp: String)
+    private class WhepFailure(val status: Int) : IOException("WHEP HTTP $status")
 
-        sdp.split("\r\n", "\n").forEach { rawLine ->
-            val line = rawLine.trim()
-            if (line.startsWith("m=")) {
-                flush()
-                kind = line.removePrefix("m=").substringBefore(' ').trim()
-                mid = null
-                direction = null
-            } else if (kind != null) {
-                when {
-                    line.startsWith("a=mid:") -> mid = line.removePrefix("a=mid:").trim()
-                    line in setOf("a=sendrecv", "a=sendonly", "a=recvonly", "a=inactive") -> direction = line
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private suspend fun postOffer(request: Request): WhepAnswer = suspendCancellableCoroutine { continuation ->
+        val call = http.newCall(request)
+        continuation.invokeOnCancellation { call.cancel() }
+        call.enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) { if (continuation.isActive) continuation.resumeWithException(e) }
+            override fun onResponse(call: Call, response: Response) {
+                var resource: HttpUrl? = null
+                try {
+                    val answer = response.use {
+                        if (it.code != 201) throw WhepFailure(it.code)
+                        resource = it.header("Location")?.let { location -> request.url.resolve(location) }
+                            ?.let { resolved -> playbackUrl(resolved.toString()) }
+                        WhepAnswer(resource ?: throw IOException("Missing WHEP resource"), it.body?.string() ?: throw IOException("Missing SDP"))
+                    }
+                    continuation.resume(answer) { deleteResource(answer.resource) }
+                } catch (e: Exception) {
+                    resource?.let { deleteResource(it) }
+                    if (continuation.isActive) continuation.resumeWithException(e)
                 }
             }
+        })
+    }
+
+    private fun deleteResource(resource: HttpUrl) { fireAndForget(Request.Builder().url(resource).delete().build()) }
+    private fun fireAndForget(request: Request) {
+        http.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {}
+            override fun onResponse(call: Call, response: Response) { response.close() }
+        })
+    }
+
+    private suspend fun createOffer(connection: PeerConnection): SessionDescription = suspendCancellableCoroutine { continuation ->
+        connection.createOffer(object : SdpObserver {
+            override fun onCreateSuccess(sdp: SessionDescription) { if (continuation.isActive) continuation.resume(sdp) }
+            override fun onCreateFailure(error: String) { if (continuation.isActive) continuation.resumeWithException(IOException("Offer failed")) }
+            override fun onSetSuccess() {}
+            override fun onSetFailure(error: String) {}
+        }, MediaConstraints())
+    }
+
+    private suspend fun setDescription(connection: PeerConnection, description: SessionDescription, local: Boolean): Unit = suspendCancellableCoroutine { continuation ->
+        val observer = object : SdpObserver {
+            override fun onSetSuccess() { if (continuation.isActive) continuation.resume(Unit) }
+            override fun onSetFailure(error: String) { if (continuation.isActive) continuation.resumeWithException(IOException("Description failed")) }
+            override fun onCreateSuccess(sdp: SessionDescription) {}
+            override fun onCreateFailure(error: String) {}
         }
-        flush()
-        return result
-    }
-
-    private fun validateFullSdpAnswer(offerSdp: String, answerSdp: String) {
-        val offer = parseMediaSections(offerSdp)
-        val answer = parseMediaSections(answerSdp)
-        if (offer.size != answer.size) error("SFU answer changed m-line count")
-        offer.zip(answer).forEach { (offered, actual) ->
-            if (offered.kind != actual.kind || offered.mid != actual.mid) {
-                error("SFU answer changed m-line order or mid")
-            }
-            when (offered.kind) {
-                "video" -> if (actual.direction != "a=inactive") error("SFU answer activated a video m-line")
-                "audio" -> if (actual.direction !in setOf("a=recvonly", "a=inactive")) {
-                    error("SFU answer activated an audio sender")
-                }
-            }
-        }
-    }
-
-    private fun runOnMain(block: () -> Unit) {
-        if (Looper.myLooper() == Looper.getMainLooper()) block()
-        else appScope.launch(mainDispatcher) { block() }
-    }
-
-    private fun checkOnMainThread() {
-        check(Looper.myLooper() == Looper.getMainLooper()) { "StreamingWebRtcSession must run on the main thread" }
+        if (local) connection.setLocalDescription(observer, description) else connection.setRemoteDescription(observer, description)
     }
 }

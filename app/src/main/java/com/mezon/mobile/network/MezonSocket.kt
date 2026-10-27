@@ -362,7 +362,22 @@ class MezonSocket @Inject constructor(
             sentryReporter.logSocketFailure("send_timeout", err)
             failover.onApiTimeout()
             throw err
+        } finally {
+            // Leaving/switching streams can cancel a heartbeat before its acknowledgement.
+            pendingRequests.remove(cid, deferred)
         }
+    }
+
+    suspend fun writeStreamingWatch(channelId: Long, watching: Boolean): Envelope = send {
+        streamingWatch = com.mezon.mezon.rtapi.StreamingWatch.newBuilder()
+            .setChannelId(channelId).setWatching(watching).build()
+    }
+
+    fun sendStreamingUnwatch(channelId: Long) {
+        sendFireAndForget(envelope {
+            streamingWatch = com.mezon.mezon.rtapi.StreamingWatch.newBuilder()
+                .setChannelId(channelId).setWatching(false).build()
+        })
     }
 
     fun sendFireAndForget(env: Envelope) {

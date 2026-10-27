@@ -198,6 +198,9 @@ class SocketEventDispatcher @Inject constructor(
     private val _streamingEndedEvents = MutableSharedFlow<StreamingEndedEvent>(extraBufferCapacity = 4)
     val streamingEndedEvents: SharedFlow<StreamingEndedEvent> = _streamingEndedEvents.asSharedFlow()
 
+    private val _streamingViewerCountEvents = MutableSharedFlow<com.mezon.mezon.rtapi.StreamingViewerCountEvent>(extraBufferCapacity = 64)
+    val streamingViewerCountEvents = _streamingViewerCountEvents.asSharedFlow()
+
     private val _streamingJoinedEvents = MutableSharedFlow<StreamingJoinedEvent>(extraBufferCapacity = 4)
     val streamingJoinedEvents: SharedFlow<StreamingJoinedEvent> = _streamingJoinedEvents.asSharedFlow()
 
@@ -353,6 +356,8 @@ class SocketEventDispatcher @Inject constructor(
                 _streamingStartedEvents.emit(envelope.streamingStartedEvent)
             Envelope.MessageCase.STREAMING_ENDED_EVENT ->
                 _streamingEndedEvents.emit(envelope.streamingEndedEvent)
+            Envelope.MessageCase.STREAMING_VIEWER_COUNT_EVENT ->
+                _streamingViewerCountEvents.emit(envelope.streamingViewerCountEvent)
             Envelope.MessageCase.STREAMING_JOINED_EVENT ->
                 _streamingJoinedEvents.emit(envelope.streamingJoinedEvent)
             Envelope.MessageCase.STREAMING_LEAVED_EVENT ->

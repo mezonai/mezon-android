@@ -164,6 +164,9 @@ class MainActivity : BasePermissionsActivity(),
     var streamingOverlayManager: VoiceOverlayManager? = null
         private set
     private var streamingRoomFragment: StreamingRoomFragment? = null
+    private var streamingJoinJob: kotlinx.coroutines.Job? = null
+    private var streamingRoomRequest = 0L
+    private var pendingStreamingChannelId: Long? = null
 
     private var currentConnectionState = 0
     lateinit var autoNightConfig: AutoNightConfig
@@ -317,6 +320,11 @@ class MainActivity : BasePermissionsActivity(),
         applicationPaused = false
         actionBarLayout.onResume()
         voiceRoomFragment?.onResume()
+        if (streamingRoomFragment != null) {
+            EntryPointAccessors.fromApplication(applicationContext, FragmentEntryPoint::class.java)
+                .streamingWebRtcSession().resumePresence()
+            streamingRoomFragment?.rebindSessionUi()
+        }
         if (StartupCache.hasSession) {
             connectionController.handleAppForeground()
             maybePromptFullScreenIntentForIncomingCalls()
@@ -349,6 +357,7 @@ class MainActivity : BasePermissionsActivity(),
     }
 
     override fun onPause() {
+        cancelPendingStreamingJoin()
         super.onPause()
         isResumed = false
         val inPip = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && isInPictureInPictureMode
@@ -1127,7 +1136,16 @@ class MainActivity : BasePermissionsActivity(),
     fun isVoiceOverlayVisible(): Boolean = voiceOverlayManager?.isVisible() == true
     fun isVoiceOverlayExpanded(): Boolean = voiceOverlayManager?.isExpanded() == true
 
+    private fun cancelPendingStreamingJoin() {
+        if (streamingJoinJob?.isActive == true) {
+            streamingRoomRequest++
+            streamingJoinJob?.cancel(); streamingJoinJob = null
+            pendingStreamingChannelId = null
+        }
+    }
+
     private fun collapseRoomOverlaysForNavigation() {
+        cancelPendingStreamingJoin()
         if (isVoiceOverlayExpanded()) minimizeVoiceRoom()
         if (isStreamingOverlayExpanded()) streamingRoomFragment?.minimizeToOverlay()
     }
@@ -1138,44 +1156,52 @@ class MainActivity : BasePermissionsActivity(),
         channelLabel: String,
         channelAvatar: String = "",
     ) {
-        if (isVoiceOverlayVisible()) dismissVoiceRoom()
         val manager = streamingOverlayManager ?: return
-        val entryPoint = EntryPointAccessors.fromApplication(
-            applicationContext, FragmentEntryPoint::class.java
-        )
-        val resolvedAvatar = channelAvatar.trim().ifEmpty {
-            entryPoint.channelController().getChannelAvatar(clanId, channelId)
-        }
-        if (resolvedAvatar.isEmpty()) {
-            entryPoint.channelController().loadChannelsForClan(clanId, force = false)
-        }
+        val entryPoint = EntryPointAccessors.fromApplication(applicationContext, FragmentEntryPoint::class.java)
+        val session = entryPoint.streamingWebRtcSession()
+        if (streamingJoinJob?.isActive == true && pendingStreamingChannelId == channelId) return
+        val request = ++streamingRoomRequest
+        streamingJoinJob?.cancel()
+        pendingStreamingChannelId = null
         val existing = streamingRoomFragment
-        if (existing != null) {
-            val sameRoom = existing.getChannelId() == channelId && existing.getClanId() == clanId
-            if (sameRoom && manager.isVisible()) {
-                manager.expand()
-                return
-            }
-            dismissStreamingRoom()
+        if (existing?.getChannelId() == channelId && existing.getClanId() == clanId && manager.isVisible()) {
+            manager.expand()
+            existing.rebindSessionUi()
+            return
         }
-        val fragment = StreamingRoomFragment.create(channelId, clanId, channelLabel, resolvedAvatar)
-        fragment.themeColors = themeColors
-        fragment.notificationCenter = notificationCenter
-        fragment.parentLayout = actionBarLayout
-        fragment.inject(this)
-        fragment.onFragmentCreate()
-        val contentView = fragment.createView(this)
-        fragment.fragmentView = contentView
-        streamingRoomFragment = fragment
-        fragment.onResume()
-        fragment.onBecomeFullyVisible()
-        manager.showExpanded(contentView)
+        pendingStreamingChannelId = channelId
+        streamingJoinJob = lifecycleScope.launch {
+            try {
+                val joined = session.join(channelId, clanId) { !isFinishing && !isDestroyed && request == streamingRoomRequest }
+                if (!joined || request != streamingRoomRequest) return@launch
+                // Replace the old surface only after playback credentials have been fetched successfully.
+                if (isVoiceOverlayVisible()) dismissVoiceRoom()
+                dismissStreamingRoom(disconnectSession = false)
+                val resolvedAvatar = channelAvatar.trim().ifEmpty { entryPoint.channelController().getChannelAvatar(clanId, channelId) }
+                val fragment = StreamingRoomFragment.create(channelId, clanId, channelLabel, resolvedAvatar)
+                fragment.themeColors = themeColors
+                fragment.notificationCenter = notificationCenter
+                fragment.parentLayout = actionBarLayout
+                fragment.inject(this@MainActivity)
+                fragment.onFragmentCreate()
+                val contentView = fragment.createView(this@MainActivity)
+                fragment.fragmentView = contentView
+                streamingRoomFragment = fragment
+                fragment.onResume()
+                fragment.onBecomeFullyVisible()
+                volumeControlStream = android.media.AudioManager.STREAM_VOICE_CALL
+                manager.showExpanded(contentView)
+            } finally {
+                if (request == streamingRoomRequest) pendingStreamingChannelId = null
+            }
+        }
     }
 
     fun minimizeStreamingRoom() {
         val manager = streamingOverlayManager ?: return
         val fragment = streamingRoomFragment ?: return
-        manager.minimizeStream(fragment.getChannelLabel(), fragment.getChannelAvatar())
+        manager.minimizeStream(fragment.getChannelLabel(), fragment.getChannelAvatar(),
+            EntryPointAccessors.fromApplication(applicationContext, FragmentEntryPoint::class.java).streamingWebRtcSession())
     }
 
     fun updateStreamingMiniOverlay() {
@@ -1189,15 +1215,20 @@ class MainActivity : BasePermissionsActivity(),
     }
 
     fun dismissStreamingRoom(disconnectSession: Boolean = true) {
+        if (disconnectSession) {
+            streamingRoomRequest++
+            streamingJoinJob?.cancel(); streamingJoinJob = null
+            pendingStreamingChannelId = null
+        }
         streamingOverlayManager?.dismiss()
         streamingRoomFragment?.onPause()
         streamingRoomFragment?.onFragmentDestroy()
         streamingRoomFragment = null
         if (disconnectSession) {
             EntryPointAccessors.fromApplication(applicationContext, FragmentEntryPoint::class.java)
-                .streamingWebRtcSession()
-                .disconnect()
+                .streamingWebRtcSession().disconnect()
         }
+        volumeControlStream = android.media.AudioManager.USE_DEFAULT_STREAM_TYPE
     }
 
     fun isStreamingOverlayVisible(): Boolean = streamingOverlayManager?.isVisible() == true

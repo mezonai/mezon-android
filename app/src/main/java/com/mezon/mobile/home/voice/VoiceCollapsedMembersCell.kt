@@ -41,15 +41,16 @@ class VoiceCollapsedMembersCell(
     private val avatarCancellables = arrayOfNulls<MezonImageLoader.Cancellable>(MAX_VISIBLE_AVATARS)
     private val currentAvatarUrls = arrayOfNulls<String>(MAX_VISIBLE_AVATARS)
     private val avatarRect = RectF()
+    private val overflowRect = RectF()
     private var memberCount = 0
     private var visibleCount = 0
     private var overflowCount = 0
     private var overflowText = ""
 
     fun setMembers(members: List<VoiceMemberDisplay>) {
-        memberCount = members.size
+        memberCount = members.firstOrNull()?.streamViewerCount?.let { it + 1 } ?: members.size
         visibleCount = members.size.coerceAtMost(MAX_VISIBLE_AVATARS)
-        overflowCount = if (members.size > MAX_VISIBLE_AVATARS) members.size - MAX_VISIBLE_AVATARS else 0
+        overflowCount = (memberCount - visibleCount).coerceAtLeast(0)
         overflowText = if (overflowCount > 0) "+$overflowCount" else ""
 
         for (i in 0 until MAX_VISIBLE_AVATARS) {
@@ -122,14 +123,16 @@ class VoiceCollapsedMembersCell(
 
         if (overflowCount > 0) {
             val badgeLeft = PADDING_LEFT + visibleCount * step
-            val badgeCx = badgeLeft + BADGE_SIZE / 2f
+            val badgeWidth = maxOf(BADGE_SIZE.toFloat(), badgeTextPaint.measureText(overflowText) + LayoutHelper.dp(12))
+            val badgeCx = badgeLeft + badgeWidth / 2f
             val badgeR = BADGE_SIZE / 2f
+            overflowRect.set(badgeLeft.toFloat(), cy - badgeR, badgeLeft + badgeWidth, cy + badgeR)
 
             badgeBgPaint.color = themeColors.primary
-            canvas.drawCircle(badgeCx, cy, badgeR, badgeBgPaint)
+            canvas.drawRoundRect(overflowRect, badgeR, badgeR, badgeBgPaint)
 
             badgeBorderPaint.color = themeColors.onSurface
-            canvas.drawCircle(badgeCx, cy, badgeR - badgeBorderPaint.strokeWidth / 2f, badgeBorderPaint)
+            canvas.drawRoundRect(overflowRect, badgeR, badgeR, badgeBorderPaint)
 
             badgeTextPaint.color = themeColors.onSurface
             val textY = cy - (badgeTextPaint.descent() + badgeTextPaint.ascent()) / 2
