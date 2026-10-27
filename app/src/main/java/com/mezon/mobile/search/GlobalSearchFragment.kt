@@ -35,6 +35,7 @@ import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.MemberResolver
 import com.mezon.mobile.home.UserClanController
+import com.mezon.mobile.home.chat.UserShortProfileActions
 import com.mezon.mobile.home.clans.ClanChannelEntity
 import com.mezon.mobile.home.clans.ClansController
 import com.mezon.mobile.home.clans.CHANNEL_TYPE_STREAMING
@@ -49,10 +50,9 @@ import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.ProfileSearchCell
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
+import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.ui.cells.SearchCell
 import com.mezon.mobile.ui.cells.SearchTabHeader
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 
 private enum class MessageUserFilter {
     FROM,
@@ -104,6 +104,7 @@ class GlobalSearchFragment : BaseFragment() {
     private lateinit var streamingController: StreamingController
     private lateinit var userClanController: UserClanController
     private lateinit var clansController: ClansController
+    private lateinit var shortProfileActions: UserShortProfileActions
 
     private lateinit var searchCell: SearchCell
     private lateinit var tabHeader: SearchTabHeader
@@ -153,6 +154,16 @@ class GlobalSearchFragment : BaseFragment() {
         streamingController = entryPoint.streamingController()
         userClanController = entryPoint.userClanController()
         clansController = entryPoint.clansController()
+        shortProfileActions = UserShortProfileActions(
+            fragment = this,
+            entryPoint = entryPoint,
+            onOpenDm = { dmId, name ->
+                val callback = onOpenChat
+                if (callback != null) callback(dmId, name, 0L, CHANNEL_TYPE_DM)
+                else (getParentActivity() as? MainActivity)?.openChat(dmId, name, 0L, CHANNEL_TYPE_DM)
+            },
+            onTransferFunds = { userId, username -> openProfileTransferFunds(userId, username) }
+        )
     }
 
     override fun onFragmentCreate(): Boolean {
@@ -449,10 +460,10 @@ class GlobalSearchFragment : BaseFragment() {
                         applyUserFilter(member)
                         return@OnItemClickListenerExtended
                     }
-                    if (member.isDm && member.channelId != 0L) {
+                    if (member.isDm && member.channelType == CHANNEL_TYPE_GROUP && member.channelId != 0L) {
                         onOpenChat?.invoke(member.channelId, member.displayName, 0L, member.channelType)
                     } else {
-                        navigateToDm(member)
+                        showMemberProfile(member)
                     }
                 }
                 is ChannelSearchCell -> {
@@ -1169,15 +1180,22 @@ class GlobalSearchFragment : BaseFragment() {
             ?: document.username
     }
 
-    private fun navigateToDm(member: SearchMember) {
-        fragmentScope.launch {
-            val dmChannelId = dialogsController.getOrCreateDm(member.id)
-            if (dmChannelId != 0L) {
-                launch(Dispatchers.Main.immediate) {
-                    onOpenChat?.invoke(dmChannelId, member.displayName, 0L, CHANNEL_TYPE_DM)
-                }
-            }
-        }
+    private fun showMemberProfile(member: SearchMember) {
+        AndroidUtilities.hideKeyboard(searchCell.editText)
+        val resolved = memberResolver?.resolveMember(member.id, argClanId, filterChannelId, argChannelType)
+        shortProfileActions.show(
+            userId = member.id,
+            username = member.username.ifBlank { resolved?.username.orEmpty() },
+            displayName = member.displayName,
+            avatarUrl = member.avatarUrl,
+            clanId = argClanId,
+            roleIds = resolved?.roleIds.orEmpty()
+        )
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        shortProfileActions.onRequestPermissionsResult(requestCode, permissions, grantResults)
     }
 
     override fun onPause() {

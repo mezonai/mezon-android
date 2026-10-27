@@ -39,6 +39,14 @@ interface MessageDao {
     suspend fun upsert(message: MessageEntity)
 
     @Transaction
+    suspend fun cacheAcknowledgedMessage(message: MessageEntity): MessageEntity {
+        // The realtime echo may already contain an edit or the final call result.
+        getById(message.channelId, message.id)?.let { return it }
+        upsert(message)
+        return message
+    }
+
+    @Transaction
     suspend fun upsertPreservingReactions(message: MessageEntity): MessageEntity {
         val existing = getById(message.channelId, message.id)
         val stored = message.copy(reactionsJson = existing?.reactionsJson ?: message.reactionsJson)

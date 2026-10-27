@@ -6,6 +6,7 @@ import android.media.MediaPlayer
 import android.util.Log
 import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.core.NotificationCenter
+import com.mezon.mobile.core.BottomSheet
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.chat.EmojiController
@@ -13,13 +14,14 @@ import com.mezon.mobile.home.chat.ReactionEmojiPickerSheet
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.lang.ref.WeakReference
 
 class VoiceReactionHandler(
     private val themeColors: ThemeColors,
     private val voiceController: VoiceController,
     private val emojiController: EmojiController,
     private val notificationCenter: NotificationCenter,
-    private val channelId: Long,
+    private var channelId: Long,
     private val getActivity: () -> Activity?,
     private val getReactionOverlay: () -> ReactionOverlayView?,
     private val getParticipantGrid: () -> RecyclerListView?,
@@ -28,6 +30,20 @@ class VoiceReactionHandler(
     private val getRoomScope: () -> CoroutineScope?,
     private val getLocalSenderMeta: () -> SenderMeta = { SenderMeta("", null) }
 ) {
+    private var picker: WeakReference<BottomSheet>? = null
+    private val soundPlayers = HashSet<MediaPlayer>()
+
+    fun switchChannel(channelId: Long) {
+        this.channelId = channelId
+        release()
+    }
+
+    fun release() {
+        picker?.get()?.dismiss()
+        picker = null
+        soundPlayers.toList().forEach { runCatching { it.release() } }
+        soundPlayers.clear()
+    }
     data class SenderMeta(val name: String, val avatarUrl: String?)
 
     companion object {
@@ -56,6 +72,7 @@ class VoiceReactionHandler(
     fun showEmojiReactionPicker() {
         val activity = getActivity() ?: return
         if (activity.isFinishing || activity.isDestroyed) return
+        val sourceChannelId = channelId
         val sheet = ReactionEmojiPickerSheet(
             context = activity,
             themeColors = themeColors,
@@ -63,20 +80,25 @@ class VoiceReactionHandler(
             notificationCenter = notificationCenter,
             autoDismiss = false
         ) { emojiId, _ ->
-            voiceController.sendVoiceReaction(buildPayload(emojiId.toString()), channelId)
+            if (channelId == sourceChannelId) voiceController.sendVoiceReaction(buildPayload(emojiId.toString()), sourceChannelId)
         }
+        picker?.get()?.dismiss()
+        picker = WeakReference(sheet)
         sheet.show()
     }
 
     fun showSoundReactionPicker() {
+        val sourceChannelId = channelId
         val sheet = VoiceReactionPickerBottomSheet(
             context = getActivity() ?: return,
             themeColors = themeColors,
             emojiController = emojiController,
             notificationCenter = notificationCenter
         ) { value ->
-            voiceController.sendVoiceReaction(buildPayload(value), channelId)
+            if (channelId == sourceChannelId) voiceController.sendVoiceReaction(buildPayload(value), sourceChannelId)
         }
+        picker?.get()?.dismiss()
+        picker = WeakReference(sheet)
         sheet.show()
     }
 
@@ -90,17 +112,20 @@ class VoiceReactionHandler(
             Log.w(TAG, "playSoundReaction blank source raw=${soundValue.take(80)}")
             return
         }
+        var createdPlayer: MediaPlayer? = null
         try {
-            MediaPlayer().apply {
+            MediaPlayer().also { createdPlayer = it }.apply {
+                soundPlayers.add(this)
                 setAudioAttributes(
                     AudioAttributes.Builder()
                         .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                         .setUsage(AudioAttributes.USAGE_MEDIA)
                         .build()
                 )
-                setOnPreparedListener { start() }
-                setOnCompletionListener { mp -> mp.release() }
+                setOnPreparedListener { if (it in soundPlayers) it.start() }
+                setOnCompletionListener { mp -> soundPlayers.remove(mp); mp.release() }
                 setOnErrorListener { mp, _, _ ->
+                    soundPlayers.remove(mp)
                     mp.release()
                     true
                 }
@@ -108,6 +133,7 @@ class VoiceReactionHandler(
                 prepareAsync()
             }
         } catch (e: Exception) {
+            createdPlayer?.let { soundPlayers.remove(it); runCatching { it.release() } }
             Log.w(TAG, "playSoundReaction failed src=${source.take(120)}", e)
         }
     }

@@ -1,20 +1,31 @@
 package com.mezon.mobile.home.call
 
 import android.util.Log
-import com.mezon.mobile.network.MezonSocket
+import com.mezon.mezon.rtapi.channelMessageUpdate
+import com.mezon.mobile.di.IoDispatcher
+import com.mezon.mobile.home.ChatController
+import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.network.channelTypeToStreamMode
+import com.mezon.mobile.session.SessionManager
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
+import dagger.Lazy
 
 private const val TAG = "CallLogHelper"
 
 @Singleton
-class CallLogHelper @Inject constructor() {
+class CallLogHelper @Inject constructor(
+    private val api: MezonApi,
+    private val sessionManager: SessionManager,
+    private val chatController: Lazy<ChatController>,
+    @IoDispatcher private val ioDispatcher: CoroutineDispatcher
+) {
 
     fun updateAfterCallEnd(
-        socket: MezonSocket,
         scope: CoroutineScope,
         channelId: Long,
         clanId: Long,
@@ -32,17 +43,24 @@ class CallLogHelper @Inject constructor() {
         val pair = mapReasonToCallLog(reason, wasConnected, durationMs) ?: return
         val (type, t) = pair
         val content = buildCallLogJson(t, type, isVideo)
-        scope.launch {
+        scope.launch(ioDispatcher) {
             try {
-                socket.updateChatMessage(
-                    clanId = clanId,
-                    channelId = channelId,
-                    mode = mode,
-                    isPublic = isPublic,
-                    messageId = messageId,
-                    content = content,
-                    hideEditted = true
-                )
+                // Match iOS: prefer the socket API and retain its HTTP fallback.
+                val request = channelMessageUpdate {
+                    this.clanId = clanId
+                    this.channelId = channelId
+                    this.mode = mode
+                    this.isPublic = isPublic
+                    this.messageId = messageId
+                    this.content = content
+                    this.hideEditted = true
+                }
+                sessionManager.withAutoRefresh { session ->
+                    api.updateChannelMessage(session.apiUrl, session.token, request)
+                }
+                chatController.get().applyCallLogUpdate(channelId, clanId, channelType, messageId, content)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "updateCallLog failed", e)
             }

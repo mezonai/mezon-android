@@ -29,6 +29,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
@@ -61,6 +62,10 @@ class VoiceController @Inject constructor(
     private val voiceEventJournal = HashMap<Long, MutableList<() -> Unit>>()
     private var voicePresenceGeneration = 0L
     private var voiceSessionGeneration = 0L
+    internal val breakout = VoiceBreakoutState()
+    internal val callGeneration: Long get() = synchronized(this) { voiceSessionGeneration }
+    internal val breakoutSocketReady: Boolean get() = socket.connectionState.value == com.mezon.mobile.network.ConnectionState.CONNECTED
+    internal val breakoutSocketGeneration: Int get() = socket.connectGen
     private val screenSharingByClan = HashMap<Long, HashMap<Long, HashSet<Long>>>()
 
     @Volatile var currentVoiceInfo: VoiceInfo? = null
@@ -80,6 +85,11 @@ class VoiceController @Inject constructor(
     private val voiceMemberListFetchInflight = ConcurrentHashMap.newKeySet<Long>()
 
     init {
+        appScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            dispatcher.sfuBreakoutRoomEvents.collect {
+                breakout.receive(it.channelId, it.token.isNotEmpty(), it.selfSelectIdsList)
+            }
+        }
         appScope.launch { dispatcher.voiceJoinedEvents.collect { onVoiceJoined(it) } }
         appScope.launch { dispatcher.voiceLeavedEvents.collect { onVoiceLeaved(it) } }
         appScope.launch { dispatcher.screenShareEvents.collect { onScreenShare(it) } }
@@ -111,6 +121,7 @@ class VoiceController @Inject constructor(
         synchronized(this) {
             voicePresenceGeneration++
             voiceSessionGeneration++
+            breakout.end()
             voiceEventJournal.clear()
             voiceMemberListFetchInflight.clear()
             voiceMembersByClan.clear()
@@ -250,6 +261,7 @@ class VoiceController @Inject constructor(
         val generation = synchronized(this) {
             voiceSessionGeneration++
             currentVoiceInfo = VoiceInfo(channelId, clanId, channelLabel, channelId.toString())
+            breakout.begin(currentVoiceInfo!!)
             meetToken = null
             meetSfuUrl = null
             isConnecting = true
@@ -348,6 +360,69 @@ class VoiceController @Inject constructor(
         }
     }
 
+    internal data class PreparedBreakoutMove(
+        val revision: Long,
+        val source: VoiceInfo,
+        val target: VoiceInfo,
+        val token: String,
+        val sfuUrl: String?,
+        val callGeneration: Long,
+        val socketGeneration: Int,
+        val accessRevision: Long,
+    )
+
+    /** Resolve access and mint a token while the original call is still intact. */
+    internal suspend fun prepareBreakoutMove(revision: Long, channelId: Long): PreparedBreakoutMove? {
+        val (source, generation) = synchronized(this) {
+            val info = currentVoiceInfo?.takeIf { it.clanId != 0L } ?: return null
+            info to voiceSessionGeneration
+        }
+        if (!socket.awaitConnected()) return null
+        currentCoroutineContext().ensureActive()
+        val socketGeneration = socket.connectGen
+        val accessRevision = channelController.channelAccessRevision(source.clanId)
+        socket.joinClanChatAwait(source.clanId)
+        return sessionManager.withAutoRefresh { session ->
+            val target = withContext(ioDispatcher) {
+                api.listChannelsByClan(session.apiUrl, session.token, source.clanId, httpOnly = true)
+            }.channeldescList.firstOrNull {
+                it.channelId == channelId && it.clanId == source.clanId &&
+                    it.type == com.mezon.mobile.home.clans.CHANNEL_TYPE_VOICE
+            } ?: throw IllegalStateException(appContext.getString(com.mezon.mobile.R.string.voice_breakout_unavailable))
+            currentCoroutineContext().ensureActive()
+            val response = withContext(ioDispatcher) {
+                api.generateMeetToken(session.apiUrl, session.token, channelId, channelId.toString(),
+                    meetTokenMetadata(source.clanId, session.userId.toLongOrNull() ?: 0L))
+            }
+            currentCoroutineContext().ensureActive()
+            check(response.token.isNotBlank()) { appContext.getString(com.mezon.mobile.R.string.voice_breakout_unavailable) }
+            PreparedBreakoutMove(revision, source,
+                VoiceInfo(channelId, source.clanId, target.channelLabel, channelId.toString()),
+                response.token, response.url.takeIf { it.isNotBlank() }, generation, socketGeneration, accessRevision)
+                .takeIf { isBreakoutMoveCurrent(it) }
+        }
+    }
+
+    @Synchronized internal fun isBreakoutMoveCurrent(move: PreparedBreakoutMove): Boolean {
+        val state = breakout.snapshot()
+        return voiceSessionGeneration == move.callGeneration && currentVoiceInfo == move.source &&
+            state.invitation?.revision == move.revision && state.accepted == move.target.channelId &&
+            breakoutSocketReady && socket.connectGen == move.socketGeneration &&
+            channelController.channelAccessRevision(move.source.clanId) == move.accessRevision
+    }
+
+    @Synchronized internal fun commitBreakoutMove(move: PreparedBreakoutMove): Boolean {
+        if (!isBreakoutMoveCurrent(move) || !breakout.commit(move.revision, move.target)) return false
+        voiceSessionGeneration++
+        currentVoiceInfo = move.target
+        meetToken = move.token
+        meetSfuUrl = move.sfuUrl
+        isJoined = false
+        isConnecting = true
+        isLocalVideoEnabled = false
+        return true
+    }
+
     suspend fun joinExternalMeeting(meeting: ExternalMeetingRoom, label: String): String? {
         if (isJoined || isConnecting) {
             leaveVoiceChannel()
@@ -355,6 +430,7 @@ class VoiceController @Inject constructor(
         val generation = synchronized(this) {
             voiceSessionGeneration++
             currentVoiceInfo = VoiceInfo(meeting.roomId, 0L, label, meeting.code)
+            breakout.end()
             meetToken = null
             meetSfuUrl = null
             isConnecting = true
@@ -467,8 +543,10 @@ class VoiceController @Inject constructor(
 
     fun leaveVoiceChannel(channelId: Long? = null, clanId: Long? = null) {
         synchronized(this) {
-            if (channelId != null && (currentVoiceInfo?.channelId != channelId || currentVoiceInfo?.clanId != clanId)) return
+            val info = currentVoiceInfo ?: breakout.snapshot().current
+            if (channelId != null && (info?.channelId != channelId || info.clanId != clanId)) return
             voiceSessionGeneration++
+            breakout.end()
             currentVoiceInfo = null
             meetToken = null
             meetSfuUrl = null
@@ -484,6 +562,7 @@ class VoiceController @Inject constructor(
         val channelId = synchronized(this) {
             val channelId = currentVoiceInfo?.channelId
             voiceSessionGeneration++
+            breakout.end()
             currentVoiceInfo = null
             meetToken = null
             meetSfuUrl = null

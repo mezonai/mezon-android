@@ -86,6 +86,8 @@ class BackupImageView(context: Context) : View(context) {
 
     fun setImage(url: String?, filter: String?, placeholder: Drawable?) {
         if (url != null && url == imageUrl && (cancellable != null || (loadedDrawable != null && loadedDrawable !== placeholder))) return
+        cancellable?.cancel()
+        cancellable = null
         imageUrl = url
         loadedDrawable = placeholder
         if (placeholder != null) invalidate()
@@ -95,6 +97,8 @@ class BackupImageView(context: Context) : View(context) {
 
     fun setImage(url: String?, id: Long = 0) {
         if (url != null && url == imageUrl && (cancellable != null || loadedDrawable != null)) return
+        cancellable?.cancel()
+        cancellable = null
         if (id != 0L) avatarDrawable.setUserId(id)
         imageUrl = url
         loadedDrawable = null
@@ -133,7 +137,8 @@ class BackupImageView(context: Context) : View(context) {
         val loader = MezonImageLoader.getInstance(context)
         avatarDrawable.setLoadingPlaceholder(true)
 
-        val successCallback: (Any) -> Unit = { result ->
+        val successCallback: (Any) -> Unit = success@{ result ->
+            if (imageUrl != url) return@success
             avatarDrawable.setLoadingPlaceholder(false)
             loadedDrawable?.callback = null
             if (result is android.graphics.drawable.Animatable) {
@@ -150,7 +155,8 @@ class BackupImageView(context: Context) : View(context) {
             invalidate()
         }
 
-        val errorCallback: (Throwable) -> Unit = {
+        val errorCallback: (Throwable) -> Unit = error@{
+            if (imageUrl != url) return@error
             avatarDrawable.setLoadingPlaceholder(false)
             loadedDrawable?.callback = null
             loadedDrawable = null

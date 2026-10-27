@@ -46,6 +46,7 @@ class VoiceMorePopup(private val themeColors: ThemeColors) {
         noiseCaptureConfirmed: Boolean,
         onNoiseClick: () -> Unit,
         showReactionActions: Boolean = true,
+        onReturnToMain: (() -> Unit)? = null,
     ) {
         dismiss()
 
@@ -98,6 +99,25 @@ class VoiceMorePopup(private val themeColors: ThemeColors) {
             }
             container.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 if (container.childCount > 0) topMargin = LayoutHelper.dp(8)
+            })
+        }
+
+        if (onReturnToMain != null) {
+            container.addView(TextView(anchor.context).apply {
+                text = anchor.context.getString(R.string.voice_breakout_return_to_main)
+                textSize = 13f
+                setTextColor(themeColors.onSurface)
+                gravity = Gravity.CENTER
+                minHeight = LayoutHelper.dp(44)
+                setPadding(LayoutHelper.dp(10), LayoutHelper.dp(10), LayoutHelper.dp(10), LayoutHelper.dp(10))
+                background = GradientDrawable().apply {
+                    cornerRadius = LayoutHelper.dp(11).toFloat()
+                    setColor(themeColors.surfaceVariant)
+                }
+                isFocusable = true
+                setOnClickListener { dismiss(); onReturnToMain() }
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = LayoutHelper.dp(8)
             })
         }
 

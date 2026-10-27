@@ -163,6 +163,7 @@ class VoiceRoomFragment : BaseFragment() {
     private var raiseHandOverlay: VoiceRaiseHandOverlayView? = null
     private lateinit var focusedShareView: VoiceFocusedShareView
     private lateinit var morePopup: VoiceMorePopup
+    private var breakoutUi: VoiceBreakoutUi? = null
     private lateinit var reactionHandler: VoiceReactionHandler
     private var audioManager: VoiceAudioManager? = null
     private var joinSound: VoiceJoinSound? = null
@@ -198,6 +199,7 @@ class VoiceRoomFragment : BaseFragment() {
     fun hasActiveSession(): Boolean = sfuConnected
 
     fun enterPipMode() {
+        breakoutUi?.pause()
         cancelParticipantDiff()
         isInPipMode = true
         if (::focusedShareView.isInitialized) focusedShareView.setPipMode(true)
@@ -228,6 +230,7 @@ class VoiceRoomFragment : BaseFragment() {
         if (::participantAdapter.isInitialized) participantAdapter.notifyDataSetChanged()
         applyVoiceLayoutForMode()
         scheduleUpdateParticipantList()
+        showConnectionFailureDialogIfNeeded()
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -515,7 +518,10 @@ class VoiceRoomFragment : BaseFragment() {
                         onNoiseClick = {
                             sfuSession.setNoiseSuppressionEnabled(sfuSession.noiseState != NoiseSuppressionState.ON)
                         },
-                        showReactionActions = !isExternalMeeting
+                        showReactionActions = !isExternalMeeting,
+                        onReturnToMain = if (voiceController.breakout.snapshot().parent != null) {
+                            { voiceController.breakout.returnToMain() }
+                        } else null
                     )
                 }
             }
@@ -670,6 +676,16 @@ class VoiceRoomFragment : BaseFragment() {
         getParentActivity()?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         fragmentView = root
+
+        if (!isGroupCall && !isExternalMeeting) {
+            breakoutUi = VoiceBreakoutUi(
+                voiceController, sfuSession, fragmentScope, { getParentActivity() },
+                canPresent = { fragmentView != null && !isInPipMode && !connectionFailurePending && connectionFailureDialog == null },
+                roomName = { id -> channelController.findChannelById(id, clanId)?.channelLabel
+                    ?.takeIf { it.isNotBlank() } ?: getString(R.string.voice_breakout_room, id.toString()) },
+                move = ::moveToBreakoutRoom,
+            ).also { it.start() }
+        }
 
         requestPermissionsAndConnect()
         applyVoiceLayoutForMode()
@@ -994,7 +1010,7 @@ class VoiceRoomFragment : BaseFragment() {
         doUpdateParticipantList()
     }
 
-    private fun connectToRoom() {
+    private fun connectToRoom(preparedToken: String? = null, initialMicEnabled: Boolean = false) {
         clearSpeakerOrder()
         connectionFailurePending = false
         sfuConnected = false
@@ -1012,7 +1028,7 @@ class VoiceRoomFragment : BaseFragment() {
         val targetUserId = userController.userId.toString()
         val meeting = externalMeeting
         roomScope?.launch {
-            var token = if (meeting == null) {
+            var token = preparedToken ?: if (meeting == null) {
                 voiceController.cachedMeetTokenFor(targetChannelId, targetClanId)
             } else {
                 joinExternalMeetingToken(meeting, targetLabel) ?: return@launch
@@ -1103,7 +1119,8 @@ class VoiceRoomFragment : BaseFragment() {
             }
 
             voiceController.onRoomConnecting(targetChannelId, targetClanId)
-            sfuSession.join(targetChannelId, targetClanId, targetUserId, token, targetRole, voiceController.meetSfuUrl, meeting?.code)
+            sfuSession.join(targetChannelId, targetClanId, targetUserId, token, targetRole,
+                voiceController.meetSfuUrl, meeting?.code, initialMicEnabled = initialMicEnabled)
             if (!sfuSession.isInRoom(targetChannelId, targetClanId)) return@launch
             applyAgentHeaderUi()
             voiceController.isLocalVideoEnabled = false
@@ -1111,6 +1128,55 @@ class VoiceRoomFragment : BaseFragment() {
             doUpdateParticipantList()
             updateAudioOutputIcon()
         }
+    }
+
+    private fun moveToBreakoutRoom(prepared: VoiceController.PreparedBreakoutMove): Boolean {
+        if (isExternalMeeting || connectionFailurePending || isInPipMode ||
+            !sfuSession.isInRoom(channelId, clanId) || !voiceController.isBreakoutMoveCurrent(prepared)) return false
+        val micEnabled = sfuSession.isMicrophoneEnabled
+        val role = joinRole
+        if (isRaiseHandActive) sendRaiseHandReaction()
+        if (!voiceController.commitBreakoutMove(prepared)) return false
+        morePopup.dismiss()
+        participantModerationSheet?.dismiss()
+        participantModerationSheet = null
+        clearSpeakerOrder()
+        roomScope?.cancel()
+        pendingUpdateJob?.cancel()
+        cancelParticipantDiff()
+        clearFocusedShare()
+        releaseAllRenderers()
+        sfuSession.leave()
+        channelId = prepared.target.channelId
+        clanId = prepared.target.clanId
+        channelLabel = prepared.target.channelLabel
+        reactionHandler.switchChannel(channelId)
+        joinRole = role
+        arguments?.putLong(ARG_CHANNEL_ID, channelId)
+        arguments?.putLong(ARG_CLAN_ID, clanId)
+        arguments?.putString(ARG_CHANNEL_LABEL, channelLabel)
+        sfuRemote = emptyList()
+        remoteMutedByDevice = emptyMap()
+        memberResolveCache.clear()
+        clanMemberIndex = null
+        localMicOn = false
+        localPttActive = false
+        localCameraOn = false
+        localScreenOn = false
+        localCameraTrack = null
+        localScreenTrack = null
+        speakingIds = emptySet()
+        reactionStates.clear()
+        reactionOverlay?.cancelAll()
+        raiseHandOverlay?.clearAll()
+        headerView.setChannelName(channelLabel)
+        controlBar.setMicEnabled(false)
+        controlBar.setCameraEnabled(false)
+        controlBar.setScreenShareEnabled(false)
+        headerView.setSwitchCameraVisible(false)
+        getMainActivity()?.expandVoiceRoom()
+        connectToRoom(prepared.token, initialMicEnabled = micEnabled)
+        return true
     }
 
     private suspend fun joinExternalMeetingToken(meeting: ExternalMeetingRoom, label: String): String? {
@@ -1162,6 +1228,8 @@ class VoiceRoomFragment : BaseFragment() {
         headerView.setReconnecting(!sfuConnected && state != SfuConnectionState.FAILED)
         when (state) {
             SfuConnectionState.CONNECTED -> {
+                localMicOn = sfuSession.isMicrophoneEnabled
+                controlBar.setMicEnabled(localMicOn)
                 connectionFailurePending = false
                 voiceController.onRoomConnected(channelId)
                 audioManager?.applyDefaultRouting()
@@ -1173,6 +1241,7 @@ class VoiceRoomFragment : BaseFragment() {
                 }
             }
             SfuConnectionState.FAILED -> {
+                breakoutUi?.pause()
                 clearSpeakerOrder()
                 roomScope?.cancel()
                 voiceController.onRoomConnectionFailed(channelId, clanId)
@@ -1202,7 +1271,9 @@ class VoiceRoomFragment : BaseFragment() {
     private fun showConnectionFailureDialogIfNeeded() {
         if (!connectionFailurePending || connectionFailureDialog != null || fragmentView == null) return
         val activity = getMainActivity() ?: return
-        if (activity.isFinishing || activity.isDestroyed || MainActivity.applicationPaused) return
+        if (activity.isFinishing || activity.isDestroyed || MainActivity.applicationPaused ||
+            !MainActivity.isResumed || isInPipMode || activity.isInPictureInPictureMode ||
+            !activity.window.decorView.isAttachedToWindow) return
         activity.expandVoiceRoom()
         val dialog = AlertDialog.Builder(activity)
             .setTitle(getString(R.string.voice_room_connection_failed_title))
@@ -1221,8 +1292,13 @@ class VoiceRoomFragment : BaseFragment() {
             .create()
         connectionFailureDialog = dialog
         dialog.setCancelable(false)
-        dialog.show()
-        dialog.setCanceledOnTouchOutside(false)
+        try {
+            dialog.show()
+            dialog.setCanceledOnTouchOutside(false)
+        } catch (_: WindowManager.BadTokenException) {
+            connectionFailureDialog = null
+            fragmentView?.postDelayed({ showConnectionFailureDialogIfNeeded() }, 250)
+        }
     }
 
     private fun resolveMember(identity: String, fallbackName: String): VoiceMemberIdentity {
@@ -1836,16 +1912,23 @@ class VoiceRoomFragment : BaseFragment() {
 
     private fun executeModerationAction(identity: String, action: VoiceModerationAction) {
         val targetUserId = identity.toLongOrNull() ?: return
+        val sourceChannelId = channelId
+        val sourceClanId = clanId
+        val sourceGeneration = voiceController.callGeneration
+        fun stillInSourceRoom() = channelId == sourceChannelId && clanId == sourceClanId &&
+            voiceController.callGeneration == sourceGeneration && sfuSession.isInRoom(sourceChannelId, sourceClanId)
         fragmentScope.launch {
             runCatching {
                 if (action == VoiceModerationAction.MUTE) {
-                    voiceController.muteParticipant(clanId, channelId, targetUserId)
+                    voiceController.muteParticipant(sourceClanId, sourceChannelId, targetUserId)
                 } else {
-                    voiceController.kickParticipant(clanId, channelId, targetUserId)
+                    voiceController.kickParticipant(sourceClanId, sourceChannelId, targetUserId)
                 }
             }.onSuccess { actionToken ->
                 withContext(Dispatchers.Main) {
+                    if (!stillInSourceRoom()) return@withContext
                     val relayed = sfuSession.sendParticipantAction(actionToken) { completed, detail ->
+                        if (!stillInSourceRoom()) return@sendParticipantAction
                         if (completed) {
                         } else {
                             Log.e(TAG, "voice moderation rejected by sfu action=$action targetUserId=$targetUserId detail=$detail")
@@ -1858,9 +1941,10 @@ class VoiceRoomFragment : BaseFragment() {
                     }
                 }
             }.onFailure { e ->
+                if (e is CancellationException) throw e
                 Log.e(TAG, "voice moderation failed action=$action targetUserId=$targetUserId", e)
                 withContext(Dispatchers.Main) {
-                    showModerationFailure(action)
+                    if (stillInSourceRoom()) showModerationFailure(action)
                 }
             }
         }
@@ -1879,6 +1963,9 @@ class VoiceRoomFragment : BaseFragment() {
     private enum class VoiceModerationAction { MUTE, KICK }
 
     override fun onFragmentDestroy() {
+        breakoutUi?.destroy()
+        breakoutUi = null
+        if (::reactionHandler.isInitialized) reactionHandler.release()
         clearSpeakerOrder()
         connectionFailurePending = false
         connectionFailureDialog?.dismiss()

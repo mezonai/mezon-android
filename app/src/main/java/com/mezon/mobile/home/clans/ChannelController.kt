@@ -190,6 +190,7 @@ class ChannelController @Inject constructor(
     private val _channelAccessLost = MutableSharedFlow<Long>(extraBufferCapacity = 64)
     val channelAccessLost = _channelAccessLost.asSharedFlow()
     private val channelAccessRevisions = ConcurrentHashMap<Long, Long>()
+    fun channelAccessRevision(clanId: Long): Long = channelAccessRevisions[clanId] ?: 0L
     private val channelAccessRefreshJobs = HashMap<Long, Job>()
     private val channelPersistenceLocks = ConcurrentHashMap<Long, Mutex>()
 

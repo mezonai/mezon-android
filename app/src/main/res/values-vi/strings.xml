@@ -1808,4 +1808,15 @@
     <string name="external_meeting_link_prompt">Tham gia cuộc gọi này ngay trong ứng dụng hoặc mở bằng trình duyệt.</string>
     <string name="external_meeting_link_invalid">Liên kết cuộc họp không hợp lệ hoặc đã hết hạn.</string>
     <string name="external_meeting_guest">Khách</string>
+
+    <!-- Voice breakout participant invitations -->
+    <string name="voice_breakout_title">Phòng thảo luận nhóm</string>
+    <string name="voice_breakout_assigned">Chủ phòng đã phân bạn vào một phòng thảo luận nhóm.</string>
+    <string name="voice_breakout_choose">Chủ phòng đã mở các phòng thảo luận nhóm. Chọn một phòng để tham gia.</string>
+    <string name="voice_breakout_return">Chủ phòng đã đóng các phòng thảo luận nhóm. Bạn có muốn về phòng chính không?</string>
+    <string name="voice_breakout_return_to_main">Về phòng chính</string>
+    <string name="voice_breakout_join">Tham gia</string>
+    <string name="voice_breakout_not_now">Để sau</string>
+    <string name="voice_breakout_room">Phòng %1$s</string>
+    <string name="voice_breakout_unavailable">Không thể tham gia phòng thoại này. Vui lòng thử lại.</string>
 </resources>

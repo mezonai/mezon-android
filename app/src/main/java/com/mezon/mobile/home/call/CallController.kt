@@ -19,11 +19,13 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 import org.webrtc.IceCandidate
 import org.webrtc.AudioTrack
@@ -127,10 +129,22 @@ class CallController @Inject constructor(
     @Volatile private var callEstablished = false
     @Volatile private var ringAnsweredElsewhere: Pair<Long, Long>? = null
 
-    @Volatile private var activeCallLogMessageId: Long = 0L
-    private var activeCallClanId: Long = 0L
-    private var activeCallChannelType: Int = com.mezon.mobile.network.CHANNEL_TYPE_DM
-    private var activeCallIsPrivate: Boolean = false
+    private class OutgoingCallLog(
+        val callInfo: CallInfo,
+        val clanId: Long,
+        val channelType: Int,
+        val isChannelPrivate: Boolean,
+        var messageId: Long = 0L,
+        var ended: CallLogEnd? = null
+    )
+
+    private data class CallLogEnd(
+        val reason: CallEndReason,
+        val wasConnected: Boolean,
+        val durationMs: Long
+    )
+
+    private var activeOutgoingCallLog: OutgoingCallLog? = null
 
     init {
         instance = this
@@ -164,10 +178,6 @@ class CallController @Inject constructor(
             return
         }
 
-        activeCallClanId = clanId
-        activeCallChannelType = channelType
-        activeCallIsPrivate = isChannelPrivate
-        activeCallLogMessageId = 0L
         connectedCancelCallPushed = false
         callEstablished = false
 
@@ -179,6 +189,8 @@ class CallController @Inject constructor(
             isVideo = isVideo,
             isInitiator = true
         )
+        val callLog = OutgoingCallLog(callInfo, clanId, channelType, isChannelPrivate)
+        activeOutgoingCallLog = callLog
         val outgoingStartedAt = SystemClock.elapsedRealtime()
         markInCall(callInfo)
         callState = CallState.Outgoing(callInfo, outgoingStartedAt)
@@ -202,9 +214,28 @@ class CallController @Inject constructor(
         peerConnection = outgoingPeerConnection
 
         appScope.launch(ioDispatcher) {
+            // A profile call does not open the DM. Await its subscription so the
+            // call log can use the same realtime send path as the chat screen.
+            try {
+                val joined = withTimeoutOrNull(3_000L) {
+                    if (!socket.canSendChannelMessageRealtime(clanId, channelId)) {
+                        if (!socket.awaitConnected()) return@withTimeoutOrNull false
+                        socket.joinChat(clanId, channelId, channelType, !isChannelPrivate)
+                    }
+                    true
+                } == true
+                if (!joined) {
+                    Log.w(TAG, "Call channel join timed out; call log will use the available transport")
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Call channel join failed; call log will use the available transport", e)
+            }
             val usernameLine = userController.username
             val startLine = buildStartCallLine(usernameLine, isVideo)
             val startJson = buildCallLogJson(startLine, CallLogMessageType.STARTCALL, isVideo)
+            Log.d(TAG, "STARTCALL sending channelId=$channelId realtimeReady=${socket.canSendChannelMessageRealtime(clanId, channelId)}")
             val msgId = try {
                 chatController.get().sendRawChannelMessage(
                     channelId, clanId, channelType, isChannelPrivate, startJson
@@ -213,8 +244,16 @@ class CallController @Inject constructor(
                 Log.e(TAG, "STARTCALL send failed", e)
                 0L
             }
+            if (msgId == 0L) {
+                Log.e(TAG, "STARTCALL was not acknowledged channelId=$channelId")
+            } else {
+                Log.d(TAG, "STARTCALL sent channelId=$channelId messageId=$msgId")
+            }
             withContext(Dispatchers.Main) {
-                if (currentCallInfo() === callInfo) activeCallLogMessageId = msgId
+                callLog.messageId = msgId
+                // A quick hangup can finish before the STARTCALL acknowledgement.
+                // Keep the result with this call, even if another call has started.
+                updateEndedCallLog(callLog)
             }
             val pc = outgoingPeerConnection
             if (currentCallInfo() !== callInfo || peerConnection !== pc) return@launch
@@ -704,10 +743,8 @@ class CallController @Inject constructor(
         if (reason == CallEndReason.CLEAR_CALL && snapState is CallState.Incoming) {
             rememberRingAnsweredElsewhere(snapState.callInfo.peerId, snapState.callInfo.channelId)
         }
-        val logMessageId = activeCallLogMessageId
-        val logClan = activeCallClanId
-        val logChType = activeCallChannelType
-        val logPrivate = activeCallIsPrivate
+        val callLog = activeOutgoingCallLog
+        activeOutgoingCallLog = null
 
         StartupCache.suppressHomeListApiForIncomingCallWake = false
 
@@ -747,22 +784,9 @@ class CallController @Inject constructor(
         activeOfferSessionId = null
         synchronized(pendingIceCandidates) { pendingIceCandidates.clear() }
 
-        activeCallLogMessageId = 0L
-
-        if (prevInfo?.isInitiator == true && logMessageId != 0L) {
-            callLogHelper.updateAfterCallEnd(
-                socket = socket,
-                scope = appScope,
-                channelId = prevInfo.channelId,
-                clanId = logClan,
-                channelType = logChType,
-                isChannelPrivate = logPrivate,
-                messageId = logMessageId,
-                reason = reason,
-                wasConnected = wasConnected,
-                durationMs = durationMs,
-                isVideo = prevInfo.isVideo
-            )
+        if (prevInfo?.isInitiator == true && callLog != null) {
+            callLog.ended = CallLogEnd(reason, wasConnected, durationMs)
+            updateEndedCallLog(callLog)
         }
 
         try {
@@ -772,6 +796,23 @@ class CallController @Inject constructor(
 
         notificationCenter.postNotificationOnMainThread(NotificationCenter.callEnded, reason, prevInfo)
         notificationCenter.postNotificationOnMainThread(NotificationCenter.callStateChanged, CallState.Idle)
+    }
+
+    private fun updateEndedCallLog(callLog: OutgoingCallLog) {
+        val ended = callLog.ended ?: return
+        if (callLog.messageId == 0L) return
+        callLogHelper.updateAfterCallEnd(
+            scope = appScope,
+            channelId = callLog.callInfo.channelId,
+            clanId = callLog.clanId,
+            channelType = callLog.channelType,
+            isChannelPrivate = callLog.isChannelPrivate,
+            messageId = callLog.messageId,
+            reason = ended.reason,
+            wasConnected = ended.wasConnected,
+            durationMs = ended.durationMs,
+            isVideo = callLog.callInfo.isVideo
+        )
     }
 
     private fun finishCallAudio(reason: CallEndReason) {
@@ -870,7 +911,7 @@ class CallController @Inject constructor(
                 isInitiator = false
             )
 
-            activeCallLogMessageId = 0L
+            activeOutgoingCallLog = null
 
             markInCall(callInfo)
             activeOfferSessionId = sdpSessionId(sdp.description)
