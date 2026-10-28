@@ -1947,4 +1947,8 @@
     <string name="voice_breakout_not_now">Not now</string>
     <string name="voice_breakout_room">Room %1$s</string>
     <string name="voice_breakout_unavailable">Could not join this voice room. Please try again.</string>
+    <string name="stream_enter_fullscreen">Enter fullscreen</string>
+    <string name="stream_exit_fullscreen">Exit fullscreen</string>
+    <string name="stream_hide_controls">Hide stream controls</string>
+    <string name="stream_show_controls">Show stream controls</string>
 </resources>

@@ -473,6 +473,10 @@ class MainActivity : BasePermissionsActivity(),
     }
 
     private fun handleBackPressed() {
+        if (isStreamingOverlayExpanded()) {
+            if (streamingRoomFragment?.handleBackPressed() != true) minimizeStreamingRoom()
+            return
+        }
         val manager = voiceOverlayManager
         if (manager != null && manager.isExpanded()) {
             minimizeVoiceRoom()
@@ -1210,6 +1214,7 @@ class MainActivity : BasePermissionsActivity(),
     fun minimizeStreamingRoom() {
         val manager = streamingOverlayManager ?: return
         val fragment = streamingRoomFragment ?: return
+        fragment.prepareForMinimize()
         manager.minimizeStream(fragment.getChannelLabel(), fragment.getChannelAvatar(),
             EntryPointAccessors.fromApplication(applicationContext, FragmentEntryPoint::class.java).streamingWebRtcSession())
     }
@@ -1737,6 +1742,7 @@ class MainActivity : BasePermissionsActivity(),
         super.onConfigurationChanged(newConfig)
         AndroidUtilities.checkDisplaySize(this, newConfig)
         actionBarLayout.onConfigurationChanged(newConfig)
+        streamingRoomFragment?.onConfigurationChanged(newConfig)
 
         val newLocale = newConfig.locales[0]?.toLanguageTag()
         if (lastLocaleTag != null && newLocale != lastLocaleTag) {

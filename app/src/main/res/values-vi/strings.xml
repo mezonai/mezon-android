@@ -1819,4 +1819,8 @@
     <string name="voice_breakout_not_now">Để sau</string>
     <string name="voice_breakout_room">Phòng %1$s</string>
     <string name="voice_breakout_unavailable">Không thể tham gia phòng thoại này. Vui lòng thử lại.</string>
+    <string name="stream_enter_fullscreen">Xem toàn màn hình</string>
+    <string name="stream_exit_fullscreen">Thoát toàn màn hình</string>
+    <string name="stream_hide_controls">Ẩn điều khiển stream</string>
+    <string name="stream_show_controls">Hiện điều khiển stream</string>
 </resources>
