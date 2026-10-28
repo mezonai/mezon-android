@@ -46,6 +46,7 @@ class VoiceHeaderView(
 
     private val connectionStatusText: TextView
     private val connectionStatusRow: LinearLayout
+    private val connectionProgress: ProgressBar
     private val channelNameText: TextView
     private val externalTag: TextView
     private val agentBtn: FrameLayout
@@ -64,6 +65,7 @@ class VoiceHeaderView(
     private var channelName: String = ""
     private var reconnecting: Boolean = false
     private var agentActive: Boolean = false
+    private var raiseHandActive: Boolean = false
 
     // Connection state must never resize the header or move the participant grid.
     val preferredHeightDp: Float = 56f
@@ -123,7 +125,7 @@ class VoiceHeaderView(
             visibility = View.INVISIBLE
             alpha = 0f
         }
-        val connectionProgress = ProgressBar(context, null, android.R.attr.progressBarStyleSmall).apply {
+        connectionProgress = ProgressBar(context, null, android.R.attr.progressBarStyleSmall).apply {
             isIndeterminate = true
             indeterminateTintList = ColorStateList.valueOf(themeColors.blurple)
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
@@ -213,6 +215,21 @@ class VoiceHeaderView(
         mainRow.addView(rightContainer, LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
     }
 
+    fun applyTheme() {
+        channelNameText.setTextColor(themeColors.colorText)
+        connectionStatusText.setTextColor(themeColors.colorText)
+        connectionProgress.indeterminateTintList = ColorStateList.valueOf(themeColors.blurple)
+        for (button in listOf(minimizeBtn, switchCameraBtn, raiseHandBtn, audioOutputBtn, moreBtn)) {
+            button.background = createCircleBackground()
+            button.applyVoiceButtonPressFeedback()
+            val iconView = button.getChildAt(0) as? ImageView
+            iconView?.drawable?.mutate()?.colorFilter =
+                PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
+        }
+        setAgentActive(agentActive)
+        setRaiseHandActive(raiseHandActive)
+    }
+
     fun setChannelName(name: String) {
         if (channelName == name) return
         channelName = name
@@ -262,6 +279,7 @@ class VoiceHeaderView(
     }
 
     fun setRaiseHandActive(active: Boolean) {
+        raiseHandActive = active
         val iconView = raiseHandBtn.getChildAt(0) as? ImageView ?: return
         val tint = if (active) RAISE_HAND_ACTIVE else themeColors.onSurface
         iconView.drawable?.mutate()?.colorFilter = PorterDuffColorFilter(tint, PorterDuff.Mode.SRC_IN)
@@ -316,19 +334,20 @@ class VoiceHeaderView(
         agentIconView.drawable?.mutate()?.colorFilter = PorterDuffColorFilter(tint, PorterDuff.Mode.SRC_IN)
     }
 
+    private fun createCircleBackground() = GradientDrawable().apply {
+        shape = GradientDrawable.OVAL
+        setColor(themeColors.channelPanelBg)
+        setStroke(LayoutHelper.dp(1), themeColors.textDisabled)
+    }
+
     private fun createCircleButton(
         context: Context,
         icon: MezonIcon,
         iconSize: Int = ICON_SIZE,
         onClick: (View) -> Unit
     ): FrameLayout {
-        val bg = GradientDrawable().apply {
-            shape = GradientDrawable.OVAL
-            setColor(themeColors.channelPanelBg)
-            setStroke(LayoutHelper.dp(1), themeColors.textDisabled)
-        }
         return FrameLayout(context).apply {
-            background = bg
+            background = createCircleBackground()
             isClickable = true
             isFocusable = true
             setOnClickListener(onClick)

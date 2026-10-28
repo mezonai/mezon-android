@@ -529,6 +529,7 @@ class MainActivity : BasePermissionsActivity(),
                 val mode = args.firstOrNull() as? ThemeMode
                     ?: StartupCache.themeMode
                 themeColors.setTheme(mode, isSystemDarkMode())
+                applyMediaRoomTheme()
                 drawerLayoutContainer.setBehindKeyboardColor(themeColors.surface)
                 applySystemBarColors(mode)
                 rebuildAllFragments(true)
@@ -542,6 +543,7 @@ class MainActivity : BasePermissionsActivity(),
                 val userMode = themeColors.currentMode
                 if (userMode == ThemeMode.SYSTEM) {
                     themeColors.setTheme(userMode, isSystemDarkMode())
+                    applyMediaRoomTheme()
                     drawerLayoutContainer.setBehindKeyboardColor(themeColors.surface)
                     applySystemBarColors(userMode)
                     rebuildAllFragments(true)
@@ -807,6 +809,14 @@ class MainActivity : BasePermissionsActivity(),
         } else {
             matching.forEach { actionBarLayout.removeFragmentFromStack(it) }
         }
+    }
+
+    private fun applyMediaRoomTheme() {
+        // Media rooms live outside ActionBarLayout and must keep their active sessions.
+        voiceRoomFragment?.applyTheme()
+        voiceOverlayManager?.applyTheme()
+        streamingRoomFragment?.applyTheme()
+        streamingOverlayManager?.applyTheme()
     }
 
     fun rebuildAllFragments(last: Boolean) {
@@ -1741,6 +1751,7 @@ class MainActivity : BasePermissionsActivity(),
             if ((dark && themeColors.resolvedMode != ThemeMode.DARK) ||
                 (!dark && themeColors.resolvedMode != ThemeMode.LIGHT)) {
                 themeColors.setTheme(ThemeMode.SYSTEM, dark)
+                applyMediaRoomTheme()
                 drawerLayoutContainer.setBehindKeyboardColor(themeColors.surface)
                 applySystemBarColors(ThemeMode.SYSTEM)
                 rebuildAllFragments(true)

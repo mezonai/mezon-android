@@ -37,6 +37,7 @@ class VoiceParticipantAdapter(
 
     private var items: List<ParticipantInfo> = ArrayList(getParticipants())
     private val mutePayload = Any()
+    private val themePayload = Any()
 
     init {
         setHasStableIds(true)
@@ -49,6 +50,10 @@ class VoiceParticipantAdapter(
     // the room list again for every insert/remove/move notification.
     fun synchronizeItems() {
         items = ArrayList(getParticipants())
+    }
+
+    fun applyTheme() {
+        notifyItemRangeChanged(0, itemCount, themePayload)
     }
 
     fun updateMutedStates(isMuted: (ParticipantInfo) -> Boolean) {
@@ -97,10 +102,11 @@ class VoiceParticipantAdapter(
     }
 
     override fun onBindViewHolder(holder: ParticipantVH, position: Int, payloads: MutableList<Any>) {
-        if (payloads.isNotEmpty() && payloads.all { it === mutePayload }) {
+        if (payloads.isNotEmpty() && payloads.all { it === mutePayload || it === themePayload }) {
             val participant = items[position]
             holder.participant = participant
             holder.cell.updateMuted(participant.isMuted)
+            if (payloads.any { it === themePayload }) holder.cell.applyTheme()
         } else {
             onBindViewHolder(holder, position)
         }
@@ -121,6 +127,7 @@ class VoiceParticipantAdapter(
             participant.role == SfuRole.AUDIENCE
         )
         holder.cell.setReactionBadge(reactionBadge(participant.identity))
+        holder.cell.applyTheme()
 
         attachVisibleVideo(holder)
     }
@@ -147,6 +154,7 @@ class VoiceParticipantAdapter(
 
     override fun onViewAttachedToWindow(holder: ParticipantVH) {
         super.onViewAttachedToWindow(holder)
+        holder.cell.applyTheme()
         holder.participant?.let { holder.cell.updateSpeaking(isSpeaking(it.identity)) }
         attachVisibleVideo(holder)
     }

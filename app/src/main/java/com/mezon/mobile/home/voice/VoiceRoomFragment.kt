@@ -693,6 +693,16 @@ class VoiceRoomFragment : BaseFragment() {
         return root
     }
 
+    fun applyTheme() {
+        val root = fragmentView ?: return
+        (root.background as? GradientDrawable)?.colors =
+            intArrayOf(themeColors.serverRailBg, themeColors.serverRailBg)
+        headerView.applyTheme()
+        controlBar.applyTheme()
+        participantAdapter.applyTheme()
+        morePopup.dismiss()
+    }
+
     private fun applyVoiceLayoutForMode() {
         if (!::participantGrid.isInitialized || !::focusedShareView.isInitialized || fragmentView == null) {
             return

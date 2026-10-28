@@ -94,6 +94,11 @@ class VoiceStyleCircleButton(
         bgDrawable.setColor(color)
     }
 
+    fun updateBorderColor(color: Int) {
+        val strokePx = (Companion.iconSizePx(context, 1f) / 2).coerceAtLeast(1)
+        bgDrawable.setStroke(strokePx, color)
+    }
+
     fun updateIconTint(color: Int) {
         iconTint = color
         if (!applyTint) return
