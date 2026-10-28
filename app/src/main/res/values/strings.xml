@@ -1130,6 +1130,8 @@
     <string name="event_creator_update_failed">Could not update event</string>
     <string name="event_creator_preview_subtitle_edit">Review your changes before saving.</string>
     <string name="clan_event_menu_content_desc">Event options</string>
+    <string name="clan_event_menu_copy_content">Copy Content</string>
+    <string name="clan_event_menu_copy_link">Copy Event Link</string>
     <string name="clan_event_menu_edit">Edit Event</string>
     <string name="clan_event_menu_cancel">Cancel Event</string>
     <string name="clan_event_delete_confirm_title">Cancel Event</string>

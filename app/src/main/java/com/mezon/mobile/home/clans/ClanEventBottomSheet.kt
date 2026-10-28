@@ -8,6 +8,7 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
+import android.text.TextUtils
 import android.text.format.DateFormat
 import android.view.Gravity
 import android.view.MotionEvent
@@ -35,6 +36,8 @@ import com.mezon.mobile.home.voice.ExternalMeetingLinkBottomSheet
 import com.mezon.mobile.home.voice.ExternalMeetingRoom
 import com.mezon.mobile.ui.cells.AvatarView
 import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.ui.cells.PopupMenu
+import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.util.DateTimeUtil
 import java.util.Locale
 import kotlin.math.max
@@ -97,6 +100,7 @@ class ClanEventBottomSheet(
     private var swipeDismissFromHeader = false
     private var hiddenForNavigation = false
     private var endingEvent = false
+    private var eventMenuPopup: PopupMenu? = null
 
     init {
         containerHeight = (AndroidUtilities.displaySize.y * 0.8f).toInt()
@@ -147,10 +151,11 @@ class ClanEventBottomSheet(
     }
 
     fun loadClanEvent() {
+        dismissEventMenu()
         logoLoadTokens.forEach { it.cancel() }
         logoLoadTokens.clear()
         val userId = clanEventController.currentUserId()
-        val events = clanEventController.visibleEvents(clanId, userId)
+        val events = clanEventController.visibleEvents(clanId)
         val loading = clanEventController.isLoading(clanId)
         val loadError = clanEventController.getLoadError(clanId)
         loadingView.visibility = if (loading && events.isEmpty()) View.VISIBLE else View.GONE
@@ -235,6 +240,7 @@ class ClanEventBottomSheet(
 
     fun hideForNavigation() {
         if (isDismissed() || hiddenForNavigation) return
+        dismissEventMenu()
         hiddenForNavigation = true
         window?.decorView?.visibility = View.GONE
     }
@@ -246,6 +252,11 @@ class ClanEventBottomSheet(
     }
 
     override fun canDismissWithSwipe(): Boolean = swipeDismissFromHeader
+
+    override fun dismiss() {
+        dismissEventMenu()
+        super.dismiss()
+    }
 
     override fun onContainerTouchEvent(ev: MotionEvent): Boolean {
         when (ev.actionMasked) {
@@ -612,9 +623,8 @@ class ClanEventBottomSheet(
     }
 
     private fun externalEventUrl(event: ClanEventEntity): String? {
-        if (!event.isPrivate || event.externalLink.isBlank()) return null
-        val baseUrl = BuildConfig.MEZON_REDIRECT_URI.trimEnd('/')
-        return "$baseUrl/${event.externalLink.trimStart('/')}"
+        if (!event.isPrivate) return null
+        return event.shareUrl(BuildConfig.MEZON_REDIRECT_URI)
     }
 
     private fun openExternalEvent(url: String) {
@@ -625,10 +635,46 @@ class ClanEventBottomSheet(
         }
     }
 
-    private fun copyExternalEventLink(url: String) {
+    private fun copyEventLink(url: String) {
+        copyEventText(context.getString(R.string.clan_event_menu_copy_link), url, R.string.invite_link_copied)
+    }
+
+    private fun copyEventText(label: String, text: String, messageResId: Int = R.string.invite_copied) {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.setPrimaryClip(ClipData.newPlainText("external_event", url))
-        Toast.makeText(context, R.string.invite_link_copied, Toast.LENGTH_SHORT).show()
+        clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
+        val parent = window?.decorView as? ViewGroup ?: return
+        ToastOverlay(context, theme).show(parent, ToastOverlay.ToastType.SUCCESS, context.getString(messageResId))
+    }
+
+    private fun showEventCopyMenu(anchor: View, event: ClanEventEntity) {
+        if (eventMenuPopup != null) {
+            dismissEventMenu()
+            return
+        }
+        val eventUrl = event.shareUrl(BuildConfig.MEZON_REDIRECT_URI)
+        val popup = PopupMenu(context, theme, fullWidthDividers = true, focusable = true)
+        popup.addItem(context.getString(R.string.clan_event_menu_copy_content), R.drawable.ic_copy_text)
+        if (eventUrl != null) {
+            popup.addItem(context.getString(R.string.clan_event_menu_copy_link), MezonIcon.linkIcon)
+        }
+        popup.setOnItemClickListener { index ->
+            when (index) {
+                0 -> {
+                    copyEventText(context.getString(R.string.clan_event_menu_copy_content), event.contentForCopy())
+                }
+                1 -> eventUrl?.let { copyEventLink(it) }
+            }
+        }
+        popup.setOnDismissListener {
+            if (eventMenuPopup === popup) eventMenuPopup = null
+        }
+        eventMenuPopup = popup
+        popup.show(anchor)
+    }
+
+    private fun dismissEventMenu() {
+        eventMenuPopup?.dismiss()
+        eventMenuPopup = null
     }
 
     private fun buildJoinInAppAction(label: String, onClick: () -> Unit): View {
@@ -760,6 +806,8 @@ class ClanEventBottomSheet(
             TextView(context).apply {
                 text = statusText
                 textSize = 12f
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
                 setTextColor(statusColor)
                 typeface = Typeface.DEFAULT_BOLD
                 setPadding(LayoutHelper.dp(6), 0, 0, 0)
@@ -795,9 +843,25 @@ class ClanEventBottomSheet(
             },
         )
         topRow.addView(rightMeta)
+        topRow.addView(
+            ImageView(context).apply {
+                setImageResource(R.drawable.ic_more_vertical_24)
+                setColorFilter(theme.colorText)
+                scaleType = ImageView.ScaleType.CENTER
+                contentDescription = context.getString(R.string.clan_event_menu_content_desc)
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { showEventCopyMenu(this, event) }
+            },
+            LinearLayout.LayoutParams(LayoutHelper.dp(40), LayoutHelper.dp(40)).apply {
+                marginStart = LayoutHelper.dp(4)
+            },
+        )
         content.addView(
             topRow,
-            LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 0f, 0f, 10f),
+            LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 0f, 0f, 10f).apply {
+                marginEnd = -pad
+            },
         )
     
         val mainRow = LinearLayout(context).apply {
@@ -918,7 +982,7 @@ class ClanEventBottomSheet(
                 )
                 externalActions.addView(
                     buildExternalEventAction(context.getString(R.string.channel_menu_copy_link)) {
-                        copyExternalEventLink(url)
+                        copyEventLink(url)
                     },
                     LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1f).apply {
                         marginStart = LayoutHelper.dp(4)

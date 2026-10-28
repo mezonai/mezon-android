@@ -25,7 +25,8 @@ import com.mezon.mobile.core.ThemeColors
 class PopupMenu(
     private val context: Context,
     private val theme: ThemeColors,
-    private val fullWidthDividers: Boolean = false
+    private val fullWidthDividers: Boolean = false,
+    private val focusable: Boolean = false,
 ) {
 
     private val items = ArrayList<MenuItem>()
@@ -95,9 +96,8 @@ class PopupMenu(
         }
 
         val menuWidth = LayoutHelper.dp(200)
-        popupWindow = PopupWindow(root, menuWidth, ViewGroup.LayoutParams.WRAP_CONTENT, false).apply {
+        popupWindow = PopupWindow(root, menuWidth, ViewGroup.LayoutParams.WRAP_CONTENT, focusable).apply {
             isOutsideTouchable = true
-            isFocusable = false
             setBackgroundDrawable(ColorDrawable(0))
             setOnDismissListener {
                 onDismissListener?.invoke()
