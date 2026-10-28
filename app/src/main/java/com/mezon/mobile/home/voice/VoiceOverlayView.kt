@@ -134,6 +134,14 @@ class VoiceOverlayView(
         })
     }
 
+    fun applyTheme() {
+        (background as? GradientDrawable)?.apply {
+            setColor(themeColors.serverRailBg)
+            setStroke(BORDER_WIDTH, themeColors.textDisabled)
+        }
+        streamPlayback?.setBackgroundColor(themeColors.serverRailBg)
+    }
+
     fun setContent(
         videoTrack: VideoTrack?,
         name: String,
@@ -170,6 +178,7 @@ class VoiceOverlayView(
         detachVideo()
         avatarView.visibility = GONE
         val playback = streamPlayback ?: com.mezon.mobile.home.stream.StreamingPlaybackView(context).also {
+            it.setBackgroundColor(themeColors.serverRailBg)
             streamPlayback = it
             addView(it, 0, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         }

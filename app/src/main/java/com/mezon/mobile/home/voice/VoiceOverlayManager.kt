@@ -50,6 +50,10 @@ class VoiceOverlayManager(
         ))
     }
 
+    fun applyTheme() {
+        miniOverlay?.applyTheme()
+    }
+
     fun showExpanded(contentView: View) {
         currentAnimator?.cancel()
         fullScreenView = contentView

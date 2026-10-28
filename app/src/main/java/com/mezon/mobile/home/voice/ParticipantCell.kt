@@ -399,6 +399,15 @@ class ParticipantCell(
         invalidate()
     }
 
+    fun applyTheme() {
+        borderDrawable.setColor(themeColors.channelPanelBg)
+        updateBorder()
+        (reactionBadge.background as? GradientDrawable)?.setColor(themeColors.blurple)
+        updateNameOverlayContent()
+        buildNameLayout()
+        invalidate()
+    }
+
     fun updateMuted(muted: Boolean) {
         if (this.isMuted == muted) return
         this.isMuted = muted
@@ -440,7 +449,7 @@ class ParticipantCell(
             }
         } else {
             (if (isMuted) micMutedDrawable else micDrawable)?.apply {
-                colorFilter = PorterDuffColorFilter(themeColors.colorText, PorterDuff.Mode.SRC_IN)
+                colorFilter = PorterDuffColorFilter(0xFFFFFFFF.toInt(), PorterDuff.Mode.SRC_IN)
             }
         }
         nameOverlayIcon.setImageDrawable(icon)
