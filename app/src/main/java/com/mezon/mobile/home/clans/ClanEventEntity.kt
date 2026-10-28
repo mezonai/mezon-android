@@ -26,6 +26,18 @@ data class ClanEventEntity(
 ) {
     val interestedCount: Int get() = userIds.count { it != 0L }
 
+    fun contentForCopy(): String = if (description.isBlank()) title else "$title\n$description"
+
+    fun shareUrl(baseUrl: String): String? {
+        val base = baseUrl.trimEnd('/')
+        if (isPrivate) {
+            return externalLink.takeIf { it.isNotBlank() }?.let { "$base/${it.trimStart('/')}" }
+        }
+        val linkedChannelId = channelVoiceId.takeIf { it != 0L } ?: channelId
+        if (linkedChannelId == 0L) return null
+        return "$base/chat/clans/$clanId/channels/$linkedChannelId"
+    }
+
     fun displayStatus(nowMillis: Long = System.currentTimeMillis()): Int {
         if (startTimeSeconds == 0) return eventStatus
         val start = startTimeSeconds.toLong() * 1000

@@ -1026,6 +1026,8 @@
     <string name="event_creator_update_failed">Không thể cập nhật sự kiện</string>
     <string name="event_creator_preview_subtitle_edit">Xem lại thay đổi trước khi lưu.</string>
     <string name="clan_event_menu_content_desc">Tùy chọn sự kiện</string>
+    <string name="clan_event_menu_copy_content">Sao chép nội dung</string>
+    <string name="clan_event_menu_copy_link">Sao chép liên kết sự kiện</string>
     <string name="clan_event_menu_edit">Chỉnh sửa sự kiện</string>
     <string name="clan_event_menu_cancel">Hủy sự kiện</string>
     <string name="clan_event_delete_confirm_title">Hủy sự kiện</string>

@@ -1,4 +1,6 @@
 package com.mezon.mobile.home.clans
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -13,6 +15,7 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.core.widget.NestedScrollView
+import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.MainActivity
 import com.mezon.mobile.R
 import com.mezon.mobile.core.AlertsCreator
@@ -109,7 +112,7 @@ class ClanEventDetailFragment : BaseFragment() {
         observe(NotificationCenter.clanRolesDidLoad) { _, _, args ->
             if (isPaused || fragmentView == null) return@observe
             if (args.firstOrNull() == clanId) {
-                clanEventController.getEvent(clanId, eventId)?.let { updateActionBarMenu(it) }
+                updateActionBarMenu(clanEventController.getEvent(clanId, eventId))
             }
         }
         return true
@@ -117,12 +120,12 @@ class ClanEventDetailFragment : BaseFragment() {
 
     override fun onPause() {
         super.onPause()
-        hideModifyMenu()
+        hideEventMenu()
     }
 
     override fun onResume() {
         super.onResume()
-        clanEventController.getEvent(clanId, eventId)?.let { updateActionBarMenu(it) }
+        updateActionBarMenu(clanEventController.getEvent(clanId, eventId))
     }
 
     override fun onFragmentDestroy() {
@@ -153,10 +156,7 @@ class ClanEventDetailFragment : BaseFragment() {
                 override fun onItemClick(id: Int) {
                     when (id) {
                         -1 -> finishFragment()
-                        MENU_MORE -> {
-                            val event = clanEventController.getEvent(clanId, eventId) ?: return
-                            if (canModifyEvent(event)) showEventMenu() else hideModifyMenu()
-                        }
+                        MENU_MORE -> showEventMenu()
                     }
                 }
             })
@@ -221,7 +221,7 @@ class ClanEventDetailFragment : BaseFragment() {
             )
             return
         }
-        hideModifyMenu()
+        hideEventMenu()
         val loading = clanEventController.isLoading(clanId)
         val loadError = clanEventController.getLoadError(clanId)
         when {
@@ -306,19 +306,15 @@ class ClanEventDetailFragment : BaseFragment() {
 
     private fun canModifyEvent(event: ClanEventEntity): Boolean = clanEventController.canModifyEvent(event)
 
-    private fun updateActionBarMenu(event: ClanEventEntity) {
-        if (isPaused || fragmentView == null) {
-            hideModifyMenu()
+    private fun updateActionBarMenu(event: ClanEventEntity?) {
+        if (isPaused || fragmentView == null || event == null) {
+            hideEventMenu()
             return
         }
-        if (canModifyEvent(event)) {
-            showModifyMenuButton()
-        } else {
-            hideModifyMenu()
-        }
+        showEventMenuButton()
     }
 
-    private fun showModifyMenuButton() {
+    private fun showEventMenuButton() {
         if (moreMenuItem != null) return
         val menu = actionBarMenu ?: return
         moreMenuItem = menu.addItem(MENU_MORE, R.drawable.ic_more_vertical_24).also { item ->
@@ -335,7 +331,7 @@ class ClanEventDetailFragment : BaseFragment() {
         }
     }
 
-    private fun hideModifyMenu() {
+    private fun hideEventMenu() {
         dismissEventMenu()
         if (moreMenuItem != null) {
             actionBarMenu?.removeItem(MENU_MORE)
@@ -344,33 +340,22 @@ class ClanEventDetailFragment : BaseFragment() {
     }
 
     private fun showEventMenu() {
-        val event = clanEventController.getEvent(clanId, eventId) ?: return
-        if (!canModifyEvent(event)) {
-            hideModifyMenu()
+        if (eventMenuPopup != null) {
+            dismissEventMenu()
             return
         }
+        val event = clanEventController.getEvent(clanId, eventId) ?: return
         val ctx = fragmentView?.context ?: return
         val anchor = moreMenuItem ?: return
-        dismissEventMenu()
-        val popup = PopupMenu(ctx, themeColors)
-        popup.addItem(
-            getString(R.string.clan_event_menu_edit),
-            MezonIcon.pencilIcon.getDrawable(ctx, themeColors.colorText),
-        )
-        popup.addItem(
-            getString(R.string.clan_event_menu_cancel),
-            MezonIcon.trashIcon.getDrawable(ctx, themeColors.redStrong),
-            destructive = true,
-        )
-        popup.setOnItemClickListener { index ->
-            val latestEvent = clanEventController.getEvent(clanId, eventId) ?: return@setOnItemClickListener
-            if (!canModifyEvent(latestEvent)) {
-                hideModifyMenu()
-                return@setOnItemClickListener
-            }
-            when (index) {
-                0 -> {
-                    dismissEventMenu()
+        val popup = PopupMenu(ctx, themeColors, fullWidthDividers = true, focusable = true)
+        val actions = ArrayList<(ClanEventEntity) -> Unit>()
+        if (canModifyEvent(event)) {
+            popup.addItem(
+                getString(R.string.clan_event_menu_edit),
+                MezonIcon.pencilIcon.getDrawable(ctx, themeColors.colorText),
+            )
+            actions.add { latestEvent ->
+                if (canModifyEvent(latestEvent)) {
                     eventEditorDialog?.dismiss()
                     val dialog = ClanEventEditorDialog.show(
                         host = this@ClanEventDetailFragment,
@@ -382,14 +367,47 @@ class ClanEventDetailFragment : BaseFragment() {
                         if (eventEditorDialog === dialog) eventEditorDialog = null
                     }
                 }
-                1 -> {
-                    dismissEventMenu()
+            }
+            popup.addItem(
+                getString(R.string.clan_event_menu_cancel),
+                MezonIcon.trashIcon.getDrawable(ctx, themeColors.redStrong),
+                destructive = true,
+            )
+            actions.add { latestEvent ->
+                if (canModifyEvent(latestEvent)) {
                     confirmDeleteEvent(latestEvent)
                 }
             }
         }
+        popup.addItem(getString(R.string.clan_event_menu_copy_content), R.drawable.ic_copy_text)
+        actions.add { latestEvent ->
+            copyEventText(getString(R.string.clan_event_menu_copy_content), latestEvent.contentForCopy())
+        }
+        if (event.shareUrl(BuildConfig.MEZON_REDIRECT_URI) != null) {
+            popup.addItem(getString(R.string.clan_event_menu_copy_link), MezonIcon.linkIcon)
+            actions.add { latestEvent ->
+                latestEvent.shareUrl(BuildConfig.MEZON_REDIRECT_URI)?.let { url ->
+                    copyEventText(getString(R.string.clan_event_menu_copy_link), url, R.string.invite_link_copied)
+                }
+            }
+        }
+        popup.setOnItemClickListener { index ->
+            dismissEventMenu()
+            val latestEvent = clanEventController.getEvent(clanId, eventId) ?: return@setOnItemClickListener
+            actions[index](latestEvent)
+        }
+        popup.setOnDismissListener {
+            if (eventMenuPopup === popup) eventMenuPopup = null
+        }
         eventMenuPopup = popup
         popup.show(anchor)
+    }
+
+    private fun copyEventText(label: String, text: String, messageResId: Int = R.string.invite_copied) {
+        val ctx = fragmentView?.context ?: return
+        val clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
+        MezonToast.show(this, ToastOverlay.ToastType.SUCCESS, getString(messageResId))
     }
 
     private fun dismissEventMenu() {

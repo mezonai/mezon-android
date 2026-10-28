@@ -197,11 +197,10 @@ class ClanEventController @Inject constructor(
         event.displayStatus() == ClanEventStatus.ONGOING &&
             permissionPolicy.checkPermission(PermissionPolicy.CLAN_OWNER, clanId = event.clanId)
 
-    fun visibleEvents(clanId: Long, currentUserId: Long): List<ClanEventEntity> {
+    fun visibleEvents(clanId: Long): List<ClanEventEntity> {
         val textChannelIds = textChannels(clanId).mapTo(HashSet()) { it.channelId }
         return getEvents(clanId).filter { event ->
-            (!event.isPrivate || event.creatorId == currentUserId) &&
-                (event.channelId == 0L || textChannelIds.contains(event.channelId))
+            event.channelId == 0L || textChannelIds.contains(event.channelId)
         }
     }
 
