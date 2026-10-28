@@ -284,6 +284,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private val filePresignPending = ArrayList<Boolean>()
     private val fileUploadFailed = ArrayList<Boolean>()
     private val fileAttachmentUrls = ArrayList<String>()
+    private var fileAttachmentMessageKey: Pair<Long, Long>? = null
+    private val fileHitRects = ArrayList<RectF>()
     private var fileIconDrawable: Drawable? = null
     private val fileRoundRect = RectF()
     private var fileRowWidth = 0
@@ -522,6 +524,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     }
 
     fun clearState() {
+        resetFileTouchTargets()
+        fileAttachmentMessageKey = null
         clearReactionEmojiImages()
         reactionGroups = emptyList()
         messageEntity = null
@@ -2163,8 +2167,18 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         return maxOf(h, avatarBottom) + PAD_BOTTOM
     }
 
+    private fun resetFileTouchTargets() {
+        if (pressedOnFile) cancelScheduledLongPress()
+        fileHitRects.clear()
+        pressedOnFile = false
+        pressedFileIndex = -1
+    }
+
     private fun buildFileLayouts(msg: MessageEntity, textWidth: Int) {
         if (!drawFileAttachment) {
+            resetFileTouchTargets()
+            fileAttachmentMessageKey = null
+            fileAttachmentUrls.clear()
             fileNameLayout = null
             fileSizeLayout = null
             extraFileLayouts = emptyList()
@@ -2178,6 +2192,12 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val snapshot = displaySnapshot ?: msg.displayAttachmentSnapshot().also { displaySnapshot = it }
         val files = snapshot.files
         val filter = snapshot.filter
+        val messageKey = msg.channelId to msg.id
+        val sameFileTargets = fileAttachmentMessageKey == messageKey &&
+            fileAttachmentUrls.size == files.size &&
+            files.indices.all { fileAttachmentUrls[it] == files[it].url }
+        if (!sameFileTargets) resetFileTouchTargets()
+        fileAttachmentMessageKey = messageKey
         fileUploadPending.clear()
         filePresignPending.clear()
         fileUploadFailed.clear()
@@ -2671,7 +2691,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     interface ChatMessageCellDelegate {
         fun didClickMedia(cell: ChatMessageCell, msg: MessageEntity, attachmentIndex: Int) {}
-        fun didClickFile(cell: ChatMessageCell, msg: MessageEntity) {}
+        fun didClickFile(cell: ChatMessageCell, msg: MessageEntity, attachmentIndex: Int) {}
         fun didTapAudio(cell: ChatMessageCell, msg: MessageEntity) {}
         fun didClickMention(cell: ChatMessageCell, userId: String?, roleId: String?) {}
         fun didClickHashtag(cell: ChatMessageCell, channelId: String?, clanId: String?) {}
@@ -2701,15 +2721,12 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var pressedMediaIndex = 0
     private var pressedOnOgp = false
     private var pressedOnFile = false
+    private var pressedFileIndex = -1
     private var pressedOnAudio = false
     private var pressedOnAvatar = false
     private var pressedOnReply = false
     private var pressedOnCallLogCallback = false
     private var pressedReactionIndex = -1
-    private var fileBlockLeft = 0f
-    private var fileBlockTop = 0f
-    private var fileBlockRight = 0f
-    private var fileBlockBottom = 0f
 
     val isSticker: Boolean
         get() {
@@ -2744,6 +2761,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         pressedOnMedia = false
         pressedOnOgp = false
         pressedOnFile = false
+        pressedFileIndex = -1
         pressedOnAudio = false
         pressedOnAvatar = false
         pressedOnReply = false
@@ -2765,6 +2783,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 pressedOnOgp = false
                 pressedOnEmbed = false
                 pressedOnFile = false
+                pressedFileIndex = -1
                 pressedOnAudio = false
                 pressedOnAvatar = false
                 pressedOnReply = false
@@ -2857,7 +2876,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     return true
                 }
 
-                if (drawFileAttachment && x >= fileBlockLeft && x <= fileBlockRight && y >= fileBlockTop && y <= fileBlockBottom) {
+                val fileIndex = if (drawFileAttachment) fileHitRects.indexOfFirst { it.contains(x, y) } else -1
+                if (fileIndex >= 0) {
+                    pressedFileIndex = fileIndex
                     pressedOnFile = true
                     scheduleLongPress()
                     return true
@@ -3062,6 +3083,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     pressedOnOgp = false
                     pressedOnEmbed = false
                     pressedOnFile = false
+                    pressedFileIndex = -1
                     pressedOnAudio = false
                     pressedOnAvatar = false
                     pressedOnReply = false
@@ -3178,9 +3200,11 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     return true
                 }
                 if (pressedOnFile) {
+                    val fileIndex = pressedFileIndex
                     pressedOnFile = false
+                    pressedFileIndex = -1
                     val msg = messageEntity
-                    if (msg != null) delegate?.didClickFile(this, msg)
+                    if (msg != null) delegate?.didClickFile(this, msg, fileIndex)
                     return true
                 }
                 if (pressedOnAudio) {
@@ -3241,6 +3265,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 pressedOnOgp = false
                 pressedOnEmbed = false
                 pressedOnFile = false
+                pressedFileIndex = -1
                 pressedOnAudio = false
                 pressedOnAvatar = false
                 pressedOnReply = false
@@ -3271,6 +3296,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         if (index < 0 || index >= mediaGridCount) return null
         return mediaReceiver(index).getBitmap()
     }
+
+    internal fun getFileAttachmentUrl(index: Int): String? = fileAttachmentUrls.getOrNull(index)
 
     fun onMentionClicked(userId: String?, roleId: String?) {
         delegate?.didClickMention(this, userId, roleId)
@@ -3758,12 +3785,12 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val msg = messageEntity ?: return y
         var yOff = y
         yOff = drawSingleFileCard(
-            canvas, x, yOff, iconD, fileNameLayout, fileSizeLayout, isFirst = true, fileIndex = 0, msg = msg,
+            canvas, x, yOff, iconD, fileNameLayout, fileSizeLayout, fileIndex = 0, msg = msg,
         )
         var extraIndex = 1
         for ((nl, sl) in extraFileLayouts) {
             yOff = drawSingleFileCard(
-                canvas, x, yOff, iconD, nl, sl, isFirst = false, fileIndex = extraIndex, msg = msg,
+                canvas, x, yOff, iconD, nl, sl, fileIndex = extraIndex, msg = msg,
             )
             extraIndex++
         }
@@ -3772,7 +3799,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     private fun drawSingleFileCard(
         canvas: Canvas, x: Float, y: Float, iconD: Drawable,
-        nameLayout: StaticLayout?, sizeLayout: StaticLayout?, isFirst: Boolean,
+        nameLayout: StaticLayout?, sizeLayout: StaticLayout?,
         fileIndex: Int, msg: MessageEntity,
     ): Float {
         val cardW = fileRowWidth.toFloat()
@@ -3780,12 +3807,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val innerH = maxOf(FILE_ICON_SIZE, textH)
         val cardH = (FILE_ROW_V_PAD * 2 + maxOf(innerH, FILE_ROW_MIN_HEIGHT - FILE_ROW_V_PAD * 2)).toFloat()
 
-        if (isFirst) {
-            fileBlockLeft = x
-            fileBlockTop = y
-            fileBlockRight = x + cardW
-            fileBlockBottom = y + cardH
-        }
+        val hitRect = fileHitRects.getOrNull(fileIndex) ?: RectF().also { fileHitRects.add(it) }
+        hitRect.set(x, y, x + cardW, y + cardH)
 
         FILE_CARD_BG_PAINT.color = theme.secondaryLight
         fileRoundRect.set(x, y, x + cardW, y + cardH)
