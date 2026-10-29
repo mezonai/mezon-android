@@ -24,6 +24,7 @@ class MezonFirebaseService : FirebaseMessagingService() {
     @Inject lateinit var notificationHelper: NotificationHelper
     @Inject lateinit var fcmRepository: FcmRepository
     @Inject lateinit var activeChannelTracker: ActiveChannelTracker
+    @Inject lateinit var notificationMuteStore: NotificationMuteStore
     @Inject lateinit var incomingCallFcmHandler: IncomingCallFcmHandler
     @Inject lateinit var friendController: FriendController
     @Inject lateinit var dialogsController: dagger.Lazy<DialogsController>
@@ -188,6 +189,7 @@ class MezonFirebaseService : FirebaseMessagingService() {
                 if (channelId != 0L && activeChannelTracker.isViewing(channelId)) {
                     return
                 }
+                if (notificationMuteStore.isMuted(channelId)) return
 
                 if (isAppInForeground()) {
                     notificationHelper.showInAppToast(
@@ -218,6 +220,7 @@ class MezonFirebaseService : FirebaseMessagingService() {
                     if (dmId != 0L && activeChannelTracker.isViewing(dmId)) {
                         return
                     }
+                    if (notificationMuteStore.isMuted(dmId)) return
                     if (isAppInForeground()) {
                         notificationHelper.showInAppToast(
                             title,

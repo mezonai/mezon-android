@@ -24,6 +24,8 @@ import com.mezon.mobile.network.UnauthorizedException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.Normalizer
@@ -98,6 +100,7 @@ class SearchController @Inject constructor(
     private val ctrlKMembers = ArrayList<SearchMember>()
     private val ctrlKChannels = ArrayList<ClanChannelEntity>()
     private var ctrlKGeneration = 0L
+    private var ctrlKJob: Job? = null
 
     init {
         appScope.launch {
@@ -177,6 +180,7 @@ class SearchController @Inject constructor(
         synchronized(this) {
             channelCacheGeneration++
             ctrlKGeneration++
+            ctrlKJob?.cancel()
             changed = channelById.remove(channelId) != null
             changed = allChannels.removeAll { it.channelId == channelId } || changed
             changed = ctrlKChannels.removeAll { it.channelId == channelId } || changed
@@ -211,6 +215,7 @@ class SearchController @Inject constructor(
     fun cancelCtrlKSearch() {
         synchronized(this) {
             ctrlKGeneration++
+            ctrlKJob?.cancel()
             ctrlKMembers.clear()
             ctrlKChannels.clear()
         }
@@ -232,9 +237,10 @@ class SearchController @Inject constructor(
     private fun fetchCtrlK(text: String, type: Int): Boolean {
         if (text.isEmpty() || text.toByteArray(Charsets.UTF_8).size > 255) return false
         val generation = synchronized(this) { ++ctrlKGeneration }
-        appScope.launch(ioDispatcher) {
+        val job = appScope.launch(ioDispatcher, start = CoroutineStart.LAZY) {
             try {
                 sessionManager.withAutoRefresh { session ->
+                    if (synchronized(this@SearchController) { generation != ctrlKGeneration }) return@withAutoRefresh
                     val response = searchCtrlKRetrying(session.apiUrl, session.token, text, type, generation)
 
                     val members = ArrayList<SearchMember>()
@@ -292,10 +298,21 @@ class SearchController @Inject constructor(
                         notificationCenter.postNotificationOnMainThread(NotificationCenter.searchChannelsDidLoad)
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "searchCtrlK failed", e)
             }
         }
+        synchronized(this) {
+            if (generation == ctrlKGeneration) {
+                ctrlKJob?.cancel()
+                ctrlKJob = job
+            } else {
+                job.cancel()
+            }
+        }
+        job.start()
         return true
     }
 

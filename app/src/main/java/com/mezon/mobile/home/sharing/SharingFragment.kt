@@ -489,7 +489,7 @@ class SharingFragment(
                     debounceRunnable = Runnable {
                         if (isForwardMode) applyForwardFilter(query) else onDeviceQueryChanged(query)
                     }
-                    debounceHandler.postDelayed(debounceRunnable!!, DEBOUNCE_MS)
+                    debounceHandler.postDelayed(debounceRunnable!!, if (isForwardMode) DEBOUNCE_MS else CTRL_K_DEBOUNCE_MS)
                 }
             })
         }
@@ -1448,6 +1448,7 @@ class SharingFragment(
     companion object {
         private const val TAG = "SharingFragment"
         private const val DEBOUNCE_MS = 300L
+        private const val CTRL_K_DEBOUNCE_MS = 500L
         private const val MAX_FORWARD_COMMENT_CHARS = 2000
 
         fun fromDevice(uris: List<Uri>, text: String?, mimeType: String?) =

@@ -20,6 +20,7 @@ class NotificationObserver @Inject constructor(
     private val socketEventDispatcher: SocketEventDispatcher,
     private val notificationHelper: NotificationHelper,
     private val activeChannelTracker: ActiveChannelTracker,
+    private val notificationMuteStore: NotificationMuteStore,
     private val sessionManager: SessionManager,
     @ApplicationScope private val appScope: CoroutineScope
 ) {
@@ -37,6 +38,7 @@ class NotificationObserver @Inject constructor(
             if (msg.code == CODE_CHAT_UPDATE || msg.code == CODE_CHAT_REMOVE) return@collect
             if (msg.senderId == currentUserId) return@collect
             if (activeChannelTracker.isViewing(msg.channelId)) return@collect
+            if (notificationMuteStore.isMuted(msg.channelId)) return@collect
 
             val body = parseContentPreview(msg.content)
             if (body.isBlank()) return@collect

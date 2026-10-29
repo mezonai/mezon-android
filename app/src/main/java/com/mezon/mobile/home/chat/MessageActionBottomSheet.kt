@@ -371,18 +371,20 @@ class MessageActionBottomSheet(
     private fun buildNormalActions(): List<ActionItem> {
         val actions = mutableListOf<ActionItem>()
 
-        actions.add(ActionItem(
-            ActionType.CopyText,
-            context.getString(R.string.action_copy_text),
-            R.drawable.ic_copy_text
-        ))
-
-        if (messageHasExplicitTextBody(message.content) && parseContentText(message.content).isNotBlank()) {
+        if (message.code != MessageEntity.CODE_LOCATION) {
             actions.add(ActionItem(
-                ActionType.ShareText,
-                context.getString(R.string.action_share_text),
-                R.drawable.ic_share_box
+                ActionType.CopyText,
+                context.getString(R.string.action_copy_text),
+                R.drawable.ic_copy_text
             ))
+
+            if (messageHasExplicitTextBody(message.content) && parseContentText(message.content).isNotBlank()) {
+                actions.add(ActionItem(
+                    ActionType.ShareText,
+                    context.getString(R.string.action_share_text),
+                    R.drawable.ic_share_box
+                ))
+            }
         }
 
         if (showPinActions) {

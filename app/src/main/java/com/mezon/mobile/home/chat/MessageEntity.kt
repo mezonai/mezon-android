@@ -856,6 +856,7 @@ fun MessageEntity.isCallLogMessage(): Boolean = parseCallLogMessage(content) != 
 fun MessageEntity.canEditMessage(currentUserId: Long): Boolean {
     if (senderId != currentUserId) return false
     if (isCallLogMessage()) return false
+    if (code == MessageEntity.CODE_LOCATION) return false
     if (code == MessageEntity.CODE_SEND_TOKEN) return false
     if (isPollMessage) return false
     if (isForwarded) return false

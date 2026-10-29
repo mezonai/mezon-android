@@ -173,6 +173,7 @@ class ChannelController @Inject constructor(
     private val messageDao: MessageDao,
     private val dispatcher: SocketEventDispatcher,
     private val notificationCenter: NotificationCenter,
+    private val notificationMuteStore: com.mezon.mobile.notification.NotificationMuteStore,
     private val buzzController: com.mezon.mobile.home.BuzzController,
     private val cacheTracker: ApiCacheTracker,
     private val clansController: dagger.Lazy<ClansController>,
@@ -1125,6 +1126,7 @@ class ChannelController @Inject constructor(
                         muteTimeSeconds,
                         active,
                     )
+                    notificationMuteStore.setDuration(session.userId, channelId, muteTimeSeconds)
                 }
             }
         }
@@ -1195,6 +1197,7 @@ class ChannelController @Inject constructor(
                 }
             }
             val normalizedType = normalizeChannelNotificationType(notification.notificationSettingType)
+            notificationMuteStore.updateFromServer(channelId, notification.timeMuteSeconds)
             patchChannelNotificationType(channelId, normalizedType)
             val resolvedClanId = clanId.takeIf { it != 0L }
                 ?: findChannelById(channelId)?.clanId
@@ -2564,6 +2567,7 @@ class ChannelController @Inject constructor(
                 val clanId = event.clanId
                 val channelId = event.channelId
                 if (clanId == 0L || channelId == 0L) return@collect
+                notificationMuteStore.clear(channelId)
                 patchChannelMuteLocally(clanId, channelId, isMuted = false)
             }
         }
@@ -2573,6 +2577,7 @@ class ChannelController @Inject constructor(
                 val channelId = noti.channelId
                 if (channelId == 0L) return@collect
                 val channel = findChannelById(channelId) ?: return@collect
+                notificationMuteStore.updateFromServer(channelId, noti.timeMuteSeconds)
                 patchChannelNotificationType(channelId, noti.notificationSettingType)
                 val isMuted = isMutedFromNotificationUserChannel(noti)
                 patchChannelMuteLocally(channel.clanId, channelId, isMuted)

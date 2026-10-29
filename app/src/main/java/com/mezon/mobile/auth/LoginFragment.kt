@@ -2,12 +2,14 @@ package com.mezon.mobile.auth
 
 import android.content.Context
 import android.content.res.ColorStateList
+import android.content.res.Resources
 import android.graphics.LinearGradient
 import android.graphics.Shader
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.PaintDrawable
 import android.graphics.drawable.ShapeDrawable
 import android.graphics.drawable.shapes.RectShape
+import android.telephony.TelephonyManager
 import android.text.InputType
 import android.util.Log
 import android.view.Gravity
@@ -16,7 +18,6 @@ import android.view.inputmethod.EditorInfo
 import android.widget.CheckBox
 import android.widget.FrameLayout
 import android.widget.LinearLayout
-import android.widget.PopupWindow
 import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
@@ -59,8 +60,7 @@ class LoginFragment : BaseFragment() {
     private lateinit var phoneRow: LinearLayout
 
     private var currentMode = LoginMode.SMS
-    private var selectedCountry = Country.VIETNAM
-    private var countryPopup: PopupWindow? = null
+    private val selectedCountry = Country.VIETNAM
 
     private val lastOTPSentTime = HashMap<String, Long>()
 
@@ -69,9 +69,6 @@ class LoginFragment : BaseFragment() {
     data class Country(val code: String, val prefix: String, val nameResId: Int, val flag: String) {
         companion object {
             val VIETNAM = Country("VN", "+84", R.string.common_login_country_vietnam, "\uD83C\uDDFB\uD83C\uDDF3")
-            val JAPAN = Country("JP", "+81", R.string.common_login_country_japan, "\uD83C\uDDEF\uD83C\uDDF5")
-            val USA = Country("US", "+1", R.string.common_login_country_usa, "\uD83C\uDDFA\uD83C\uDDF8")
-            val ALL = listOf(VIETNAM, JAPAN, USA)
         }
     }
 
@@ -139,7 +136,6 @@ class LoginFragment : BaseFragment() {
                 cornerRadius = LayoutHelper.dpf(12f)
             }
             background = bg
-            setOnClickListener { showCountryDropdown(it) }
         }
         phoneRow.addView(countryButton, LinearLayout.LayoutParams(LayoutHelper.WRAP_CONTENT, LayoutHelper.dp(48)).apply {
             marginEnd = LayoutHelper.dp(8)
@@ -284,9 +280,24 @@ class LoginFragment : BaseFragment() {
         emailCell.editText.addTextChangedListener(resetWatcher)
         passwordCell.editText.addTextChangedListener(resetWatcher)
 
-        applyMode(LoginMode.SMS)
+        applyMode(initialLoginMode(context))
 
         return root
+    }
+
+    private fun initialLoginMode(context: Context): LoginMode =
+        if (isDeviceInVietnam(context)) LoginMode.SMS else LoginMode.OTP
+
+    private fun isDeviceInVietnam(context: Context): Boolean {
+        val telephony = runCatching {
+            context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
+        }.getOrNull()
+        val countryIso = listOf(
+            runCatching { telephony?.simCountryIso }.getOrNull(),
+            runCatching { telephony?.networkCountryIso }.getOrNull(),
+            Resources.getSystem().configuration.locales[0]?.country
+        ).firstOrNull { !it.isNullOrBlank() }
+        return countryIso.equals("VN", ignoreCase = true)
     }
 
     private fun applyMode(mode: LoginMode) {
@@ -357,46 +368,6 @@ class LoginFragment : BaseFragment() {
 
     private fun updateCountryButton() {
         countryButton.text = "${selectedCountry.flag} ${selectedCountry.prefix}"
-    }
-
-    private fun showCountryDropdown(anchor: View) {
-        val ctx = anchor.context
-        countryPopup?.dismiss()
-
-        val list = LinearLayout(ctx).apply {
-            orientation = LinearLayout.VERTICAL
-            val bg = GradientDrawable().apply {
-                setColor(0xFFFFFFFF.toInt())
-                cornerRadius = LayoutHelper.dpf(8f)
-                setStroke(LayoutHelper.dp(1), 0xFFD1D5DB.toInt())
-            }
-            background = bg
-        }
-
-        for (country in Country.ALL) {
-            val row = TextView(ctx).apply {
-                text = "${country.flag}  ${getString(country.nameResId)}  (${country.prefix})"
-                textSize = 14f
-                setTextColor(0xFF374151.toInt())
-                val pad = LayoutHelper.dp(12)
-                setPadding(pad, pad, pad, pad)
-                if (country == selectedCountry) {
-                    setBackgroundColor(0xFFF3F4F6.toInt())
-                }
-                setOnClickListener {
-                    selectedCountry = country
-                    updateCountryButton()
-                    validateForm()
-                    countryPopup?.dismiss()
-                }
-            }
-            list.addView(row, LinearLayout.LayoutParams(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
-        }
-
-        countryPopup = PopupWindow(list, LayoutHelper.dp(220), LayoutHelper.WRAP_CONTENT, true).apply {
-            elevation = LayoutHelper.dpf(4f)
-            showAsDropDown(anchor, 0, LayoutHelper.dp(4))
-        }
     }
 
     private fun doSubmit() {

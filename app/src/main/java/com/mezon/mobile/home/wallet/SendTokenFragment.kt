@@ -74,7 +74,7 @@ class SendTokenFragment : BaseFragment() {
         private val VI_LOCALE: Locale = Locale("vi", "VN")
         private val CHAIN_UNITS_PER_TOKEN: BigInteger = BigInteger.valueOf(1_000_000L)
         private const val PROFILE_TRANSFER_DEFAULT_AMOUNT = 10000
-        private const val RECIPIENT_SEARCH_DEBOUNCE_MS = 300L
+        private const val RECIPIENT_SEARCH_DEBOUNCE_MS = 500L
 
         fun newInstance(
             formValue: String? = null
@@ -1052,6 +1052,8 @@ class SendTokenFragment : BaseFragment() {
                 if (recipientPicker !== picker) return
                 val query = s?.toString().orEmpty()
                 recipientSearchRunnable?.let { recipientSearchHandler.removeCallbacks(it) }
+                searchController.cancelCtrlKSearch()
+                picker.markQueryPending(query)
                 val runnable = Runnable { picker.onQueryChanged(query) }
                 recipientSearchRunnable = runnable
                 recipientSearchHandler.postDelayed(runnable, RECIPIENT_SEARCH_DEBOUNCE_MS)
@@ -1157,8 +1159,17 @@ class SendTokenFragment : BaseFragment() {
     ) {
         private var query = ""
         private var awaitingResults = false
+        private var queryPending = false
+
+        fun markQueryPending(raw: String) {
+            queryPending = true
+            query = raw.trim()
+            awaitingResults = query.isNotEmpty()
+            render()
+        }
 
         fun onQueryChanged(raw: String) {
+            queryPending = false
             query = raw.trim()
             awaitingResults = query.isNotEmpty() && searchController.fetchCtrlKUsers(query)
             if (!awaitingResults) searchController.cancelCtrlKSearch()
@@ -1166,6 +1177,7 @@ class SendTokenFragment : BaseFragment() {
         }
 
         fun onSearchResultsLoaded() {
+            if (queryPending) return
             awaitingResults = false
             render()
         }
