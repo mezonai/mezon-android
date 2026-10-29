@@ -10,17 +10,9 @@ import android.view.Gravity
 
 import android.view.View
 
-import android.view.ViewGroup
-
-import android.widget.AdapterView
-
-import android.widget.ArrayAdapter
-
 import android.widget.FrameLayout
 
 import android.widget.LinearLayout
-
-import android.widget.Spinner
 
 import android.widget.TextView
 
@@ -54,25 +46,7 @@ data class CountryCode(val name: String, val prefix: String, val flag: String)
 
 private val COUNTRY_CODES = listOf(
 
-    CountryCode("Vietnam", "+84", "🇻🇳"),
-
-    CountryCode("United States", "+1", "🇺🇸"),
-
-    CountryCode("United Kingdom", "+44", "🇬🇧"),
-
-    CountryCode("Singapore", "+65", "🇸🇬"),
-
-    CountryCode("Japan", "+81", "🇯🇵"),
-
-    CountryCode("South Korea", "+82", "🇰🇷"),
-
-    CountryCode("Australia", "+61", "🇦🇺"),
-
-    CountryCode("Germany", "+49", "🇩🇪"),
-
-    CountryCode("France", "+33", "🇫🇷"),
-
-    CountryCode("India", "+91", "🇮🇳")
+    CountryCode("Vietnam", "+84", "🇻🇳")
 
 )
 
@@ -110,7 +84,7 @@ class UpdatePhoneFragment : BaseFragment() {
 
 
 
-    private lateinit var countrySpinner: Spinner
+    private lateinit var countryLabel: TextView
 
     private lateinit var phoneCell: InputCell
 
@@ -122,15 +96,11 @@ class UpdatePhoneFragment : BaseFragment() {
 
     private lateinit var contentLayout: LinearLayout
 
-    private lateinit var countrySpinnerAdapter: CountrySpinnerAdapter
-
-    private val spinnerFieldBg = GradientDrawable()
-
-    private val spinnerPopupBg = GradientDrawable()
+    private val countryFieldBg = GradientDrawable()
 
 
 
-    private var selectedCountry = COUNTRY_CODES[0]
+    private val selectedCountry = COUNTRY_CODES[0]
 
     private val otpCooldownCache = mutableMapOf<String, Long>()
 
@@ -139,84 +109,6 @@ class UpdatePhoneFragment : BaseFragment() {
     override fun onInject(entryPoint: FragmentEntryPoint) {
 
         accountController = entryPoint.accountController()
-
-    }
-
-
-
-    private inner class CountrySpinnerAdapter(
-
-        context: Context,
-
-        items: List<String>
-
-    ) : ArrayAdapter<String>(context, android.R.layout.simple_spinner_item, items) {
-
-
-
-        init {
-
-            setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-
-        }
-
-
-
-        override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
-
-            val tv = (convertView as? TextView) ?: TextView(context).apply {
-
-                textSize = 15f
-
-                maxLines = 1
-
-                ellipsize = android.text.TextUtils.TruncateAt.END
-
-            }
-
-            tv.text = getItem(position)
-
-            tv.setTextColor(themeColors.onSurface)
-
-            tv.background = null
-
-            val hPad = LayoutHelper.dp(10)
-
-            val vPad = LayoutHelper.dp(14)
-
-            tv.setPadding(hPad, vPad, hPad, vPad)
-
-            return tv
-
-        }
-
-
-
-        override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View {
-
-            val tv = (convertView as? TextView) ?: TextView(context).apply {
-
-                textSize = 15f
-
-                maxLines = 1
-
-                ellipsize = android.text.TextUtils.TruncateAt.END
-
-            }
-
-            tv.text = getItem(position)
-
-            tv.setTextColor(themeColors.onSurface)
-
-            tv.setBackgroundColor(themeColors.surface)
-
-            val pad = LayoutHelper.dp(12)
-
-            tv.setPadding(pad, pad, pad, pad)
-
-            return tv
-
-        }
 
     }
 
@@ -248,29 +140,27 @@ class UpdatePhoneFragment : BaseFragment() {
 
 
 
-        val spinnerLabels = COUNTRY_CODES.map { "${it.flag} ${it.prefix}" }
+        countryLabel = TextView(context).apply {
 
-        countrySpinnerAdapter = CountrySpinnerAdapter(context, spinnerLabels)
+            text = "${selectedCountry.flag} ${selectedCountry.prefix}"
 
-        refreshSpinnerChrome()
+            textSize = 15f
 
+            maxLines = 1
 
+            gravity = Gravity.CENTER
 
-        countrySpinner = Spinner(context).apply {
+            val hPad = LayoutHelper.dp(12)
 
-            adapter = countrySpinnerAdapter
-
-            background = spinnerFieldBg
-
-            setPopupBackgroundDrawable(spinnerPopupBg)
-
-            minimumHeight = LayoutHelper.dp(PHONE_INLINE_FIELD_HEIGHT_DP)
+            setPadding(hPad, 0, hPad, 0)
 
         }
 
+        refreshCountryFieldChrome()
+
         phoneRow.addView(
-            countrySpinner,
-            LinearLayout.LayoutParams(LayoutHelper.dp(110), LayoutHelper.dp(PHONE_INLINE_FIELD_HEIGHT_DP))
+            countryLabel,
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LayoutHelper.dp(PHONE_INLINE_FIELD_HEIGHT_DP))
 
         )
 
@@ -340,38 +230,6 @@ class UpdatePhoneFragment : BaseFragment() {
 
 
 
-        if (currentPhone.isNotEmpty()) {
-
-            val country = COUNTRY_CODES.find { currentPhone.startsWith(it.prefix) }
-
-            if (country != null) {
-
-                countrySpinner.setSelection(COUNTRY_CODES.indexOf(country))
-
-                selectedCountry = country
-
-            }
-
-        }
-
-
-
-        countrySpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-
-            override fun onItemSelected(parent: AdapterView<*>?, v: View?, position: Int, id: Long) {
-
-                selectedCountry = COUNTRY_CODES[position]
-
-                updateButtonState()
-
-            }
-
-            override fun onNothingSelected(parent: AdapterView<*>?) {}
-
-        }
-
-
-
         phoneCell.onTextChanged = { updateButtonState() }
 
         nextButton.setOnClickListener { handleNext() }
@@ -404,9 +262,9 @@ class UpdatePhoneFragment : BaseFragment() {
 
 
 
-    private fun refreshSpinnerChrome() {
+    private fun refreshCountryFieldChrome() {
 
-        spinnerFieldBg.apply {
+        countryFieldBg.apply {
 
             setColor(themeColors.surfaceVariant)
 
@@ -416,27 +274,11 @@ class UpdatePhoneFragment : BaseFragment() {
 
         }
 
-        spinnerPopupBg.apply {
+        if (::countryLabel.isInitialized) {
 
-            setColor(themeColors.surface)
+            countryLabel.background = countryFieldBg
 
-            cornerRadius = LayoutHelper.dpf(12f)
-
-            setStroke(LayoutHelper.dp(1), themeColors.outlineVariant)
-
-        }
-
-        if (::countrySpinner.isInitialized) {
-
-            countrySpinner.background = spinnerFieldBg
-
-            countrySpinner.setPopupBackgroundDrawable(spinnerPopupBg)
-
-        }
-
-        if (::countrySpinnerAdapter.isInitialized) {
-
-            countrySpinnerAdapter.notifyDataSetChanged()
+            countryLabel.setTextColor(themeColors.onSurface)
 
         }
 
@@ -454,7 +296,7 @@ class UpdatePhoneFragment : BaseFragment() {
 
         if (::phoneCell.isInitialized) phoneCell.refreshThemeColors()
 
-        refreshSpinnerChrome()
+        refreshCountryFieldChrome()
 
         if (::nextButton.isInitialized) nextButton.invalidate()
 

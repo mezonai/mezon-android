@@ -202,6 +202,8 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
@@ -707,6 +709,7 @@ class MezonApi @Inject constructor(
                 retryOverHttp = true
             )
         }
+        if (method == "SearchCtrlK") currentCoroutineContext().ensureActive()
         val sessionTokenFp = if (token.isEmpty()) "?" else token.takeLast(6)
         val socketTokenFp = socket.socketTokenFingerprint
         if (socketTokenFp != null && socketTokenFp != sessionTokenFp) {
@@ -722,6 +725,7 @@ class MezonApi @Inject constructor(
             markSocketHealthy()
             return resp
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Log.w(
                 "MezonApi",
                 "SOCKET fail method=$method elapsedMs=${System.currentTimeMillis() - started} err=${e.message}"

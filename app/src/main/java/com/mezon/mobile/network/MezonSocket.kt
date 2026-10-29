@@ -37,6 +37,7 @@ import com.mezon.mezon.rtapi.statusUpdate
 import com.mezon.mezon.rtapi.voiceReactionSend
 import com.mezon.mezon.rtapi.webrtcSignalingFwd
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
@@ -499,6 +500,9 @@ class MezonSocket @Inject constructor(
             sentryReporter.logSocketFailure("api_request_timeout", err, "api=$apiName")
             failover.onApiTimeout()
             throw err
+        } catch (e: CancellationException) {
+            pendingApiRequests.remove(cid)
+            throw e
         }
     }
 

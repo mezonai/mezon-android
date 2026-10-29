@@ -53,6 +53,7 @@ import javax.inject.Singleton
 class NotificationHelper @Inject constructor(
     @ApplicationContext private val context: Context,
     private val channelController: ChannelController,
+    private val notificationMuteStore: NotificationMuteStore,
     private val dialogsController: dagger.Lazy<DialogsController>,
     private val clansController: dagger.Lazy<ClansController>,
     @ApplicationScope private val appScope: CoroutineScope
@@ -494,7 +495,6 @@ class NotificationHelper @Inject constructor(
         builder: NotificationCompat.Builder,
         notificationId: Int,
         title: String,
-        openChatIntent: Intent,
         channelId: Long,
         clanId: Long,
         channelName: String,
@@ -505,17 +505,29 @@ class NotificationHelper @Inject constructor(
     ) {
         if (channelId == 0L) return
 
-        val viewPendingIntent = PendingIntent.getActivity(
+        val muteIntent = Intent(context, NotificationReplyReceiver::class.java).apply {
+            action = NotificationReplyReceiver.ACTION_MUTE
+            putExtra(EXTRA_CHANNEL_ID, channelId)
+            putExtra(EXTRA_CLAN_ID, clanId)
+            putExtra(EXTRA_CHANNEL_TYPE, channelType)
+            putExtra(EXTRA_CHANNEL_NAME, channelName)
+            putExtra(EXTRA_NOTIFICATION_ID, notificationId)
+            putExtra(EXTRA_NOTIFICATION_TITLE, title)
+            putExtra(EXTRA_MESSAGE_ID, messageId)
+            putExtra(EXTRA_MESSAGE_SENDER_ID, messageSenderId)
+            putExtra(EXTRA_TOPIC_ID, topicId)
+        }
+        val mutePendingIntent = PendingIntent.getBroadcast(
             context,
             notificationId,
-            openChatIntent,
+            muteIntent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
         builder.addAction(
             NotificationCompat.Action.Builder(
                 R.drawable.ic_notification,
-                context.getString(R.string.notification_action_view),
-                viewPendingIntent
+                context.getString(R.string.notification_action_mute_15m),
+                mutePendingIntent
             ).build()
         )
 
@@ -658,7 +670,6 @@ class NotificationHelper @Inject constructor(
             builder = builder,
             notificationId = notificationId,
             title = title,
-            openChatIntent = intent,
             channelId = channelId,
             clanId = clanId,
             channelName = channelName,
@@ -707,7 +718,6 @@ class NotificationHelper @Inject constructor(
             builder = builder,
             notificationId = notificationId,
             title = title,
-            openChatIntent = intent,
             channelId = channelId,
             clanId = clanId,
             channelName = channelName,
@@ -825,7 +835,6 @@ class NotificationHelper @Inject constructor(
                     builder = builder,
                     notificationId = notificationId,
                     title = title,
-                    openChatIntent = contentIntent,
                     channelId = channelId,
                     clanId = clanId ?: 0L,
                     channelName = computedChannelName,
@@ -835,6 +844,7 @@ class NotificationHelper @Inject constructor(
                     topicId = topicId
                 )
             }
+            if (channelId != null && notificationMuteStore.isMuted(channelId)) return@launch
             notificationManager.notify(notificationId, builder.build())
             refreshGroupSummary(addedId = notificationId)
         }
@@ -930,7 +940,6 @@ class NotificationHelper @Inject constructor(
                     builder = builder,
                     notificationId = dmChannelId.toInt(),
                     title = title,
-                    openChatIntent = intent,
                     channelId = dmChannelId,
                     clanId = 0L,
                     channelName = dmName,
@@ -940,6 +949,7 @@ class NotificationHelper @Inject constructor(
                     topicId = topicId
                 )
             }
+            if (notificationMuteStore.isMuted(dmChannelId)) return@launch
             notificationManager.notify(dmChannelId.toInt(), builder.build())
             refreshGroupSummary(addedId = dmChannelId.toInt())
         }
@@ -1003,6 +1013,7 @@ class NotificationHelper @Inject constructor(
         appScope.launch {
             val dmDialog = if (dmId != 0L) dialogsController.get().getDialog(dmId) else null
             withContext(Dispatchers.Main) {
+                if (!friendRequest && notificationMuteStore.isMuted(if (dmId != 0L) dmId else channelId)) return@withContext
                 val activity = MainActivity.instance ?: return@withContext
                 val onTap: (() -> Unit)? = when {
                     friendRequest -> {

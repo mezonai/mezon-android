@@ -59,8 +59,8 @@ android {
                 arguments += "-DONNXRUNTIME_ROOT=${layout.buildDirectory.get().asFile}/onnxruntime-native"
             }
         }
-        versionCode = 1210
-        versionName = "1.2.15"
+        versionCode = 1234
+        versionName = "1.2.26"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

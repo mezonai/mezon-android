@@ -11,6 +11,8 @@ import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.chat.LIKE_EMOJI_DISPLAY
 import com.mezon.mobile.home.chat.LIKE_EMOJI_ID
 import com.mezon.mobile.home.chat.LIKE_EMOJI_SHORTNAME
+import com.mezon.mobile.home.clans.CHANNEL_MUTE_DURATION_15M
+import com.mezon.mobile.home.clans.SET_MUTE_ACTIVE_UNMUTE
 import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
@@ -34,6 +36,7 @@ class NotificationReplyReceiver : BroadcastReceiver() {
     companion object {
         const val ACTION_REPLY = "com.mezon.mobile.notification.REPLY"
         const val ACTION_LIKE = "com.mezon.mobile.notification.LIKE"
+        const val ACTION_MUTE = "com.mezon.mobile.notification.MUTE"
         const val KEY_REPLY_TEXT = "mezon_notification_reply_text"
     }
 
@@ -46,7 +49,8 @@ class NotificationReplyReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         val isLike = intent.action == ACTION_LIKE
-        if (intent.action != ACTION_REPLY && !isLike) return
+        val isMute = intent.action == ACTION_MUTE
+        if (intent.action != ACTION_REPLY && !isLike && !isMute) return
 
         val channelId = intent.getLongExtra(NotificationHelper.EXTRA_CHANNEL_ID, 0L)
         if (channelId == 0L) return
@@ -71,6 +75,57 @@ class NotificationReplyReceiver : BroadcastReceiver() {
             return
         }
         val notificationHelper = entryPoint.notificationHelper()
+
+        if (isMute) {
+            val pendingResult = goAsync()
+            CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+                var muted = false
+                try {
+                    if (StartupCache.hasSession) {
+                        muted = withTimeout(SEND_TIMEOUT_MS) {
+                            val target = resolveTarget(entryPoint, channelId, clanId, channelType, httpOnly = true)
+                            val isDirect = isDirectConversation(target.channelType)
+                            if (!isDirect) require(target.clanId != 0L) { "Missing clan ID for channel mute" }
+                            val result = if (isDirect) {
+                                entryPoint.dialogsController().setDialogMuted(
+                                    target.channelId, CHANNEL_MUTE_DURATION_15M, SET_MUTE_ACTIVE_UNMUTE
+                                )
+                            } else {
+                                entryPoint.channelController().setChannelMuted(
+                                    target.clanId, target.channelId, CHANNEL_MUTE_DURATION_15M, SET_MUTE_ACTIVE_UNMUTE
+                                )
+                            }
+                            result.getOrThrow()
+                            true
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Mute failed channelId=$channelId clanId=$clanId", e)
+                } finally {
+                    try {
+                        if (muted) {
+                            notificationHelper.cancelNotification(notificationId)
+                        } else {
+                            notificationHelper.showReplyFailedNotification(
+                                notificationId = notificationId,
+                                title = notificationTitle,
+                                channelId = channelId,
+                                clanId = clanId,
+                                channelName = channelName,
+                                channelType = channelType,
+                                failureTextRes = R.string.notification_mute_failed,
+                                messageId = messageId,
+                                messageSenderId = messageSenderId,
+                                topicId = topicId
+                            )
+                        }
+                    } finally {
+                        pendingResult.finish()
+                    }
+                }
+            }
+            return
+        }
 
         val contentJson: String?
         val sentText: String

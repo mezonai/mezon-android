@@ -925,7 +925,8 @@
     <string name="notification_channel_dm_desc">Thông báo tin nhắn trực tiếp</string>
     <string name="notification_channel_system">Hệ thống</string>
     <string name="notification_channel_system_desc">Thông báo hệ thống</string>
-    <string name="notification_action_view">Xem</string>
+    <string name="notification_action_mute_15m">Tắt 15 phút</string>
+    <string name="notification_mute_failed">Không thể tắt thông báo. Vui lòng thử lại.</string>
     <string name="notification_action_reply">Trả lời</string>
     <string name="notification_action_like">Thích</string>
     <string name="notification_like_reacted">đã thả 👍</string>

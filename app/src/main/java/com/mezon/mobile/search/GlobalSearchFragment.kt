@@ -66,6 +66,7 @@ class GlobalSearchFragment : BaseFragment() {
         const val TAB_CHANNELS = 1
         const val TAB_MESSAGES = 2
         private const val DEBOUNCE_MS = 300L
+        private const val CTRL_K_DEBOUNCE_MS = 500L
         private const val LOAD_MORE_THRESHOLD = 10
         private val HEADER_PAD_H = LayoutHelper.dp(16f)
         private val HEADER_PAD_V = LayoutHelper.dp(10f)
@@ -122,6 +123,7 @@ class GlobalSearchFragment : BaseFragment() {
     private var searchText = ""
     private val handler = Handler(Looper.getMainLooper())
     private var searchRunnable: Runnable? = null
+    private var ctrlKSearchRunnable: Runnable? = null
     private var membersDisplayLimit = LOCAL_PAGE_SIZE
     private var channelsDisplayLimit = LOCAL_PAGE_SIZE
     private var isLoadingMore = false
@@ -330,12 +332,12 @@ class GlobalSearchFragment : BaseFragment() {
                     schedulePickerFilter()
                 } else {
                     searchText = text
+                    scheduleCtrlKSearch()
                     if (text.isBlank() && filterUser == null) {
                         searchController.clearSearchMessages()
                     }
                     if (text.isBlank() && filterChannelId == 0L && !isDirectMessageSearch) {
                         searchRunnable?.let { handler.removeCallbacks(it) }
-                        searchController.cancelCtrlKSearch()
                         membersDisplayLimit = LOCAL_PAGE_SIZE
                         channelsDisplayLimit = LOCAL_PAGE_SIZE
                         updateCurrentTab()
@@ -516,7 +518,7 @@ class GlobalSearchFragment : BaseFragment() {
         loadingView.visibility = View.GONE
         recyclerView.visibility = View.VISIBLE
         if (searchText.isNotBlank() && searchScopeChannelId == 0L) {
-            searchController.fetchCtrlKResults(searchText.trim())
+            scheduleCtrlKSearch()
         }
         updateCurrentTab()
         updateTabCounts()
@@ -536,17 +538,21 @@ class GlobalSearchFragment : BaseFragment() {
         searchRunnable = Runnable {
             membersDisplayLimit = LOCAL_PAGE_SIZE
             channelsDisplayLimit = LOCAL_PAGE_SIZE
-            if (filterChannelId == 0L && !isDirectMessageSearch) {
-                if (searchText.isBlank()) {
-                    searchController.cancelCtrlKSearch()
-                } else {
-                    searchController.fetchCtrlKResults(searchText.trim())
-                }
-            }
             updateCurrentTab()
             updateTabCounts()
         }
         handler.postDelayed(searchRunnable!!, DEBOUNCE_MS)
+    }
+
+    private fun scheduleCtrlKSearch() {
+        ctrlKSearchRunnable?.let { handler.removeCallbacks(it) }
+        ctrlKSearchRunnable = null
+        if (filterChannelId != 0L || isDirectMessageSearch) return
+        searchController.cancelCtrlKSearch()
+        val query = searchText.trim()
+        if (query.isEmpty()) return
+        ctrlKSearchRunnable = Runnable { searchController.fetchCtrlKResults(query) }
+        handler.postDelayed(ctrlKSearchRunnable!!, CTRL_K_DEBOUNCE_MS)
     }
 
     private fun schedulePickerFilter() {
@@ -1032,6 +1038,9 @@ class GlobalSearchFragment : BaseFragment() {
     }
 
     private fun enterChannelPicker() {
+        ctrlKSearchRunnable?.let { handler.removeCallbacks(it) }
+        ctrlKSearchRunnable = null
+        searchController.cancelCtrlKSearch()
         isChannelPickerMode = true
         pickerQuery = ""
         pickerDisplayLimit = LOCAL_PAGE_SIZE
@@ -1206,6 +1215,7 @@ class GlobalSearchFragment : BaseFragment() {
     override fun onFragmentDestroy() {
         searchController.saveScreenState(searchScopeChannelId, currentTab, searchText)
         searchRunnable?.let { handler.removeCallbacks(it) }
+        ctrlKSearchRunnable?.let { handler.removeCallbacks(it) }
         pickerFilterRunnable?.let { handler.removeCallbacks(it) }
         AndroidUtilities.hideKeyboard(searchCell.editText)
         searchCell.editText.clearFocus()

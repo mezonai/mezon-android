@@ -1029,7 +1029,8 @@
     <string name="notification_channel_dm_desc">Notifications for direct messages</string>
     <string name="notification_channel_system">System</string>
     <string name="notification_channel_system_desc">System notifications</string>
-    <string name="notification_action_view">View</string>
+    <string name="notification_action_mute_15m">Mute 15 min</string>
+    <string name="notification_mute_failed">Could not mute notifications. Try again.</string>
     <string name="notification_action_reply">Reply</string>
     <string name="notification_action_like">Like</string>
     <string name="notification_like_reacted">reacted 👍</string>

@@ -99,6 +99,7 @@ class DialogsController @Inject constructor(
     private val networkMonitor: NetworkMonitor,
     private val cacheTracker: ApiCacheTracker,
     private val activeChannelTracker: ActiveChannelTracker,
+    private val notificationMuteStore: com.mezon.mobile.notification.NotificationMuteStore,
     private val notificationHelper: NotificationHelper,
     private val badgeCoordinator: Lazy<BadgeCoordinator>,
     private val dmPinStorage: DmPinStorage,
@@ -1008,6 +1009,7 @@ class DialogsController @Inject constructor(
                         muteTimeSeconds,
                         active,
                     )
+                    notificationMuteStore.setDuration(session.userId, channelId, muteTimeSeconds)
                 }
             }.onFailure {
                 synchronized(this@DialogsController) {
@@ -1685,6 +1687,7 @@ class DialogsController @Inject constructor(
             if (event.clanId != 0L) return@collect
             if (event.channelId == 0L) return@collect
             val channelId = event.channelId
+            notificationMuteStore.clear(channelId)
             patchDmNotificationSettingOptimistic(channelId, muteTimeSeconds = 0, active = SET_MUTE_ACTIVE_UNMUTE)
             patchMutedDmChannelId(channelId, isMuted = false)
             updateDialogMuteState(channelId, isMuted = false)
@@ -1703,6 +1706,7 @@ class DialogsController @Inject constructor(
         val normalized = noti.toBuilder()
             .setTimeMuteSeconds(normalizeDmMuteExpirySeconds(noti.timeMuteSeconds))
             .build()
+        notificationMuteStore.updateFromServer(channelId, normalized.timeMuteSeconds)
         synchronized(this) {
             dmNotificationSettings.put(channelId, normalized)
         }
