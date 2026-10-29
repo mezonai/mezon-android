@@ -2398,8 +2398,8 @@ open class ChatFragment : BaseFragment() {
                     openChannelPhotoViewer(context, url, thumbBmp, seed, msg)
                 }
             }
-            override fun didClickFile(cell: ChatMessageCell, msg: MessageEntity) {
-                val url = msg.attachmentUrl
+            override fun didClickFile(cell: ChatMessageCell, msg: MessageEntity, attachmentIndex: Int) {
+                val url = cell.getFileAttachmentUrl(attachmentIndex).orEmpty()
                 if (url.isEmpty()) return
                 CdnSigner.requestUrlOnMain(url) { signed ->
                     if (isFinished) return@requestUrlOnMain
