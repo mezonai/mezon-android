@@ -8,6 +8,7 @@ import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.text.TextUtils
+import android.text.TextPaint
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -27,6 +28,8 @@ class PopupMenu(
     private val theme: ThemeColors,
     private val fullWidthDividers: Boolean = false,
     private val focusable: Boolean = false,
+    private val itemTextSizeSp: Float? = null,
+    private val wrapContentWidth: Boolean = false,
 ) {
 
     private val items = ArrayList<MenuItem>()
@@ -64,7 +67,7 @@ class PopupMenu(
         }
 
         items.forEachIndexed { index, item ->
-            val cell = PopupItemCell(context, theme)
+            val cell = PopupItemCell(context, theme, itemTextSizeSp)
             cell.bind(item, index < items.size - 1, fullWidthDividers)
             cell.setOnClickListener {
                 onItemClick?.invoke(index)
@@ -95,7 +98,19 @@ class PopupMenu(
             ))
         }
 
-        val menuWidth = LayoutHelper.dp(200)
+        val menuWidth = if (wrapContentWidth) {
+            val textPaint = TextPaint(theme.settingsNamePaint).apply {
+                itemTextSizeSp?.let { textSize = LayoutHelper.sp(it) }
+            }
+            val contentWidth = items.maxOfOrNull { item ->
+                val leadingWidth = LayoutHelper.dp(if (item.icon != null) 44 else 16)
+                leadingWidth + kotlin.math.ceil(textPaint.measureText(item.text)).toInt() + LayoutHelper.dp(16)
+            } ?: LayoutHelper.dp(200)
+            val maxWidth = (context.resources.displayMetrics.widthPixels - LayoutHelper.dp(32)).coerceAtLeast(1)
+            contentWidth.coerceAtMost(maxWidth)
+        } else {
+            LayoutHelper.dp(200)
+        }
         popupWindow = PopupWindow(root, menuWidth, ViewGroup.LayoutParams.WRAP_CONTENT, focusable).apply {
             isOutsideTouchable = true
             setBackgroundDrawable(ColorDrawable(0))
@@ -121,7 +136,11 @@ class PopupMenu(
         popupWindow = null
     }
 
-    private class PopupItemCell(context: Context, private val theme: ThemeColors) : BaseCell(context) {
+    private class PopupItemCell(
+        context: Context,
+        private val theme: ThemeColors,
+        private val itemTextSizeSp: Float?,
+    ) : BaseCell(context) {
 
         private var menuItem: MenuItem? = null
         private var needDivider = false
@@ -129,6 +148,7 @@ class PopupMenu(
         private val cellHeight = LayoutHelper.dp(44)
         private val iconSize = LayoutHelper.dp(16)
         private val iconTextGap = LayoutHelper.dp(12)
+        private val textPaint = TextPaint()
 
         init {
             minimumHeight = cellHeight
@@ -157,7 +177,8 @@ class PopupMenu(
         override fun onDraw(canvas: Canvas) {
             val item = menuItem ?: return
             val leftPad = LayoutHelper.dp(16)
-            val textPaint = theme.settingsNamePaint
+            textPaint.set(theme.settingsNamePaint)
+            itemTextSizeSp?.let { textPaint.textSize = LayoutHelper.sp(it) }
 
             if (item.destructive) {
                 textPaint.color = theme.error
