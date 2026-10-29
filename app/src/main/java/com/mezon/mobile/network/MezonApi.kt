@@ -565,6 +565,10 @@ class MezonApi @Inject constructor(
                 channelLabel = channelLabel,
                 logoUrl = logo,
                 memberCount = memberCount,
+                clanId = obj.optString("clan_id", "")
+                    .ifEmpty { obj.optString("clanId", "") },
+                banner = obj.optString("banner", ""),
+                isCommunity = obj.optBoolean("is_community", obj.optBoolean("isCommunity", false)),
             )
             synchronized(linkInvitePreviewCache) {
                 linkInvitePreviewCache.put(inviteId, preview)

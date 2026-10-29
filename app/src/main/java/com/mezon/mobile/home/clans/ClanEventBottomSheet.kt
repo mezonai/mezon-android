@@ -652,7 +652,13 @@ class ClanEventBottomSheet(
             return
         }
         val eventUrl = event.shareUrl(BuildConfig.MEZON_REDIRECT_URI)
-        val popup = PopupMenu(context, theme, fullWidthDividers = true, focusable = true)
+        val popup = PopupMenu(
+            context, theme,
+            fullWidthDividers = true,
+            focusable = true,
+            itemTextSizeSp = 15f,
+            wrapContentWidth = true,
+        )
         popup.addItem(context.getString(R.string.clan_event_menu_copy_content), R.drawable.ic_copy_text)
         if (eventUrl != null) {
             popup.addItem(context.getString(R.string.clan_event_menu_copy_link), MezonIcon.linkIcon)
@@ -830,10 +836,12 @@ class ClanEventBottomSheet(
         rightMeta.addView(
             ImageView(context).apply {
                 setImageDrawable(MezonIcon.groupIcon.getDrawable(context, theme.colorText))
-                scaleType = ImageView.ScaleType.CENTER_INSIDE
-                setPadding(LayoutHelper.dp(6), 0, LayoutHelper.dp(2), 0)
+                scaleType = ImageView.ScaleType.FIT_CENTER
             },
-            LinearLayout.LayoutParams(LayoutHelper.dp(14), LayoutHelper.dp(14)),
+            LinearLayout.LayoutParams(LayoutHelper.dp(12), LayoutHelper.dp(12)).apply {
+                marginStart = LayoutHelper.dp(6)
+                marginEnd = LayoutHelper.dp(2)
+            },
         )
         rightMeta.addView(
             TextView(context).apply {
