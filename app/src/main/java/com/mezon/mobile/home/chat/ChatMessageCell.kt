@@ -91,10 +91,12 @@ import android.graphics.Bitmap
 import android.graphics.Typeface
 import android.text.TextPaint
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import android.graphics.Color
 import android.graphics.PorterDuff
@@ -1137,10 +1139,12 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             } else if (isVideo) {
                 val thumb = att.thumb.ifEmpty { null }
                 if (thumb != null) {
-                    receiver.setImage(createImgproxyUrl(thumb, pw, ph, "fill"), null, context)
+                    val resizeType = if (mediaGridCount > 1) "fill" else "fit"
+                    receiver.setImage(createImgproxyUrl(thumb, pw, ph, resizeType), null, context)
                 } else {
                     receiver.recycle()
                 }
+                if (mediaGridCount == 1) loadRemoteVideoThumbnail(att.url, i)
             } else {
                 val resizeType = if (mediaGridCount > 1) "fill" else "fit"
                 val mainUrl = createImgproxyUrl(att.url, pw, ph, resizeType)
@@ -1171,6 +1175,51 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     }
 
     private fun videoThumbCacheKey(videoUrl: String): String = "vthumb:$videoUrl"
+
+    private fun loadRemoteVideoThumbnail(videoUrl: String, slotIndex: Int) {
+        if (!videoUrl.startsWith("https://") && !videoUrl.startsWith("http://")) return
+        val pw = photoWidth.coerceAtLeast(1)
+        val ph = photoHeight.coerceAtLeast(1)
+        val loader = MezonImageLoader.getInstance(context)
+        val key = videoThumbCacheKey(videoUrl)
+        videoThumbJobs[slotIndex]?.cancel()
+
+        fun showFrame(frame: Bitmap) {
+            if (mediaSlotUrls.getOrNull(slotIndex) != videoUrl ||
+                slotIsVideo.getOrNull(slotIndex) != true
+            ) return
+            val receiver = mediaReceiver(slotIndex)
+            receiver.recycle()
+            receiver.setBitmapDirectly(frame)
+            invalidate()
+        }
+
+        loader.getBitmapFromMemory(key, pw, ph)?.let {
+            showFrame(it)
+            return
+        }
+        videoThumbJobs[slotIndex] = VIDEO_THUMB_SCOPE.launch {
+            VIDEO_THUMB_SEMAPHORE.withPermit {
+                val retriever = android.media.MediaMetadataRetriever()
+                try {
+                    retriever.setDataSource(CdnSigner.requestUrlBlocking(videoUrl).url, HashMap())
+                    val frame = retriever.getFrameAtTime(
+                        100_000L,
+                        android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC
+                    ) ?: return@withPermit
+                    val thumb = scaleVideoThumbFrame(frame, pw, ph)
+                    loader.cacheBitmap(key, pw, ph, thumb)
+                    withContext(Dispatchers.Main) { showFrame(thumb) }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    // Keep the supplied thumbnail if a frame cannot be extracted.
+                } finally {
+                    runCatching { retriever.release() }
+                }
+            }
+        }
+    }
 
     private fun loadLocalVideoThumbnail(localUrl: String, slotIndex: Int) {
         val pw = photoWidth.coerceAtLeast(1)
@@ -5255,6 +5304,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
         private const val VIDEO_THUMB_TIMEOUT_MS = 8_000L
         private val VIDEO_THUMB_SCOPE = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        private val VIDEO_THUMB_SEMAPHORE = kotlinx.coroutines.sync.Semaphore(2)
         private val AUDIO_DURATION_UI_SCOPE = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         private val EMBED_INPUT_HEIGHT = LayoutHelper.dp(40)
         private val EMBED_TEXTAREA_HEIGHT = LayoutHelper.dp(80)

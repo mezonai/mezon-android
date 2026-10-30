@@ -13,6 +13,7 @@ import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Environment
+import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -60,7 +61,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private const val VIDEO_SEEK_INCREMENT_MS = 15_000L
-private const val VIDEO_CONTROLLER_TIMEOUT_MS = 3_000
+private const val VIDEO_CONTROLLER_TIMEOUT_MS = 6_000
+private const val VIDEO_SEEK_TOUCH_HEIGHT_DP = 72
+private const val VIDEO_PLAYER_LOG_TAG = "VideoPlayerDebug"
 private const val VIDEO_SAVE_PROGRESS_POLL_INTERVAL_MS = 300L
 private const val NO_PENDING_DOWNLOAD_ID = -1L
 private val VIDEO_ANONYMOUS_USER_ID = BuildConfig.MEZON_ANONYMOUS_USER_ID.toLongOrNull() ?: -1L
@@ -118,6 +121,7 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
     private val saveProgressBar: ProgressBar
 
     private var player: ExoPlayer? = null
+    private var durationProbeJob: Job? = null
     private lateinit var currentItem: VideoItem
     private var senderInfoJob: Job? = null
     private var resolvedSender: MediaViewerSender? = null
@@ -220,12 +224,17 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
             setBackgroundColor(Color.BLACK)
             useController = true
             controllerAutoShow = true
-            controllerHideOnTouch = true
+            controllerHideOnTouch = false
             controllerShowTimeoutMs = VIDEO_CONTROLLER_TIMEOUT_MS
             setShowPreviousButton(false)
             setShowNextButton(false)
             setShowRewindButton(true)
             setShowFastForwardButton(true)
+            findViewById<View>(androidx.media3.ui.R.id.exo_progress)?.let { progress ->
+                progress.layoutParams = progress.layoutParams.apply {
+                    height = LayoutHelper.dp(VIDEO_SEEK_TOUCH_HEIGHT_DP)
+                }
+            }
         }
         root.addView(
             playerView,
@@ -449,8 +458,9 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
 
     private fun initializePlayer(startPositionMs: Long, playWhenReady: Boolean) {
         releasePlayer()
+        val dataSourceFactory = CdnSigningDataSource.Factory(DefaultDataSource.Factory(context))
         player = ExoPlayer.Builder(context)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(CdnSigningDataSource.Factory(DefaultDataSource.Factory(context))))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
             .setSeekBackIncrementMs(VIDEO_SEEK_INCREMENT_MS)
             .setSeekForwardIncrementMs(VIDEO_SEEK_INCREMENT_MS)
             .build()
@@ -458,16 +468,55 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
                 playerView.player = exoPlayer
                 exoPlayer.addListener(object : Player.Listener {
                     private var previousPlaybackState = exoPlayer.playbackState
-
-                    override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
-                        if (playWhenReady) playerView.hideController()
-                    }
+                    private var durationProbeStarted = false
 
                     override fun onPlaybackStateChanged(playbackState: Int) {
+                        logPlayerState(exoPlayer, "state=$playbackState")
                         if (previousPlaybackState == Player.STATE_ENDED && exoPlayer.playWhenReady) {
                             playerView.hideController()
                         }
                         previousPlaybackState = playbackState
+                    }
+
+                    override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
+                        logPlayerState(exoPlayer, "timeline=$reason")
+                        if (!durationProbeStarted && exoPlayer.isCurrentMediaItemSeekable && exoPlayer.duration <= 0L) {
+                            durationProbeStarted = true
+                            val url = currentItem.url
+                            durationProbeJob = entryPoint.applicationScope().launch(entryPoint.mainDispatcher()) {
+                                val durationUs = try {
+                                    withContext(entryPoint.ioDispatcher()) {
+                                        probeFragmentedVideoDurationUs(Uri.parse(url), dataSourceFactory)
+                                    }
+                                } catch (e: kotlinx.coroutines.CancellationException) {
+                                    throw e
+                                } catch (e: Exception) {
+                                    if (BuildConfig.DEBUG) Log.d(VIDEO_PLAYER_LOG_TAG, "duration probe failed: ${e.javaClass.simpleName}")
+                                    null
+                                }
+                                if (durationUs != null && player === exoPlayer && isShowing &&
+                                    currentItem.url == url && exoPlayer.duration <= 0L
+                                ) {
+                                    val position = exoPlayer.currentPosition
+                                    val wasPlaying = exoPlayer.playWhenReady
+                                    val sourceFactory = DefaultMediaSourceFactory(
+                                        dataSourceFactory, durationAwareExtractorsFactory(durationUs)
+                                    )
+                                    exoPlayer.setMediaSource(sourceFactory.createMediaSource(MediaItem.fromUri(url)), position)
+                                    exoPlayer.prepare()
+                                    exoPlayer.playWhenReady = wasPlaying
+                                }
+                                durationProbeJob = null
+                            }
+                        }
+                    }
+
+                    override fun onPositionDiscontinuity(
+                        oldPosition: Player.PositionInfo,
+                        newPosition: Player.PositionInfo,
+                        reason: Int
+                    ) {
+                        logPlayerState(exoPlayer, "discontinuity=$reason")
                     }
                 })
                 exoPlayer.setMediaItem(MediaItem.fromUri(currentItem.url))
@@ -476,6 +525,15 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
                 exoPlayer.prepare()
                 exoPlayer.playWhenReady = playWhenReady
             }
+    }
+
+    private fun logPlayerState(exoPlayer: ExoPlayer, event: String) {
+        if (!BuildConfig.DEBUG) return
+        Log.d(
+            VIDEO_PLAYER_LOG_TAG,
+            "$event durationMs=${exoPlayer.duration} positionMs=${exoPlayer.currentPosition} " +
+                "seekable=${exoPlayer.isCurrentMediaItemSeekable} bufferedMs=${exoPlayer.bufferedPosition}"
+        )
     }
 
     private fun registerLifecycleObserver() {
@@ -491,6 +549,8 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
     }
 
     private fun releasePlayer() {
+        durationProbeJob?.cancel()
+        durationProbeJob = null
         player?.release()
         player = null
         playerView.player = null

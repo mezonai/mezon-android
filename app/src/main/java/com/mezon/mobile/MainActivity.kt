@@ -28,6 +28,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.mezon.mobile.auth.LoginFragment
+import com.mezon.mobile.auth.WelcomeFragment
 import com.mezon.mobile.auth.OTPVerificationFragment
 import com.mezon.mobile.auth.UpdateUsernameFragment
 import com.mezon.mobile.core.ActionBarLayout
@@ -262,7 +263,7 @@ class MainActivity : BasePermissionsActivity(),
                     if (savedInstanceState != null) restoreChatForPendingCameraCapture()
                 }
             } else {
-                showLogin()
+                showWelcome()
             }
         } else {
             actionBarLayout.showLastFragment()
@@ -849,6 +850,23 @@ class MainActivity : BasePermissionsActivity(),
         notificationCenter.addObserver(observer, NotificationCenter.clansDidLoad)
         notificationCenter.addObserver(observer, NotificationCenter.dialogsNeedReload)
         AndroidUtilities.runOnUIThread(dismissSplashRunnable, 3000)
+    }
+
+    private fun showWelcome() {
+        StartupCache.needsUsernameSetup = false
+        mainFragmentsStack.clear()
+        val fragment = WelcomeFragment().apply {
+            onStartTapped = { openLogin() }
+        }
+        actionBarLayout.addFragmentToStack(fragment)
+        actionBarLayout.showLastFragment()
+    }
+
+    private fun openLogin() {
+        val fragment = LoginFragment().apply {
+            onLoginSuccess = { navigatePostAuth() }
+        }
+        actionBarLayout.presentFragment(fragment)
     }
 
     private fun showLogin() {
@@ -1547,10 +1565,15 @@ class MainActivity : BasePermissionsActivity(),
     }
 
     private fun rewireTopFragmentCallbacks() {
+        mainFragmentsStack.forEach { fragment ->
+            when (fragment) {
+                is WelcomeFragment -> fragment.onStartTapped = { openLogin() }
+                is LoginFragment -> fragment.onLoginSuccess = { navigatePostAuth() }
+                is OTPVerificationFragment -> fragment.onVerifySuccess = { navigatePostAuth() }
+                is UpdateUsernameFragment -> fragment.onComplete = { showHome() }
+            }
+        }
         when (val top = mainFragmentsStack.lastOrNull()) {
-            is LoginFragment -> top.onLoginSuccess = { navigatePostAuth() }
-            is OTPVerificationFragment -> top.onVerifySuccess = { navigatePostAuth() }
-            is UpdateUsernameFragment -> top.onComplete = { showHome() }
             is MainTabsActivity -> {
                 top.onLogout = { switchToLogin() }
                 top.onOpenChat = { channelId, channelName, clanId, channelType ->

@@ -220,6 +220,10 @@ class InputCell(context: Context, private val theme: ThemeColors) : LinearLayout
         requestLayout()
     }
 
+    fun setInputCornerRadiusDp(radiusDp: Float) {
+        bgDrawable.cornerRadius = LayoutHelper.dpf(radiusDp)
+    }
+
 
     fun setError(message: String?) {
         if (message != null) {

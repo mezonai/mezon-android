@@ -3,16 +3,14 @@ package com.mezon.mobile.auth
 import android.content.Context
 import android.content.res.ColorStateList
 import android.content.res.Resources
-import android.graphics.LinearGradient
-import android.graphics.Shader
+import android.graphics.Color
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
-import android.graphics.drawable.PaintDrawable
-import android.graphics.drawable.ShapeDrawable
-import android.graphics.drawable.shapes.RectShape
 import android.telephony.TelephonyManager
 import android.text.InputType
 import android.util.Log
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.widget.CheckBox
@@ -23,7 +21,6 @@ import android.widget.ScrollView
 import android.widget.TextView
 import com.mezon.mobile.R
 import com.mezon.mobile.core.AndroidUtilities
-import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.ui.cells.ActionButton
@@ -34,7 +31,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class LoginFragment : BaseFragment() {
+class LoginFragment : AuthFragment() {
 
     private lateinit var authRepository: AuthRepository
 
@@ -54,6 +51,8 @@ class LoginFragment : BaseFragment() {
     private lateinit var altText: TextView
     private lateinit var altLink1: TextView
     private lateinit var altLink2: TextView
+    private lateinit var cooldownText: TextView
+    private var cooldownUpdate: Runnable? = null
 
     private lateinit var passwordRow: LinearLayout
     private lateinit var showPasswordRow: LinearLayout
@@ -77,12 +76,9 @@ class LoginFragment : BaseFragment() {
     }
 
     override fun createView(context: Context): View {
-        val root = FrameLayout(context).apply {
-            background = GradientDrawable(
-                GradientDrawable.Orientation.TOP_BOTTOM,
-                intArrayOf(0xFFF0EDFD.toInt(), 0xFFBEB5F8.toInt(), 0xFF9774FA.toInt())
-            )
-        }
+        if (::cooldownText.isInitialized) cooldownUpdate?.let { cooldownText.removeCallbacks(it) }
+        cooldownUpdate = null
+        val root = AuthBackground(context)
 
         val scrollView = ScrollView(context).apply {
             isFillViewport = true
@@ -99,9 +95,10 @@ class LoginFragment : BaseFragment() {
         scrollView.addView(form, FrameLayout.LayoutParams(
             LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT
         ))
+        root.followContent(form)
 
         titleText = TextView(context).apply {
-            setTextColor(0xFF000000.toInt())
+            setTextColor(Color.WHITE)
             textSize = 24f
             typeface = android.graphics.Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
@@ -110,9 +107,8 @@ class LoginFragment : BaseFragment() {
 
         subtitleText = TextView(context).apply {
             text = getString(R.string.common_login_choose_another_option)
-            setTextColor(0xFF505050.toInt())
+            setTextColor(AuthStyle.secondaryText)
             textSize = 14f
-            alpha = 0.9f
             gravity = Gravity.CENTER
         }
         form.addView(subtitleText, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.CENTER, 0f, 0f, 0f, 40f))
@@ -120,6 +116,11 @@ class LoginFragment : BaseFragment() {
         phoneRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
+            background = GradientDrawable().apply {
+                setColor(Color.WHITE)
+                setStroke(LayoutHelper.dp(1), 0xFFD1D5DB.toInt())
+                cornerRadius = LayoutHelper.dpf(25f)
+            }
         }
         form.addView(phoneRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.START, 0f, 0f, 0f, 12f))
 
@@ -128,25 +129,19 @@ class LoginFragment : BaseFragment() {
             setTextColor(0xFF374151.toInt())
             textSize = 15f
             gravity = Gravity.CENTER
-            val pad = LayoutHelper.dp(12)
-            setPadding(pad, pad, pad, pad)
-            val bg = GradientDrawable().apply {
-                setColor(0xFFFFFFFF.toInt())
-                setStroke(LayoutHelper.dp(1), 0xFFD1D5DB.toInt())
-                cornerRadius = LayoutHelper.dpf(12f)
-            }
-            background = bg
+            val pad = LayoutHelper.dp(14)
+            setPadding(pad, 0, pad, 0)
         }
-        phoneRow.addView(countryButton, LinearLayout.LayoutParams(LayoutHelper.WRAP_CONTENT, LayoutHelper.dp(48)).apply {
-            marginEnd = LayoutHelper.dp(8)
-        })
+        phoneRow.addView(countryButton, LinearLayout.LayoutParams(LayoutHelper.WRAP_CONTENT, LayoutHelper.dp(50)))
+        phoneRow.addView(View(context).apply { setBackgroundColor(0xFFD1D5DB.toInt()) },
+            LinearLayout.LayoutParams(LayoutHelper.dp(1), LayoutHelper.dp(28)))
 
         phoneCell = InputCell(context, themeColors).apply {
-            setLightInputAppearance()
+            setLightInputAppearance(fill = Color.TRANSPARENT, stroke = Color.TRANSPARENT)
             setHint(getString(R.string.common_login_phone_number))
             editText.inputType = InputType.TYPE_CLASS_PHONE
             editText.imeOptions = EditorInfo.IME_ACTION_DONE
-            setInputContainerMinHeightDp(48)
+            setInputContainerMinHeightDp(50)
         }
         phoneRow.addView(phoneCell, LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1f))
 
@@ -155,7 +150,8 @@ class LoginFragment : BaseFragment() {
             setHint(getString(R.string.common_login_email_address))
             editText.inputType = InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
             editText.imeOptions = EditorInfo.IME_ACTION_NEXT
-            setInputContainerMinHeightDp(48)
+            setInputContainerMinHeightDp(50)
+            setInputCornerRadiusDp(25f)
             val drawable = androidx.core.content.ContextCompat.getDrawable(context, R.drawable.ic_email_outline)?.mutate()
             drawable?.setBounds(0, 0, LayoutHelper.dp(24), LayoutHelper.dp(24))
             editText.setCompoundDrawables(drawable, null, null, null)
@@ -174,7 +170,8 @@ class LoginFragment : BaseFragment() {
             editText.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             editText.typeface = android.graphics.Typeface.DEFAULT
             editText.imeOptions = EditorInfo.IME_ACTION_DONE
-            setInputContainerMinHeightDp(48)
+            setInputContainerMinHeightDp(50)
+            setInputCornerRadiusDp(25f)
             val drawable = androidx.core.content.ContextCompat.getDrawable(context, R.drawable.ic_lock_outline)?.mutate()
             drawable?.setBounds(0, 0, LayoutHelper.dp(24), LayoutHelper.dp(24))
             editText.setCompoundDrawables(drawable, null, null, null)
@@ -194,7 +191,7 @@ class LoginFragment : BaseFragment() {
             minHeight = 0
             minimumHeight = 0
             setPadding(0, 0, 0, 0)
-            CompoundButtonCompat.setButtonTintList(this, ColorStateList.valueOf(0xFF5E5E5E.toInt()))
+            CompoundButtonCompat.setButtonTintList(this, ColorStateList.valueOf(Color.WHITE))
             alpha = 1f
             setOnCheckedChangeListener { _, isChecked ->
                 passwordCell.editText.inputType = if (isChecked) {
@@ -212,7 +209,7 @@ class LoginFragment : BaseFragment() {
 
         showPasswordLabel = TextView(context).apply {
             text = getString(R.string.common_login_show_password)
-            setTextColor(0xFF5E5E5E.toInt())
+            setTextColor(Color.WHITE)
             textSize = 14f
             setPadding(LayoutHelper.dp(4), 0, 0, 0)
             setOnClickListener { showPasswordCheck.toggle() }
@@ -225,42 +222,86 @@ class LoginFragment : BaseFragment() {
         form.addView(buttonFrame, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 50, 0f, Gravity.START, 0f, 8f, 0f, 0f))
 
         submitButton = ActionButton(context, themeColors).apply {
-            useGradient = true
+            AuthStyle.styleButton(this)
             setOnClickListener { doSubmit() }
         }
         buttonFrame.addView(submitButton, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
         progressBar = ProgressBar(context).apply {
             visibility = View.GONE
+            indeterminateTintList = ColorStateList.valueOf(Color.WHITE)
         }
         buttonFrame.addView(progressBar, LayoutHelper.createFrame(24, 24, Gravity.CENTER))
 
         val altSection = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(0, 0, 0, LayoutHelper.dp(12))
         }
         form.addView(altSection, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.CENTER_HORIZONTAL, 0f, 24f, 0f, 0f))
 
         altText = TextView(context).apply {
-            setTextColor(0xFF5E5E5E.toInt())
+            setTextColor(AuthStyle.secondaryText)
             textSize = 14f
             gravity = Gravity.CENTER
         }
         altSection.addView(altText, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.CENTER, 0f, 0f, 0f, 8f))
 
         altLink1 = TextView(context).apply {
-            setTextColor(0xFF2E22FF.toInt())
+            setTextColor(AuthStyle.linkText)
+            typeface = Typeface.DEFAULT_BOLD
             textSize = 14f
             gravity = Gravity.CENTER
         }
-        altSection.addView(altLink1, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.CENTER, 0f, 0f, 0f, 4f))
+        altSection.addView(altLink1, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.CENTER, 0f, 0f, 0f, 4f))
 
         altLink2 = TextView(context).apply {
-            setTextColor(0xFF2E22FF.toInt())
+            setTextColor(AuthStyle.linkText)
+            typeface = Typeface.DEFAULT_BOLD
             textSize = 14f
             gravity = Gravity.CENTER
         }
-        altSection.addView(altLink2, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.CENTER, 0f, 0f, 0f, 0f))
+        altSection.addView(altLink2, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.CENTER))
+
+        var pressedOption: TextView? = null
+        altSection.setOnTouchListener { section, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    if (event.y < altText.bottom) {
+                        false
+                    } else {
+                        val midpoint = (altLink1.bottom + altLink2.top) / 2f
+                        pressedOption = if (event.y < midpoint) altLink1 else altLink2
+                        true
+                    }
+                }
+                MotionEvent.ACTION_UP -> {
+                    val option = pressedOption
+                    pressedOption = null
+                    if (option != null && event.x >= 0 && event.x < section.width &&
+                        event.y >= altText.bottom && event.y < section.height
+                    ) option.performClick()
+                    option != null
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    val handled = pressedOption != null
+                    pressedOption = null
+                    handled
+                }
+                else -> pressedOption != null
+            }
+        }
+
+        cooldownText = TextView(context).apply {
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(AuthStyle.cooldownText)
+            gravity = Gravity.CENTER
+            visibility = View.GONE
+        }
+        form.addView(cooldownText, LayoutHelper.createLinear(
+            LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.CENTER, 0f, 12f, 0f, 0f
+        ))
 
         phoneCell.editText.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_DONE) { doSubmit(); true } else false
@@ -274,6 +315,7 @@ class LoginFragment : BaseFragment() {
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
             override fun afterTextChanged(s: android.text.Editable?) {
                 validateForm()
+                updateCooldownLabel()
             }
         }
         phoneCell.editText.addTextChangedListener(resetWatcher)
@@ -343,9 +385,41 @@ class LoginFragment : BaseFragment() {
             }
         }
         validateForm()
+        updateCooldownLabel()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::cooldownText.isInitialized) updateCooldownLabel()
+    }
+
+    override fun onPause() {
+        if (::cooldownText.isInitialized) cooldownUpdate?.let { cooldownText.removeCallbacks(it) }
+        cooldownUpdate = null
+        super.onPause()
+    }
+
+    private fun updateCooldownLabel() {
+        if (!::cooldownText.isInitialized) return
+        cooldownUpdate?.let { cooldownText.removeCallbacks(it) }
+        cooldownUpdate = null
+        val key = when (currentMode) {
+            LoginMode.SMS -> selectedCountry.prefix + normalizePhone(phoneCell.getText().trim())
+            LoginMode.OTP -> emailCell.getText().trim()
+            LoginMode.PASSWORD -> ""
+        }
+        val seconds = if (key.isEmpty()) 0 else checkCooldown(key)
+        cooldownText.visibility = if (seconds > 0) View.VISIBLE else View.GONE
+        if (seconds > 0) {
+            cooldownText.text = getString(R.string.common_login_resend_in, seconds)
+            val next = Runnable { updateCooldownLabel() }
+            cooldownUpdate = next
+            cooldownText.postDelayed(next, 1000)
+        }
     }
 
     private fun validateForm() {
+        if (submitButton.isLoading) return
         progressBar.visibility = View.GONE
         submitButton.visibility = View.VISIBLE
         
@@ -371,6 +445,7 @@ class LoginFragment : BaseFragment() {
     }
 
     private fun doSubmit() {
+        if (submitButton.isLoading) return
         AndroidUtilities.hideKeyboard(fragmentView)
         when (currentMode) {
             LoginMode.SMS -> doSmsOTP()
@@ -569,15 +644,15 @@ class LoginFragment : BaseFragment() {
     }
 
     private fun showLoading() {
+        submitButton.isLoading = true
         submitButton.isEnabled = false
-        submitButton.visibility = View.INVISIBLE
         progressBar.visibility = View.VISIBLE
     }
 
     private fun hideLoading() {
-        submitButton.isEnabled = true
-        submitButton.visibility = View.VISIBLE
+        submitButton.isLoading = false
         progressBar.visibility = View.GONE
+        validateForm()
     }
 
     private fun showToast(ctx: Context, message: String) {

@@ -127,6 +127,7 @@
 
     <!-- common.login -->
     <string name="common_login_welcome_to_mezon">Welcome to Mezon</string>
+    <string name="common_login_welcome_subtitle">The Live, Work, and Play Platform\nCustomize your own space to talk, play and hang out.</string>
     <string name="common_login_welcome_back">WELCOME BACK</string>
     <string name="common_login_glad_to_meet_again">So glad to meet you again!</string>
     <string name="common_login_email">Email</string>
@@ -146,6 +147,7 @@
     <string name="common_login_email_address">Email address</string>
     <string name="common_login_show_password">Show password</string>
     <string name="common_login_send">Send OTP</string>
+    <string name="common_login_resend_in">Resend in %1$ds</string>
     <string name="common_login_cannot_access_email">Couldn\'t access your email inbox?</string>
     <string name="common_login_password_not_set">Password hasn\'t been set yet?</string>
     <string name="common_login_cannot_access_phone">Couldn\'t access your phone number?</string>
