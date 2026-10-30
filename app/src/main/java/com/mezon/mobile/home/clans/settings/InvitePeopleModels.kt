@@ -3,6 +3,8 @@ package com.mezon.mobile.home.clans.settings
 import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.network.LinkInvitePreview
 import com.mezon.mezon.api.LinkInviteUser
+import org.json.JSONArray
+import org.json.JSONObject
 
 data class InvitePeopleUiState(
     val clanId: Long = 0L,
@@ -42,25 +44,32 @@ fun parseInviteIdFromUrl(url: String): Long? {
     return raw.toLongOrNull()
 }
 
-private fun String.escapeJson(): String = replace("\\", "\\\\")
-    .replace("\"", "\\\"")
-    .replace("\n", "\\n")
-    .replace("\r", "\\r")
-    .replace("\t", "\\t")
-
 fun buildInviteLinkContent(
     url: String,
     preview: LinkInvitePreview?,
     memberCountDescription: String? = null,
 ): String {
-    val escaped = url.escapeJson()
     val end = url.length
-    if (preview == null) {
-        return """{"t":"$escaped","mk":[{"type":"lk","s":0,"e":$end}]}"""
+    val markdown = JSONArray().put(
+        JSONObject().put("type", "lk").put("s", 0).put("e", end)
+    )
+    if (preview != null) {
+        markdown.put(
+            JSONObject()
+                .put("type", "lk_ogp")
+                .put("s", end)
+                .put("e", end + 1)
+                .put("index", 0)
+                .put("title", preview.clanName)
+                .put("description", memberCountDescription
+                    ?: preview.channelLabel.ifBlank { preview.clanName })
+                .put("image", preview.logoUrl)
+                .put("url", url)
+                .put("clanId", preview.clanId)
+                .put("member_count", preview.memberCount)
+                .put("banner", preview.banner)
+                .put("is_community", preview.isCommunity)
+        )
     }
-    val title = preview.clanName.escapeJson()
-    val description = (memberCountDescription
-        ?: preview.channelLabel.ifBlank { preview.clanName }).escapeJson()
-    val image = preview.logoUrl.escapeJson()
-    return """{"t":"$escaped","mk":[{"type":"lk","s":0,"e":$end},{"type":"lk_ogp","s":$end,"e":${end + 1},"index":0,"title":"$title","description":"$description","image":"$image","url":"$escaped"}]}"""
+    return JSONObject().put("t", url).put("mk", markdown).toString()
 }

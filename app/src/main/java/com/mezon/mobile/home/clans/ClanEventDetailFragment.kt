@@ -347,7 +347,13 @@ class ClanEventDetailFragment : BaseFragment() {
         val event = clanEventController.getEvent(clanId, eventId) ?: return
         val ctx = fragmentView?.context ?: return
         val anchor = moreMenuItem ?: return
-        val popup = PopupMenu(ctx, themeColors, fullWidthDividers = true, focusable = true)
+        val popup = PopupMenu(
+            ctx, themeColors,
+            fullWidthDividers = true,
+            focusable = true,
+            itemTextSizeSp = 15f,
+            wrapContentWidth = true,
+        )
         val actions = ArrayList<(ClanEventEntity) -> Unit>()
         if (canModifyEvent(event)) {
             popup.addItem(
