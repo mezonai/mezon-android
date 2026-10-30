@@ -5,4 +5,7 @@ data class LinkInvitePreview(
     val channelLabel: String,
     val logoUrl: String,
     val memberCount: Int = 0,
+    val clanId: String = "",
+    val banner: String = "",
+    val isCommunity: Boolean = false,
 )
