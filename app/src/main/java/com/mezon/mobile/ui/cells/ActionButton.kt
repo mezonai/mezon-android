@@ -15,7 +15,11 @@ import com.mezon.mobile.core.ThemeColors
 class ActionButton(context: Context, private val theme: ThemeColors) : View(context) {
 
     private val rect = RectF()
-    private val cornerRadius = LayoutHelper.dpf(12f)
+    var cornerRadiusDp = 12f
+        set(value) {
+            field = value
+            invalidate()
+        }
     private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var text = ""
     private var isPressed = false
@@ -33,6 +37,12 @@ class ActionButton(context: Context, private val theme: ThemeColors) : View(cont
     var gradientStartColor = 0xFF501794.toInt()
     var gradientEndColor = 0xFF3E70A1.toInt()
     var disabledColor = 0xFF88888C.toInt()
+    var disabledTextColor = 0xFFFFFFFF.toInt()
+    var isLoading = false
+        set(value) {
+            field = value
+            invalidate()
+        }
     private var gradientShader: LinearGradient? = null
     private var lastWidth = 0
 
@@ -66,6 +76,7 @@ class ActionButton(context: Context, private val theme: ThemeColors) : View(cont
     }
 
     override fun onDraw(canvas: Canvas) {
+        val cornerRadius = LayoutHelper.dpf(cornerRadiusDp)
         rect.set(0f, 0f, width.toFloat(), height.toFloat())
 
         bgPaint.reset()
@@ -85,7 +96,7 @@ class ActionButton(context: Context, private val theme: ThemeColors) : View(cont
             bgPaint.style = Paint.Style.FILL
         } else if (useGradient) {
             bgPaint.style = Paint.Style.FILL
-            if (isEnabled) {
+            if (isEnabled || isLoading) {
                 if (gradientShader == null || lastWidth != width) {
                     gradientShader = LinearGradient(
                         0f, 0f, width.toFloat(), 0f,
@@ -99,7 +110,7 @@ class ActionButton(context: Context, private val theme: ThemeColors) : View(cont
                 bgPaint.color = disabledColor
             }
             canvas.drawRoundRect(rect, cornerRadius, cornerRadius, bgPaint)
-            theme.buttonTextPaint.color = 0xFFFFFFFF.toInt()
+            theme.buttonTextPaint.color = if (isEnabled) 0xFFFFFFFF.toInt() else disabledTextColor
         } else {
             bgPaint.style = Paint.Style.FILL
             if (isEnabled) {
@@ -118,8 +129,10 @@ class ActionButton(context: Context, private val theme: ThemeColors) : View(cont
             canvas.drawRoundRect(rect, cornerRadius, cornerRadius, bgPaint)
         }
 
-        val textY = height / 2f - (theme.buttonTextPaint.descent() + theme.buttonTextPaint.ascent()) / 2
-        canvas.drawText(text, width / 2f, textY, theme.buttonTextPaint)
+        if (!isLoading) {
+            val textY = height / 2f - (theme.buttonTextPaint.descent() + theme.buttonTextPaint.ascent()) / 2
+            canvas.drawText(text, width / 2f, textY, theme.buttonTextPaint)
+        }
     }
 
     override fun onInitializeAccessibilityNodeInfo(info: AccessibilityNodeInfo) {

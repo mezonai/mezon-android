@@ -1,6 +1,9 @@
 package com.mezon.mobile.auth
 
 import android.content.Context
+import android.content.res.ColorStateList
+import android.graphics.Color
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.CountDownTimer
 import android.text.Editable
@@ -8,6 +11,7 @@ import android.text.InputType
 import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
+import android.view.ViewTreeObserver
 import android.view.inputmethod.EditorInfo
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -15,9 +19,10 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import com.mezon.mobile.R
 import com.mezon.mobile.core.AndroidUtilities
-import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.ui.cells.ActionButton
@@ -26,7 +31,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class OTPVerificationFragment : BaseFragment() {
+class OTPVerificationFragment : AuthFragment() {
 
     var reqId = ""
     var identifier = ""
@@ -46,18 +51,18 @@ class OTPVerificationFragment : BaseFragment() {
     private val otpBackgrounds = ArrayList<GradientDrawable>(OTP_LENGTH)
     private var countdownTimer: CountDownTimer? = null
     private var isResendEnabled = false
+    private var didAutoFocus = false
+    private var pendingFocusObserver: ViewTreeObserver? = null
+    private var pendingFocusListener: ViewTreeObserver.OnWindowFocusChangeListener? = null
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
         authRepository = entryPoint.authRepository()
     }
 
     override fun createView(context: Context): View {
-        val root = FrameLayout(context).apply {
-            background = GradientDrawable(
-                GradientDrawable.Orientation.TOP_BOTTOM,
-                intArrayOf(0xFFF0EDFD.toInt(), 0xFFBEB5F8.toInt(), 0xFF9774FA.toInt())
-            )
-        }
+        clearPendingFocus()
+        didAutoFocus = false
+        val root = AuthBackground(context)
 
         val scrollView = ScrollView(context).apply {
             isFillViewport = true
@@ -74,10 +79,11 @@ class OTPVerificationFragment : BaseFragment() {
         scrollView.addView(form, FrameLayout.LayoutParams(
             LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT
         ))
+        root.followContent(form)
 
         titleView = TextView(context).apply {
             text = getString(R.string.otp_login_to_mezon)
-            setTextColor(0xFF000000.toInt())
+            setTextColor(Color.WHITE)
             textSize = 24f
             typeface = android.graphics.Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
@@ -89,7 +95,7 @@ class OTPVerificationFragment : BaseFragment() {
         descriptionView = TextView(context).apply {
             text = getString(R.string.otp_enter_code_from)
             textSize = 14f
-            setTextColor(0xFF505050.toInt())
+            setTextColor(AuthStyle.secondaryText)
             gravity = Gravity.CENTER
         }
         form.addView(descriptionView, LayoutHelper.createLinear(
@@ -99,7 +105,7 @@ class OTPVerificationFragment : BaseFragment() {
         identifierView = TextView(context).apply {
             text = identifier
             textSize = 14f
-            setTextColor(0xFF505050.toInt())
+            setTextColor(Color.WHITE)
             typeface = android.graphics.Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
         }
@@ -115,6 +121,8 @@ class OTPVerificationFragment : BaseFragment() {
             LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.CENTER, 0f, 0f, 0f, 16f
         ))
 
+        otpFields.clear()
+        otpBackgrounds.clear()
         for (i in 0 until OTP_LENGTH) {
             val bg = GradientDrawable().apply {
                 setColor(0xFFFFFFFF.toInt())
@@ -139,11 +147,15 @@ class OTPVerificationFragment : BaseFragment() {
             }
             otpFields.add(field)
             val params = LinearLayout.LayoutParams(LayoutHelper.dp(48), LayoutHelper.dp(48))
-            if (i < OTP_LENGTH - 1) params.marginEnd = LayoutHelper.dp(8)
+            if (i < OTP_LENGTH - 1) params.marginEnd = LayoutHelper.dp(6)
             otpRow.addView(field, params)
 
             field.setText(ZERO_WIDTH_SPACE)
             field.setSelection(1)
+            field.setOnFocusChangeListener { _, _ ->
+                val filled = field.text?.toString()?.replace(ZERO_WIDTH_SPACE, "")?.isNotEmpty() == true
+                updateOtpFieldState(i, filled)
+            }
 
             field.addTextChangedListener(object : TextWatcher {
                 private var isUpdating = false
@@ -183,6 +195,18 @@ class OTPVerificationFragment : BaseFragment() {
                 }
             })
         }
+        otpRow.addOnLayoutChangeListener { row, _, _, _, _, _, _, _, _ ->
+            val available = row.width - LayoutHelper.dp(6) * (OTP_LENGTH - 1)
+            val size = minOf(LayoutHelper.dp(48), (available / OTP_LENGTH).coerceAtLeast(1))
+            otpFields.forEach { field ->
+                val params = field.layoutParams as LinearLayout.LayoutParams
+                if (params.width != size || params.height != size) {
+                    params.width = size
+                    params.height = size
+                    field.layoutParams = params
+                }
+            }
+        }
 
         val buttonFrame = FrameLayout(context)
         form.addView(buttonFrame, LayoutHelper.createLinear(
@@ -190,20 +214,23 @@ class OTPVerificationFragment : BaseFragment() {
         ))
 
         verifyButton = ActionButton(context, themeColors).apply {
-            useGradient = true
+            AuthStyle.styleButton(this)
             setOnClickListener {
                 if (isResendEnabled) doResend() else doVerify()
             }
         }
         buttonFrame.addView(verifyButton, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
-        progressBar = ProgressBar(context).apply { visibility = View.GONE }
+        progressBar = ProgressBar(context).apply {
+            visibility = View.GONE
+            indeterminateTintList = ColorStateList.valueOf(Color.WHITE)
+        }
         buttonFrame.addView(progressBar, LayoutHelper.createFrame(24, 24, Gravity.CENTER))
 
         didNotReceiveText = TextView(context).apply {
             text = getString(R.string.otp_did_not_receive)
             textSize = 14f
-            setTextColor(0xFF5E5E5E.toInt())
+            setTextColor(AuthStyle.secondaryText)
             gravity = Gravity.CENTER
         }
         form.addView(didNotReceiveText, LayoutHelper.createLinear(
@@ -213,7 +240,8 @@ class OTPVerificationFragment : BaseFragment() {
         changeLink = TextView(context).apply {
             text = if (isSms) getString(R.string.otp_change_phone) else getString(R.string.otp_change_email)
             textSize = 14f
-            setTextColor(0xFF2E22FF.toInt())
+            setTextColor(AuthStyle.linkText)
+            typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
             setOnClickListener { finishFragment() }
         }
@@ -222,18 +250,69 @@ class OTPVerificationFragment : BaseFragment() {
         ))
 
         startCountdown()
-        otpFields.firstOrNull()?.let {
-            it.requestFocus()
-            AndroidUtilities.showKeyboard(it)
-        }
-
         return root
+    }
+
+    override fun onBecomeFullyVisible() {
+        super.onBecomeFullyVisible()
+        val firstField = otpFields.firstOrNull() ?: return
+        if (didAutoFocus) return
+        firstField.post {
+            if (didAutoFocus || isPaused || isFinished || fragmentView?.isShown != true ||
+                !firstField.isAttachedToWindow || otpFields.firstOrNull() !== firstField
+            ) return@post
+            if (firstField.hasWindowFocus()) {
+                focusFirstField(firstField)
+            } else if (pendingFocusListener == null) {
+                val observer = firstField.viewTreeObserver
+                val listener = ViewTreeObserver.OnWindowFocusChangeListener { hasFocus ->
+                    if (hasFocus) {
+                        clearPendingFocus()
+                        focusFirstField(firstField)
+                    }
+                }
+                pendingFocusObserver = observer
+                pendingFocusListener = listener
+                observer.addOnWindowFocusChangeListener(listener)
+            }
+        }
+    }
+
+    private fun focusFirstField(field: EditText) {
+        if (didAutoFocus || isPaused || isFinished || fragmentView?.isShown != true ||
+            !field.isAttachedToWindow || otpFields.firstOrNull() !== field
+        ) return
+        if (otpFields.drop(1).any { it.hasFocus() }) {
+            didAutoFocus = true
+            return
+        }
+        if (field.requestFocus()) {
+            didAutoFocus = true
+            val window = getParentActivity()?.window
+            if (window != null) WindowCompat.getInsetsController(window, field).show(WindowInsetsCompat.Type.ime())
+            else AndroidUtilities.showKeyboard(field)
+        }
+    }
+
+    private fun clearPendingFocus() {
+        val observer = pendingFocusObserver
+        val listener = pendingFocusListener
+        if (observer?.isAlive == true && listener != null) {
+            observer.removeOnWindowFocusChangeListener(listener)
+        }
+        pendingFocusObserver = null
+        pendingFocusListener = null
+    }
+
+    override fun onPause() {
+        clearPendingFocus()
+        super.onPause()
     }
 
     private fun updateOtpFieldState(index: Int, filled: Boolean) {
         val bg = otpBackgrounds[index]
-        if (filled) {
-            bg.setColor(0x1A0052FF.toInt())
+        if (filled || otpFields[index].hasFocus()) {
+            bg.setColor(Color.WHITE)
             bg.setStroke(LayoutHelper.dp(2), OTP_BORDER_FILLED)
         } else {
             bg.setColor(0xFFFFFFFF.toInt())
@@ -244,7 +323,7 @@ class OTPVerificationFragment : BaseFragment() {
     private fun setOtpErrorState() {
         for (i in 0 until OTP_LENGTH) {
             val bg = otpBackgrounds[i]
-            bg.setColor(0x1ACA0000.toInt())
+            bg.setColor(0xFFFFE9E9.toInt())
             bg.setStroke(LayoutHelper.dp(2), OTP_BORDER_ERROR)
         }
     }
@@ -264,13 +343,14 @@ class OTPVerificationFragment : BaseFragment() {
 
             override fun onFinish() {
                 isResendEnabled = true
-                verifyButton.isEnabled = true
+                verifyButton.isEnabled = !verifyButton.isLoading
                 verifyButton.setText(getString(R.string.otp_resend))
             }
         }.start()
     }
 
     private fun doVerify() {
+        if (verifyButton.isLoading) return
         val code = getOtpCode()
         if (code.length != OTP_LENGTH) return
 
@@ -296,6 +376,7 @@ class OTPVerificationFragment : BaseFragment() {
     }
 
     private fun doResend() {
+        if (verifyButton.isLoading) return
         showLoading()
 
         fragmentScope.launch(Dispatchers.Main) {
@@ -348,25 +429,26 @@ class OTPVerificationFragment : BaseFragment() {
     }
 
     private fun showLoading() {
+        verifyButton.isLoading = true
         verifyButton.isEnabled = false
-        verifyButton.visibility = View.INVISIBLE
         progressBar.visibility = View.VISIBLE
     }
 
     private fun hideLoading() {
+        verifyButton.isLoading = false
         verifyButton.isEnabled = isResendEnabled
-        verifyButton.visibility = View.VISIBLE
         progressBar.visibility = View.GONE
     }
 
     private fun showError(message: String) {
+        verifyButton.isLoading = false
         verifyButton.isEnabled = isResendEnabled
-        verifyButton.visibility = View.VISIBLE
         progressBar.visibility = View.GONE
         com.mezon.mobile.ui.MezonToast.show(this, com.mezon.mobile.ui.cells.ToastOverlay.ToastType.ERROR, message)
     }
 
     override fun onFragmentDestroy() {
+        clearPendingFocus()
         super.onFragmentDestroy()
         countdownTimer?.cancel()
         countdownTimer = null
@@ -377,7 +459,7 @@ class OTPVerificationFragment : BaseFragment() {
         private const val OTP_LENGTH = 6
         private const val COUNTDOWN_MS = 59_000L
         private val OTP_BORDER_EMPTY = 0xFFD1D5DB.toInt()
-        private val OTP_BORDER_FILLED = 0xFF1661FF.toInt()
+        private val OTP_BORDER_FILLED = 0xFFC4CBFF.toInt()
         private val OTP_BORDER_ERROR = 0xFFCA0000.toInt()
     }
 }

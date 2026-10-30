@@ -150,6 +150,7 @@
 
     <!-- common.login -->
     <string name="common_login_welcome_to_mezon">Chào mừng đến với Mezon</string>
+    <string name="common_login_welcome_subtitle">Nền tảng Kết nối, Làm việc,\nvà Giải trí</string>
     <string name="common_login_welcome_back">CHÀO MỪNG TRỞ LẠI</string>
     <string name="common_login_glad_to_meet_again">Rất vui được gặp lại bạn!</string>
     <string name="common_login_email">Email</string>
@@ -169,6 +170,7 @@
     <string name="common_login_email_address">Địa chỉ email</string>
     <string name="common_login_show_password">Hiển thị mật khẩu</string>
     <string name="common_login_send">Gửi OTP</string>
+    <string name="common_login_resend_in">Gửi lại sau %1$d giây</string>
     <string name="common_login_cannot_access_email">Không thể truy cập email?</string>
     <string name="common_login_password_not_set">Chưa thiết lập mật khẩu?</string>
     <string name="common_login_cannot_access_phone">Không thể truy cập điện thoại?</string>

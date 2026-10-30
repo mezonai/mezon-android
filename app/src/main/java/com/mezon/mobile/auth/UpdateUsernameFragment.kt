@@ -1,6 +1,9 @@
 package com.mezon.mobile.auth
 
 import android.content.Context
+import android.content.res.ColorStateList
+import android.graphics.Color
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.text.InputType
 import android.view.Gravity
@@ -15,7 +18,6 @@ import android.widget.TextView
 import com.mezon.mobile.MainActivity
 import com.mezon.mobile.R
 import com.mezon.mobile.core.AndroidUtilities
-import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.network.HttpRpcStatusException
@@ -25,7 +27,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class UpdateUsernameFragment : BaseFragment() {
+class UpdateUsernameFragment : AuthFragment() {
 
     companion object {
         private const val MIN_USERNAME_LENGTH = 1
@@ -52,12 +54,7 @@ class UpdateUsernameFragment : BaseFragment() {
     }
 
     override fun createView(context: Context): View {
-        val root = FrameLayout(context).apply {
-            background = GradientDrawable(
-                GradientDrawable.Orientation.TOP_BOTTOM,
-                intArrayOf(0xFFF0EDFD.toInt(), 0xFFBEB5F8.toInt(), 0xFF9774FA.toInt())
-            )
-        }
+        val root = AuthBackground(context)
 
         val scrollView = ScrollView(context).apply {
             isFillViewport = true
@@ -74,10 +71,11 @@ class UpdateUsernameFragment : BaseFragment() {
         scrollView.addView(form, FrameLayout.LayoutParams(
             LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT
         ))
+        root.followContent(form)
 
         titleView = TextView(context).apply {
             text = getString(R.string.update_username_title)
-            setTextColor(0xFF000000.toInt())
+            setTextColor(Color.WHITE)
             textSize = 24f
             typeface = android.graphics.Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
@@ -89,7 +87,7 @@ class UpdateUsernameFragment : BaseFragment() {
         subtitleView = TextView(context).apply {
             text = getString(R.string.update_username_subtitle)
             textSize = 14f
-            setTextColor(0xFF505050.toInt())
+            setTextColor(AuthStyle.secondaryText)
             gravity = Gravity.CENTER
         }
         form.addView(subtitleView, LayoutHelper.createLinear(
@@ -98,7 +96,7 @@ class UpdateUsernameFragment : BaseFragment() {
 
         val inputBg = GradientDrawable().apply {
             setColor(0xFFFFFFFF.toInt())
-            cornerRadius = LayoutHelper.dpf(8f)
+            cornerRadius = LayoutHelper.dpf(25f)
             setStroke(LayoutHelper.dp(1), 0xFFD1D5DB.toInt())
         }
         input = EditText(context).apply {
@@ -106,7 +104,8 @@ class UpdateUsernameFragment : BaseFragment() {
             setHintTextColor(0xFF9CA3AF.toInt())
             setTextColor(0xFF374151.toInt())
             textSize = 16f
-            setPadding(LayoutHelper.dp(12), LayoutHelper.dp(12), LayoutHelper.dp(12), LayoutHelper.dp(12))
+            setPadding(LayoutHelper.dp(20), LayoutHelper.dp(12), LayoutHelper.dp(20), LayoutHelper.dp(12))
+            minimumHeight = LayoutHelper.dp(50)
             background = inputBg
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
             imeOptions = EditorInfo.IME_ACTION_DONE
@@ -138,7 +137,7 @@ class UpdateUsernameFragment : BaseFragment() {
 
         previewView = TextView(context).apply {
             textSize = 13f
-            setTextColor(0xFF505050.toInt())
+            setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
             visibility = View.GONE
         }
@@ -147,7 +146,7 @@ class UpdateUsernameFragment : BaseFragment() {
         ))
 
         errorText = TextView(context).apply {
-            setTextColor(0xFFCA0000.toInt())
+            setTextColor(0xFFFFE0E0.toInt())
             textSize = 12f
             gravity = Gravity.CENTER
             visibility = View.GONE
@@ -162,20 +161,23 @@ class UpdateUsernameFragment : BaseFragment() {
         ))
 
         submitButton = ActionButton(context, themeColors).apply {
-            useGradient = true
+            AuthStyle.styleButton(this)
             setText(getString(R.string.update_username_button))
             isEnabled = false
             setOnClickListener { doSubmit() }
         }
         buttonFrame.addView(submitButton, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
-        progressBar = ProgressBar(context).apply { visibility = View.GONE }
+        progressBar = ProgressBar(context).apply {
+            visibility = View.GONE
+            indeterminateTintList = ColorStateList.valueOf(Color.WHITE)
+        }
         buttonFrame.addView(progressBar, LayoutHelper.createFrame(24, 24, Gravity.CENTER))
 
         changePhoneQuestion = TextView(context).apply {
             text = getString(R.string.update_username_change_phone_question)
             textSize = 14f
-            setTextColor(0xFF5E5E5E.toInt())
+            setTextColor(AuthStyle.secondaryText)
             gravity = Gravity.CENTER
         }
         form.addView(changePhoneQuestion, LayoutHelper.createLinear(
@@ -185,7 +187,8 @@ class UpdateUsernameFragment : BaseFragment() {
         changePhoneLink = TextView(context).apply {
             text = getString(R.string.update_username_change_phone_link)
             textSize = 14f
-            setTextColor(0xFF2E22FF.toInt())
+            setTextColor(AuthStyle.linkText)
+            typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
             setOnClickListener {
                 (getParentActivity() as? MainActivity)?.logoutToChooseDifferentPhone()
@@ -217,16 +220,17 @@ class UpdateUsernameFragment : BaseFragment() {
         } else {
             previewView.visibility = View.GONE
         }
-        submitButton.isEnabled = isUsernameValid(username)
+        submitButton.isEnabled = isUsernameValid(username) && !submitButton.isLoading
     }
 
     private fun doSubmit() {
+        if (submitButton.isLoading) return
         val sanitized = sanitizeUsername(input.text?.toString().orEmpty())
         if (!isUsernameValid(sanitized)) return
 
         AndroidUtilities.hideKeyboard(fragmentView)
+        submitButton.isLoading = true
         submitButton.isEnabled = false
-        submitButton.visibility = View.INVISIBLE
         progressBar.visibility = View.VISIBLE
         errorText.visibility = View.GONE
 
@@ -238,14 +242,14 @@ class UpdateUsernameFragment : BaseFragment() {
                 .onSuccess {
                     entryPoint().accountController().loadAccount(noCache = true)
                     progressBar.visibility = View.GONE
-                    submitButton.isEnabled = true
-                    submitButton.visibility = View.VISIBLE
+                    submitButton.isLoading = false
+                    submitButton.isEnabled = isUsernameValid(sanitizeUsername(input.text?.toString().orEmpty()))
                     onComplete?.invoke()
                 }
                 .onFailure { err ->
                     progressBar.visibility = View.GONE
-                    submitButton.isEnabled = true
-                    submitButton.visibility = View.VISIBLE
+                    submitButton.isLoading = false
+                    submitButton.isEnabled = isUsernameValid(sanitizeUsername(input.text?.toString().orEmpty()))
                     errorText.visibility = View.VISIBLE
                     errorText.text = submitErrorMessage(err)
                 }
