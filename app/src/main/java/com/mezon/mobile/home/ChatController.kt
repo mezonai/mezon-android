@@ -2594,7 +2594,7 @@ class ChatController @Inject constructor(
             val outgoingBase = PresignFinishContent.presignSyncOriginContent(params.wireContent)
 
             val validItemCount = items.count { it != null }
-            if (validItemCount < PRESIGN_SEND_FIRST_MIN_COUNT) {
+            if (params.anon || validItemCount < PRESIGN_SEND_FIRST_MIN_COUNT) {
                 val uploadFailedIndices = HashSet<Int>()
                 coroutineScope {
                     preparedSlots.map { slot ->
