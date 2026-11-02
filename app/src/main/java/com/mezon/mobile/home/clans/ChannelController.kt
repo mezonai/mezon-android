@@ -17,6 +17,7 @@ import com.mezon.mobile.network.CODE_CHAT_REMOVE
 import com.mezon.mobile.network.CODE_CHAT_UPDATE
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.network.STREAM_MODE_DM
+import com.mezon.mobile.network.STREAM_MODE_GROUP
 import com.mezon.mobile.network.SocketEventDispatcher
 import com.mezon.mobile.network.apiCacheKey
 import com.mezon.mobile.session.SessionManager
@@ -2285,7 +2286,8 @@ class ChannelController @Inject constructor(
                 .first { it != null }?.userId?.toLongOrNull() ?: 0L
 
             dispatcher.channelMessages.collect { msg ->
-                if (msg.mode == STREAM_MODE_DM) return@collect
+                // DialogsController owns message activity and unread state for both DM types.
+                if (msg.mode == STREAM_MODE_DM || msg.mode == STREAM_MODE_GROUP) return@collect
                 if (msg.topicId != 0L) return@collect
                 if (msg.code == CODE_CHAT_UPDATE) return@collect
                 val msgTs = msg.createTimeSeconds.toLong() and 0xFFFF_FFFFL

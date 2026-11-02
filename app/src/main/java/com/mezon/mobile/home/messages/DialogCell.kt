@@ -14,7 +14,6 @@ import com.mezon.mobile.R
 import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.BaseCell
 import com.mezon.mobile.core.LayoutHelper
-import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.voice.VoiceActivityBadge
 import com.mezon.mobile.util.formatRelativeTime
@@ -92,7 +91,9 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
 
     fun setData(dm: DirectMessage) {
         directMessage = dm
-        update(0)
+        buildLayouts()
+        loadAvatar(dm)
+        invalidate()
     }
 
     fun applyBuzz(value: Boolean) {
@@ -107,76 +108,6 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         voiceActivity = value
         buildLayouts()
         invalidate()
-    }
-
-    fun update(mask: Int, newDm: DirectMessage? = null): Boolean {
-        val dm = newDm ?: directMessage ?: return false
-        var rebuildLayout = false
-        var needInvalidate = false
-
-        if (mask == 0) {
-            val changed = newDm != null && newDm != directMessage
-            if (newDm != null) directMessage = newDm
-            buildLayouts()
-            loadAvatar(dm)
-            invalidate()
-            return changed
-        }
-
-        if ((mask and NotificationCenter.UPDATE_MASK_NAME) != 0) {
-            val oldDm = directMessage
-            val nameChanged = oldDm?.displayName != dm.displayName ||
-                oldDm?.label != dm.label ||
-                oldDm?.username != dm.username
-            if (nameChanged) {
-                rebuildLayout = true
-                if (oldDm?.avatarPlaceholderKey() != dm.avatarPlaceholderKey()) {
-                    loadAvatar(dm)
-                    needInvalidate = true
-                }
-            }
-        }
-
-        if ((mask and NotificationCenter.UPDATE_MASK_AVATAR) != 0) {
-            if (directMessage?.avatarUrl != dm.avatarUrl) {
-                loadAvatar(dm)
-                needInvalidate = true
-            }
-        }
-
-        if ((mask and NotificationCenter.UPDATE_MASK_NEW_MESSAGE) != 0 ||
-            (mask and NotificationCenter.UPDATE_MASK_MESSAGE_TEXT) != 0
-        ) {
-            if (directMessage?.lastMessageContent != dm.lastMessageContent ||
-                directMessage?.lastSentMessageTs != dm.lastSentMessageTs
-            ) {
-                rebuildLayout = true
-            }
-        }
-
-        if ((mask and NotificationCenter.UPDATE_MASK_READ_DIALOG_MESSAGE) != 0 ||
-            (mask and NotificationCenter.UPDATE_MASK_BADGE) != 0
-        ) {
-            if (directMessage?.unreadCount != dm.unreadCount) {
-                rebuildLayout = true
-            }
-        }
-
-        if ((mask and NotificationCenter.UPDATE_MASK_SEND_STATE) != 0) {
-            needInvalidate = true
-        }
-
-        if (newDm != null) directMessage = newDm
-
-        if (rebuildLayout) {
-            buildLayouts()
-            invalidate()
-            return true
-        }
-        if (needInvalidate) {
-            invalidate()
-        }
-        return false
     }
 
     private fun buildLayouts() {
