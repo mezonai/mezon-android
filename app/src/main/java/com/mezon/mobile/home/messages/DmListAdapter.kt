@@ -33,6 +33,7 @@ class DmListAdapter(
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     companion object {
+        private const val PAYLOAD_DM_DATA = "dm_data"
         private const val PAYLOAD_VOICE_PRESENCE = "voice_presence"
         private const val DIFF_BG_THRESHOLD = 50
         private const val VIEW_TYPE_HEADER = 0
@@ -70,17 +71,19 @@ class DmListAdapter(
         (items.getOrNull(position) as? DmListEntry.Message)?.dm
 
     fun setData(newItems: List<DmListEntry>) {
+        val snapshot = newItems.toList()
         diffJob?.cancel()
+        if (snapshot == items) return
 
-        if (newItems.size < DIFF_BG_THRESHOLD && items.size < DIFF_BG_THRESHOLD) {
-            applyDiff(newItems, DiffUtil.calculateDiff(DmEntryDiffCallback(items, newItems)))
+        val oldList = items.toList()
+        if (snapshot.size < DIFF_BG_THRESHOLD && oldList.size < DIFF_BG_THRESHOLD) {
+            applyDiff(snapshot, DiffUtil.calculateDiff(DmEntryDiffCallback(oldList, snapshot)))
         } else {
-            val oldList = ArrayList(items)
             diffJob = scope.launch {
                 val result = withContext(Dispatchers.Default) {
-                    DiffUtil.calculateDiff(DmEntryDiffCallback(oldList, newItems))
+                    DiffUtil.calculateDiff(DmEntryDiffCallback(oldList, snapshot))
                 }
-                applyDiff(newItems, result)
+                applyDiff(snapshot, result)
             }
         }
     }
@@ -93,44 +96,6 @@ class DmListAdapter(
         items.clear()
         items.addAll(newItems)
         result.dispatchUpdatesTo(this)
-    }
-
-    fun updateVisibleRows(recyclerView: RecyclerView, mask: Int, dialogs: List<DirectMessage>? = null) {
-        val dialogMap: HashMap<Long, DirectMessage>?
-        if (dialogs != null) {
-            dialogMap = HashMap(dialogs.size)
-            for (dm in dialogs) dialogMap[dm.channelId] = dm
-            for (i in items.indices) {
-                val entry = items[i]
-                if (entry is DmListEntry.Message) {
-                    val updated = dialogMap[entry.dm.channelId]
-                    if (updated != null && updated != entry.dm) {
-                        items[i] = DmListEntry.Message(updated)
-                    }
-                }
-            }
-        } else {
-            dialogMap = null
-        }
-
-        val count = recyclerView.childCount
-        for (i in 0 until count) {
-            val child = recyclerView.getChildAt(i)
-            if (child is DialogCell) {
-                val current = child.directMessage ?: continue
-                child.applyBuzz(buzzChecker?.invoke(current.channelId) == true)
-                val updated = dialogMap?.get(current.channelId)
-                if (child.update(mask, updated)) {
-                    val messages = if (dialogs != null) {
-                        buildFlatMessagesFromEntries(items, dialogs)
-                    } else {
-                        items.filterIsInstance<DmListEntry.Message>().map { it.dm }
-                    }
-                    setData(messagesToEntries(messages))
-                    break
-                }
-            }
-        }
     }
 
     fun refreshBuzz(recyclerView: RecyclerView, channelIds: LongArray? = null) {
@@ -179,7 +144,7 @@ class DmListAdapter(
                 val cell = (holder as MessageViewHolder).cell
                 cell.hasBuzz = buzzChecker?.invoke(entry.dm.channelId) == true
                 cell.voiceActivity = voiceActivityResolver?.invoke(entry.dm)
-                cell.update(0, entry.dm)
+                cell.setData(entry.dm)
             }
         }
     }
@@ -221,12 +186,12 @@ class DmListAdapter(
         }
 
         override fun areContentsTheSame(oldPos: Int, newPos: Int): Boolean = old[oldPos] == new[newPos]
-    }
 
-    private fun buildFlatMessagesFromEntries(entries: List<DmListEntry>, dialogs: List<DirectMessage>): List<DirectMessage> {
-        val dialogMap = HashMap<Long, DirectMessage>(dialogs.size)
-        for (dm in dialogs) dialogMap[dm.channelId] = dm
-        return entries.filterIsInstance<DmListEntry.Message>().mapNotNull { dialogMap[it.dm.channelId] ?: it.dm }
+        override fun getChangePayload(oldPos: Int, newPos: Int): Any? {
+            return if (old[oldPos] is DmListEntry.Message && new[newPos] is DmListEntry.Message) {
+                PAYLOAD_DM_DATA
+            } else null
+        }
     }
 }
 

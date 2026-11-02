@@ -525,7 +525,8 @@ class MessagesFragment : BaseFragment() {
             return
         }
         val source = frozenDialogsList ?: controller.getDialogs()
-        adapter.updateVisibleRows(recyclerView, mask, source)
+        adapter.setMessages(source)
+        adapter.refreshBuzz(recyclerView)
     }
 
     private fun updateCellVisibility() {
