@@ -2286,7 +2286,6 @@ class ChannelController @Inject constructor(
                 .first { it != null }?.userId?.toLongOrNull() ?: 0L
 
             dispatcher.channelMessages.collect { msg ->
-                // DialogsController owns message activity and unread state for both DM types.
                 if (msg.mode == STREAM_MODE_DM || msg.mode == STREAM_MODE_GROUP) return@collect
                 if (msg.topicId != 0L) return@collect
                 if (msg.code == CODE_CHAT_UPDATE) return@collect
