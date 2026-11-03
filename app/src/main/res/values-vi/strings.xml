@@ -142,7 +142,7 @@
     <string name="qr_dismiss_btn">Không, cảm ơn</string>
 
     <!-- qr profile sheet -->
-    <string name="qr_profile_sheet_title">HỒ SƠ NGƯỜI DÙNG</string>
+    <string name="qr_profile_sheet_title">Hồ sơ người dùng</string>
     <string name="qr_profile_add_friend">Thêm bạn</string>
     <string name="qr_profile_message">Tin nhắn</string>
     <string name="qr_profile_decline">Không, cảm ơn</string>
@@ -928,6 +928,7 @@
     <string name="notification_channel_system">Hệ thống</string>
     <string name="notification_channel_system_desc">Thông báo hệ thống</string>
     <string name="notification_action_mute_15m">Tắt 15 phút</string>
+    <string name="notification_missed_call">Cuộc gọi nhỡ</string>
     <string name="notification_mute_failed">Không thể tắt thông báo. Vui lòng thử lại.</string>
     <string name="notification_action_reply">Trả lời</string>
     <string name="notification_action_like">Thích</string>

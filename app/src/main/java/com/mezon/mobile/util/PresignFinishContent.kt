@@ -225,16 +225,15 @@ object PresignFinishContent {
         val localKeys = parseKeys(local) ?: emptyList()
         val serverKeys = parseKeys(server) ?: emptyList()
         if (localKeys.isEmpty() && serverKeys.isEmpty()) {
-            return server.ifBlank { local }
+            val base = server.ifBlank { local }
+            return if (hasPresignFinishField(local) && !hasPresignFinishField(base)) {
+                injectEmptyPresignFinish(base)
+            } else base
         }
-        val mergedKeys = if (serverKeys.size >= localKeys.size) {
-            serverKeys
-        } else {
-            val keys = localKeys.toMutableList()
+        val mergedKeys = localKeys.toMutableList().apply {
             serverKeys.forEach { key ->
-                if (!keys.contains(key)) keys.add(key)
+                if (none { presignKeysMatch(it, key) }) add(key)
             }
-            keys
         }
         val base = if (server.isNotBlank()) {
             contentBaseWithoutPresign(server)

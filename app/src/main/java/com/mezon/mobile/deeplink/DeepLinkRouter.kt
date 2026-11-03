@@ -14,6 +14,7 @@ import com.mezon.mobile.R
 import com.mezon.mobile.auth.AuthRepository
 import com.mezon.mobile.core.AlertsCreator
 import com.mezon.mobile.core.AndroidUtilities
+import com.mezon.mobile.core.INavigationLayout
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.StartupCache
@@ -246,15 +247,13 @@ class DeepLinkRouter @Inject constructor(
 
     private fun dispatchProfile(activity: MainActivity, route: DeepLinkRoute.Profile) {
         val payload = QrPayloadParser.decodeProfilePayload(route.data)
-        presentFragment(
-            activity,
-            QrProfileFragment.newInstance(
-                username = route.username,
-                displayName = payload?.name.orEmpty(),
-                avatarUrl = payload?.avatar,
-                userId = payload?.id ?: 0L
-            )
+        val fragment = QrProfileFragment.newInstance(
+            username = route.username,
+            displayName = payload?.name.orEmpty(),
+            avatarUrl = payload?.avatar,
+            userId = payload?.id ?: 0L
         )
+        activity.actionBarLayout.presentFragment(INavigationLayout.NavigationParams(fragment).setNoAnimation(true))
     }
 
     private fun dispatchChannelApp(activity: MainActivity, route: DeepLinkRoute.ChannelApp) {

@@ -390,7 +390,7 @@ open class ChatFragment : BaseFragment() {
     private var startLoadFromMessageId = 0L
     private var startLoadFromMessageOffset = Int.MAX_VALUE
     private var pausedOnLastMessage = false
-    private var pausedFromAppBackground = false
+    private var refreshOnResume = false
     private var needScrollRestore = false
     private var isLoading = false
     private var isLoadingMore = false
@@ -567,9 +567,9 @@ open class ChatFragment : BaseFragment() {
 
     private val postponeNewMessagesCallback = object : NotificationCenter.PostponeNotificationCallback {
         override fun needPostpone(id: Int, currentAccount: Int, args: Array<out Any?>): Boolean {
-            if (id == NotificationCenter.didReceiveNewMessages) {
+            if (id == NotificationCenter.didReceiveNewMessages || id == NotificationCenter.messageDidUpdate) {
                 val did = args.firstOrNull() as? Long ?: return false
-                if (firstLoad && did == channelId) return true
+                if (firstLoad && did == messageListKey) return true
             }
             return false
         }
@@ -846,12 +846,18 @@ open class ChatFragment : BaseFragment() {
                         false
                     }
 
-                    if (hasOverlap) {
-                        for (m in loadedMessages) messagesDict.put(m.id, m)
-                    } else {
-                        messagesDict.clear()
-                        for (m in loadedMessages) messagesDict.put(m.id, m)
+                    val reconciledLoaded = loadedMessages.map { loaded ->
+                        val current = messagesDict.get(loaded.id)
+                        if (current == null) loaded else loaded.copy(
+                            content = PresignFinishContent.mergePresignFinishContent(current.content, loaded.content)
+                        )
                     }
+                    val newerRealtime = if (!hasOverlap && !isViewingOlder && !moreBottom) {
+                        messages.filter { !it.isSending && it.id > apiMaxId }
+                    } else emptyList()
+                    if (!hasOverlap) messagesDict.clear()
+                    for (m in reconciledLoaded) messagesDict.put(m.id, m)
+                    for (m in newerRealtime) messagesDict.put(m.id, m)
                     for (m in reconciledPending) {
                         if (messagesDict.get(m.id) == null) messagesDict.put(m.id, m)
                     }
@@ -1463,9 +1469,11 @@ open class ChatFragment : BaseFragment() {
         }
 
         observe(NotificationCenter.appDidReconnect) { _, _, _ ->
-            if (isPaused) return@observe
-            rejoinChannelOnSocket()
-            chatController.loadMessages(channelId, clanId, forceRefresh = true, refreshWhenBackOnline = true, topicId = topicId)
+            if (isPaused) {
+                refreshOnResume = true
+                return@observe
+            }
+            rejoinChannelOnSocket(refreshAfterJoin = true)
         }
 
         observe(NotificationCenter.scrollToBottomChat) { _, _, args ->
@@ -1580,7 +1588,7 @@ open class ChatFragment : BaseFragment() {
         notificationCenter.addPostponeNotificationsCallback(postponeNewMessagesCallback)
 
         isLoading = true
-        loadInitialMessages()
+        if (startLoadFromMessageId == 0L) rejoinChannelOnSocket(refreshAfterJoin = true) else loadInitialMessages()
         return true
     }
 
@@ -2831,10 +2839,9 @@ open class ChatFragment : BaseFragment() {
         } else if (!isTopicMode) {
             refreshClanHeaderFromChannel()
         }
-        if (pausedFromAppBackground) {
-            pausedFromAppBackground = false
-            rejoinChannelOnSocket()
-            chatController.loadMessages(channelId, clanId, forceRefresh = true, refreshWhenBackOnline = true, topicId = topicId)
+        if (refreshOnResume) {
+            refreshOnResume = false
+            rejoinChannelOnSocket(refreshAfterJoin = true)
         }
     }
 
@@ -2934,7 +2941,7 @@ open class ChatFragment : BaseFragment() {
     override fun onPause() {
         super.onPause()
         saveComposerDraft(flush = true)
-        pausedFromAppBackground = MainActivity.applicationPaused
+        refreshOnResume = MainActivity.applicationPaused
         if (!isBackSwipePreview()) {
             dialogsController.clearCurrentChannel()
             if (clanId != 0L) {
@@ -4500,7 +4507,11 @@ open class ChatFragment : BaseFragment() {
         val merged = if (entity.isMe) {
             chatController.mergeSelfSentMessageEcho(existing, entity)
         } else {
-            entity.copy(sendState = MessageEntity.SEND_STATE_SENT, isError = false)
+            entity.copy(
+                content = PresignFinishContent.mergePresignFinishContent(existing.content, entity.content),
+                sendState = MessageEntity.SEND_STATE_SENT,
+                isError = false,
+            )
         }
         val idx = messages.indexOfFirst { it.id == entity.id }
         messagesDict.put(merged.id, merged)
@@ -5088,9 +5099,12 @@ open class ChatFragment : BaseFragment() {
         }
     }
 
-    private fun rejoinChannelOnSocket() {
+    private fun rejoinChannelOnSocket(refreshAfterJoin: Boolean = false) {
         if (channelId == 0L) return
-        chatController.openChannel(channelId, clanId, channelType, resolveChannelPrivate(), routeParentId)
+        chatController.openChannel(
+            channelId, clanId, channelType, resolveChannelPrivate(), routeParentId,
+            refreshTopicIdAfterJoin = if (refreshAfterJoin) topicId else null,
+        )
     }
 
     private fun resolveChannelAgeRestricted(): Boolean {

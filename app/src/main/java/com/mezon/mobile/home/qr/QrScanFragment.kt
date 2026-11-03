@@ -61,6 +61,7 @@ class QrScanFragment : BaseFragment() {
         private const val REQUEST_CAMERA = 7001
         private const val REQUEST_GALLERY = 7002
         private const val SCAN_THROTTLE_MS = 5000L
+        private const val CAMERA_CONFIRM_WINDOW_MS = 1000L
         private const val GALLERY_QR_MAX_EDGE = 4096
 
         private fun extractLuminance(image: ImageProxy): ByteArray? {
@@ -109,6 +110,8 @@ class QrScanFragment : BaseFragment() {
     private var scanningEnabled = true
     private var scanningStopped = false
     private var lastScanAt = 0L
+    private var cameraCandidate: String? = null
+    private var cameraCandidateAt = 0L
     private var permissionDeniedShown = false
     private val resumeScanRunnable = Runnable {
         if (!scanningStopped) {
@@ -288,7 +291,7 @@ class QrScanFragment : BaseFragment() {
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
             analyzer.setAnalyzer(analyzerExecutor, QrAnalyzer { value ->
-                AndroidUtilities.runOnUIThread { onQrScanned(value) }
+                AndroidUtilities.runOnUIThread { onCameraQrDecoded(value) }
             })
 
             val selector = CameraSelector.DEFAULT_BACK_CAMERA
@@ -297,6 +300,16 @@ class QrScanFragment : BaseFragment() {
         }, ContextCompat.getMainExecutor(activity))
     }
 
+
+    private fun onCameraQrDecoded(value: String) {
+        val now = System.currentTimeMillis()
+        val confirmed = value == cameraCandidate && now - cameraCandidateAt <= CAMERA_CONFIRM_WINDOW_MS
+        cameraCandidate = value
+        cameraCandidateAt = now
+        if (!confirmed) return
+        cameraCandidate = null
+        onQrScanned(value)
+    }
 
     private fun onQrScanned(value: String) {
         val now = System.currentTimeMillis()
@@ -309,7 +322,7 @@ class QrScanFragment : BaseFragment() {
             is QrAction.Profile -> {
                 val payload = QrPayloadParser.decodeProfilePayload(action.data)
                 if (payload == null && action.username.isBlank()) {
-                    showToast(getString(R.string.qr_code_not_valid))
+                    showToast(getString(R.string.qr_code_not_valid), ToastOverlay.ToastType.ERROR)
                     resumeScanLater()
                     return
                 }
@@ -319,7 +332,9 @@ class QrScanFragment : BaseFragment() {
                         displayName = payload?.name.orEmpty(),
                         avatarUrl = payload?.avatar,
                         userId = payload?.id ?: 0L
-                    )
+                    ),
+                    removeLast = false,
+                    forceWithoutAnimation = true,
                 )
             }
             is QrAction.Login -> {
@@ -365,7 +380,7 @@ class QrScanFragment : BaseFragment() {
     private fun handleUnsupportedQr(value: String) {
         val link = QrPayloadParser.parseOpenableLink(value)
         if (link == null) {
-            showToast(getString(R.string.qr_code_not_valid))
+            showToast(getString(R.string.qr_code_not_valid), ToastOverlay.ToastType.ERROR)
             resumeScanLater()
             return
         }

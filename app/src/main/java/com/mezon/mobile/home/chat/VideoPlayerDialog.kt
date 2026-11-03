@@ -224,7 +224,7 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
             setBackgroundColor(Color.BLACK)
             useController = true
             controllerAutoShow = true
-            controllerHideOnTouch = false
+            controllerHideOnTouch = true
             controllerShowTimeoutMs = VIDEO_CONTROLLER_TIMEOUT_MS
             setShowPreviousButton(false)
             setShowNextButton(false)
