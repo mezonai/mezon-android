@@ -432,6 +432,7 @@
     <string name="video_share_preparing">Preparing video…</string>
     <string name="video_share_preparing_progress">Preparing video… %1$d%%</string>
     <string name="video_save_downloading">Downloading video…</string>
+    <string name="attachment_upload_finishing">Finishing…</string>
     <string name="video_save_downloading_progress">Downloading video… %1$d%%</string>
     <string name="message_slide_to_cancel">Slide to cancel</string>
     <string name="message_voice_record_failed">Could not start voice recording.</string>

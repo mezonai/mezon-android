@@ -2396,7 +2396,10 @@ open class ChatFragment : BaseFragment() {
                             width = att.width,
                             height = att.height,
                             size = att.size,
-                            duration = att.duration
+                            duration = att.duration,
+                            isIngest = PresignFinishContent.isIngestAttachment(
+                                url, PresignFinishContent.parseIngestKeys(msg.content)
+                            ),
                         )
                     )
                 } else {

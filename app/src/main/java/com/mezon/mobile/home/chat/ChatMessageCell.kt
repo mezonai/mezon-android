@@ -32,6 +32,8 @@ import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.util.FileUtils
 import com.mezon.mobile.util.PresignFinishContent
+import com.mezon.mobile.util.AttachmentUploadProgressStore
+import com.mezon.mobile.util.FileIngestPlaylist
 import com.mezon.mobile.util.avatarImgproxyUrl
 import com.mezon.mobile.util.createImgproxyUrl
 import com.mezon.mobile.util.isAnimatedImageUrl
@@ -438,6 +440,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         attachedToWindow = true
+        scheduleIngestProbe(0L)
         photoImage.onAttachedToWindow()
         extraPhotoImages.forEach { it.onAttachedToWindow() }
         ogpImage.onAttachedToWindow()
@@ -469,6 +472,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         cancelPresignExpireTick()
+        cancelIngestProbe()
         removeCallbacks(sendingDimTickRunnable)
         sendingDimTickScheduled = false
         attachedToWindow = false
@@ -607,6 +611,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         slotUploadPending.fill(false)
         slotPresignPending.fill(false)
         slotUploadFailed.fill(false)
+        slotIngestWaiting.fill(false)
+        slotIngestPlayable.fill(false)
+        cancelIngestProbe()
         fileUploadPending.clear()
         filePresignPending.clear()
         fileUploadFailed.clear()
@@ -1057,13 +1064,19 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private val slotUploadPending = ArrayList<Boolean>()
     private val slotPresignPending = ArrayList<Boolean>()
     private val slotUploadFailed = ArrayList<Boolean>()
+    private val slotIngestWaiting = ArrayList<Boolean>()
+    private val slotIngestPlayable = ArrayList<Boolean>()
     private val mediaSlotUrls = ArrayList<String>()
+    private val ingestProbeRunnable = Runnable { probeIngestPlaylists() }
+    private var ingestProbeJob: Job? = null
 
     private fun ensureSlotCapacity(count: Int) {
         while (slotIsVideo.size < count) slotIsVideo.add(false)
         while (slotUploadPending.size < count) slotUploadPending.add(false)
         while (slotPresignPending.size < count) slotPresignPending.add(false)
         while (slotUploadFailed.size < count) slotUploadFailed.add(false)
+        while (slotIngestWaiting.size < count) slotIngestWaiting.add(false)
+        while (slotIngestPlayable.size < count) slotIngestPlayable.add(false)
         while (mediaSlotUrls.size < count) mediaSlotUrls.add("")
         while (videoThumbJobs.size < count) videoThumbJobs.add(null)
     }
@@ -1098,6 +1111,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         for (i in 0 until slotUploadPending.size) slotUploadPending[i] = false
         for (i in 0 until slotPresignPending.size) slotPresignPending[i] = false
         for (i in 0 until slotUploadFailed.size) slotUploadFailed[i] = false
+        for (i in 0 until slotIngestWaiting.size) slotIngestWaiting[i] = false
+        for (i in 0 until slotIngestPlayable.size) slotIngestPlayable[i] = false
         for (i in 0 until mediaSlotUrls.size) mediaSlotUrls[i] = ""
 
         if (mediaGridCount == 0) return
@@ -1118,13 +1133,18 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             val isLocalUri = att.url.startsWith("content://") || att.url.startsWith("file://")
             val isVideo = isVideoAttachmentType(att.filetype)
             slotIsVideo[i] = isVideo
-            slotPresignPending[i] = msg.isPresignAttachmentPending(att.url, filter, snapshot.allPresignFinished)
-            slotUploadPending[i] = !slotPresignPending[i] && msg.isAttachmentUploadPending(att.url, filter)
+            val presignPending = msg.isPresignAttachmentPending(att.url, filter, snapshot.allPresignFinished)
+            val ingestLive = presignPending && isVideo && filter.isIngestLive(att.url)
+            slotIngestPlayable[i] = ingestLive && FileIngestPlaylist.isPlayable(att.url)
+            slotIngestWaiting[i] = ingestLive && !slotIngestPlayable[i]
+            slotPresignPending[i] = presignPending && !slotIngestPlayable[i]
+            if (slotIngestWaiting[i]) scheduleIngestProbe(0L)
+            slotUploadPending[i] = !slotPresignPending[i] && !slotIngestPlayable[i] && msg.isAttachmentUploadPending(att.url, filter)
             slotUploadFailed[i] = msg.attachmentUploadFailed(att.url) ||
                 (att.url == msg.attachmentUrl && msg.isLocalAttachmentUrl(att.url) &&
                     msg.isError && msg.hasPartialAttachmentUploadFailure)
             mediaSlotUrls[i] = att.url
-            if (slotPresignPending[i] || (slotUploadPending[i] && !isLocalUri)) {
+            if (slotPresignPending[i] || (slotUploadPending[i] && !isLocalUri && !(isVideo && att.thumb.isNotEmpty()))) {
                 receiver.recycle()
             } else if (isLocalUri && isVideo) {
                 receiver.recycle()
@@ -1146,7 +1166,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 } else {
                     receiver.recycle()
                 }
-                if (mediaGridCount == 1) loadRemoteVideoThumbnail(att.url, i)
+                if (mediaGridCount == 1 && !slotIngestPlayable[i] && !slotUploadPending[i]) loadRemoteVideoThumbnail(att.url, i)
             } else {
                 val resizeType = if (mediaGridCount > 1) "fill" else "fit"
                 val mainUrl = createImgproxyUrl(att.url, pw, ph, resizeType)
@@ -3267,6 +3287,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 if (pressedOnMedia) {
                     pressedOnMedia = false
                     val msg = messageEntity
+                    if (isSlotPresignPending(pressedMediaIndex) && slotIsVideo.getOrNull(pressedMediaIndex) == true) return true
                     if (msg != null) delegate?.didClickMedia(this, msg, pressedMediaIndex)
                     return true
                 }
@@ -3527,7 +3548,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     private fun drawAttachmentUploadSpinner(
         canvas: Canvas, x: Float, y: Float, w: Float, h: Float, radius: Float, progress: Float = 0f,
+        finishingLabel: String? = null,
     ) {
+        val showsLabel = progress > 0f || finishingLabel != null
         tmpRect.set(x, y, x + w, y + h)
         if (radius > 0) {
             canvas.drawRoundRect(tmpRect, radius, radius, SPINNER_OVERLAY_PAINT)
@@ -3537,7 +3560,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val cx = x + w / 2f
         val midY = y + h / 2f
         val arcCy: Float
-        if (progress > 0f) {
+        if (showsLabel) {
             val stackH = UPLOAD_PROGRESS_SPINNER_D + UPLOAD_PROGRESS_GAP + UPLOAD_PROGRESS_TEXT_H
             val stackTop = midY - stackH / 2f
             arcCy = stackTop + SPINNER_RADIUS
@@ -3551,8 +3574,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val osc = (0.5 - 0.5 * Math.cos(2.0 * Math.PI * sweepProgress)).toFloat()
         val sweep = SPINNER_MIN_SWEEP + (SPINNER_MAX_SWEEP - SPINNER_MIN_SWEEP) * osc
         canvas.drawArc(spinnerArcRect, rotation - sweep / 2f, sweep, false, SPINNER_ARC_PAINT)
-        if (progress > 0f) {
-            val pct = UPLOAD_PROGRESS_PCT_STRINGS[(progress * 100f).toInt().coerceIn(0, 100)]
+        if (showsLabel) {
+            val pct = finishingLabel ?: UPLOAD_PROGRESS_PCT_STRINGS[(progress * 100f).toInt().coerceIn(0, 100)]
             val stackH = UPLOAD_PROGRESS_SPINNER_D + UPLOAD_PROGRESS_GAP + UPLOAD_PROGRESS_TEXT_H
             val stackTop = midY - stackH / 2f
             val textBaseline = stackTop + UPLOAD_PROGRESS_SPINNER_D + UPLOAD_PROGRESS_GAP - UPLOAD_PROGRESS_TEXT_ASCENT
@@ -4112,6 +4135,50 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         return slotPresignPending.getOrNull(slot) == true
     }
 
+    private fun uploadFinishingLabel(url: String): String? =
+        if (url.isNotEmpty() && AttachmentUploadProgressStore.isFinishing(url)) {
+            context.getString(R.string.attachment_upload_finishing)
+        } else {
+            null
+        }
+
+    private fun scheduleIngestProbe(delayMs: Long) {
+        removeCallbacks(ingestProbeRunnable)
+        if (!attachedToWindow || slotIngestWaiting.none { it }) return
+        postDelayed(ingestProbeRunnable, delayMs)
+    }
+
+    private fun cancelIngestProbe() {
+        removeCallbacks(ingestProbeRunnable)
+        ingestProbeJob?.cancel()
+        ingestProbeJob = null
+    }
+
+    private fun probeIngestPlaylists() {
+        val msg = messageEntity ?: return
+        if (ingestProbeJob?.isActive == true) {
+            scheduleIngestProbe(FileIngestPlaylist.PROBE_INTERVAL_MS)
+            return
+        }
+        val urls = (0 until mediaGridCount)
+            .filter { slotIngestWaiting.getOrNull(it) == true }
+            .mapNotNull { mediaSlotUrls.getOrNull(it)?.takeIf { url -> url.isNotEmpty() } }
+        if (urls.isEmpty()) return
+        ingestProbeJob = VIDEO_THUMB_SCOPE.launch {
+            var resolved = false
+            for (url in urls) {
+                if (FileIngestPlaylist.resolve(url, coalescing = true) != null) resolved = true
+            }
+            post {
+                ingestProbeJob = null
+                val current = messageEntity
+                if (current == null || current.id != msg.id) return@post
+                if (resolved) update(NotificationCenter.UPDATE_MASK_ATTACHMENTS, current)
+                scheduleIngestProbe(FileIngestPlaylist.PROBE_INTERVAL_MS)
+            }
+        }
+    }
+
     private fun drawGridCell(canvas: Canvas, slot: Int, x: Float, y: Float, w: Float, h: Float, isDark: Boolean): Boolean {
         var needsRedraw = false
         val receiver = mediaReceiver(slot)
@@ -4125,7 +4192,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             val msg = messageEntity
             val url = mediaSlotUrls.getOrNull(slot).orEmpty()
             val progress = if (msg != null && url.isNotEmpty()) msg.attachmentUploadProgress(url) else 0f
-            drawAttachmentUploadSpinner(canvas, x, y, w, h, MEDIA_RADIUS, progress)
+            drawAttachmentUploadSpinner(canvas, x, y, w, h, MEDIA_RADIUS, progress, uploadFinishingLabel(url))
         } else if (!receiver.hasMainImage()) {
             if (slotIsVideo.getOrNull(slot) == true) {
                 drawVideoPlaceholder(canvas, x, y, w, h, MEDIA_RADIUS)
@@ -4136,7 +4203,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 drawBrokenImagePlaceholder(canvas, x, y, w, h, MEDIA_RADIUS)
             }
         }
-        if (slotIsVideo.getOrNull(slot) == true && !isSlotUploadPending(slot)) {
+        if (slotIsVideo.getOrNull(slot) == true && !isSlotUploadPending(slot) && !isSlotPresignPending(slot)) {
             drawVideoPlayButton(canvas, x, y, w, h)
         }
         return needsRedraw
@@ -4175,7 +4242,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         } else if (isSlotUploadPending(0)) {
             val url = mediaSlotUrls.getOrNull(0).orEmpty()
             val progress = if (url.isNotEmpty()) msg.attachmentUploadProgress(url) else 0f
-            drawAttachmentUploadSpinner(canvas, imgX, imgY, w, h, MEDIA_RADIUS, progress)
+            drawAttachmentUploadSpinner(canvas, imgX, imgY, w, h, MEDIA_RADIUS, progress, uploadFinishingLabel(url))
         } else if (!photoImage.hasMainImage()) {
             if (isVideo) {
                 drawVideoPlaceholder(canvas, imgX, imgY, w, h, MEDIA_RADIUS)
@@ -4187,7 +4254,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 drawBrokenImagePlaceholder(canvas, imgX, imgY, w, h, MEDIA_RADIUS)
             }
         }
-        if (isVideo && !isSlotUploadPending(0)) {
+        if (isVideo && !isSlotUploadPending(0) && !isSlotPresignPending(0)) {
             drawVideoPlayButton(canvas, imgX, imgY, w, h)
             durationLayout?.let { drawDurationBadge(canvas, it, imgX, imgY) }
         }

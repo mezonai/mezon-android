@@ -219,7 +219,7 @@ class MediaController @Inject constructor(
             MediaStore.Video.Media.BUCKET_ID,
             MediaStore.Video.Media.BUCKET_DISPLAY_NAME,
             MediaStore.Video.Media.DATE_MODIFIED
-        )
+        ).let { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) it + MediaStore.Video.Media.ORIENTATION else it }
 
         val sortOrder = "${MediaStore.Video.Media.DATE_MODIFIED} DESC"
         val result = ArrayList<AttachmentPickerItem>()
@@ -235,6 +235,7 @@ class MediaController @Inject constructor(
             val heightCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.HEIGHT)
             val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.SIZE)
             val durationCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DURATION)
+            val orientationCol = cursor.getColumnIndex(MediaStore.Video.Media.ORIENTATION)
 
             var count = 0
             while (cursor.moveToNext() && count < limit) {
@@ -242,8 +243,9 @@ class MediaController @Inject constructor(
                 val path = cursor.getString(dataCol) ?: ""
                 val name = cursor.getString(nameCol) ?: "video"
                 val mime = cursor.getString(mimeCol) ?: "video/mp4"
-                val width = cursor.getInt(widthCol)
-                val height = cursor.getInt(heightCol)
+                val turned = orientationCol >= 0 && cursor.getInt(orientationCol) % 180 != 0
+                val width = cursor.getInt(if (turned) heightCol else widthCol)
+                val height = cursor.getInt(if (turned) widthCol else heightCol)
                 val size = cursor.getLong(sizeCol)
                 val duration = (cursor.getLong(durationCol) / 1000).toInt()
 
