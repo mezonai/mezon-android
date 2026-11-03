@@ -58,6 +58,10 @@ import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.util.AttachmentUploadProgressStore
 import com.mezon.mobile.util.AttachmentUploader
 import com.mezon.mobile.util.PresignFinishContent
+import com.mezon.mobile.util.FileIngestException
+import com.mezon.mobile.util.FileIngestJob
+import com.mezon.mobile.util.FileIngestJobStore
+import com.mezon.mobile.util.FileIngestUploader
 import com.mezon.mobile.util.MENTION_HERE_USER_ID
 import com.mezon.mobile.util.MezonSnowflake
 import com.mezon.mobile.util.firstReferenceMessageId
@@ -331,6 +335,7 @@ class ChatController @Inject constructor(
         appScope.launch(ioDispatcher) {
             val session = sessionManager.sessionFlow.first { it != null }
             cachedCurrentUserId = session?.userId?.toLongOrNull() ?: 0L
+            resumeFileIngestJobs()
         }
     }
 
@@ -2584,12 +2589,12 @@ class ChatController @Inject constructor(
                         val slot = when {
                             item.size > LARGE_ATTACHMENT_BYTES -> largeUploadSlots.withPermit {
                                 prepareAndPresignAttachment(
-                                    index, item, contentResolver, apiUrl, token, cdnBaseUrl, params.channelId, params.maxRetriesPerFile,
+                                    index, item, contentResolver, apiUrl, token, cdnBaseUrl, params.channelId, params.maxRetriesPerFile, allowIngest = !params.anon,
                                 )
                             }
                             else -> uploadSlots.withPermit {
                                 prepareAndPresignAttachment(
-                                    index, item, contentResolver, apiUrl, token, cdnBaseUrl, params.channelId, params.maxRetriesPerFile,
+                                    index, item, contentResolver, apiUrl, token, cdnBaseUrl, params.channelId, params.maxRetriesPerFile, allowIngest = !params.anon,
                                 )
                             }
                         }
@@ -2683,7 +2688,12 @@ class ChatController @Inject constructor(
                 return
             }
 
-            val contentWithPresign = PresignFinishContent.injectEmptyPresignFinish(outgoingBase)
+            val ingestSlots = preparedSlots.filter { it.plan is AttachmentUploader.UploadExecutionPlan.Ingest && it.file != null }
+            val ingestKeys = ingestSlots.map { PresignFinishContent.presignKey(it.attachment.url) }.filter { it.isNotEmpty() }
+            val contentWithPresign = PresignFinishContent.injectIngestKeys(
+                PresignFinishContent.injectEmptyPresignFinish(outgoingBase),
+                ingestKeys,
+            )
             val request = channelMessageSend {
                 this.clanId = params.clanId
                 this.channelId = params.channelId
@@ -2719,6 +2729,12 @@ class ChatController @Inject constructor(
                 NotificationCenter.UPDATE_MASK_ATTACHMENTS or NotificationCenter.UPDATE_MASK_MESSAGE_TEXT,
             )
 
+            val ingestJobFiles = if (ingestSlots.isEmpty()) {
+                emptyMap<Int, java.io.File>()
+            } else {
+                persistFileIngestJobs(params, realMessageId, ackCreateTimeSeconds, outgoingBase, ingestSlots, ingestKeys)
+            }
+
             val presignFinishedKeys = ArrayList<String>()
             var lastSyncedPresignCount = 0
             val presignMutex = Mutex()
@@ -2727,7 +2743,10 @@ class ChatController @Inject constructor(
             suspend fun applyLocalPresignFinishSnapshot() {
                 val snapshot = presignMutex.withLock { presignFinishedKeys.toList() }
                 if (snapshot.isEmpty()) return
-                val content = PresignFinishContent.injectPresignFinish(outgoingBase, snapshot)
+                val content = PresignFinishContent.injectIngestKeys(
+                    PresignFinishContent.injectPresignFinish(outgoingBase, snapshot),
+                    ingestKeys,
+                )
                 applyLocalPresignContentUpdate(params.cacheKey, realMessageId, content)
             }
 
@@ -2751,7 +2770,10 @@ class ChatController @Inject constructor(
                 try {
                     val createTimeSeconds = resolveCreateTimeSeconds()
                     val content = PresignFinishContent.withCreateTimeSeconds(
-                        PresignFinishContent.injectPresignFinish(outgoingBase, snapshot),
+                        PresignFinishContent.injectIngestKeys(
+                            PresignFinishContent.injectPresignFinish(outgoingBase, snapshot),
+                            ingestKeys,
+                        ),
                         createTimeSeconds,
                     )
                     val maxAttempts = if (forceFlush) PRESIGN_FINISH_FLUSH_RETRY_DELAYS_MS.size + 1 else 1
@@ -2782,6 +2804,9 @@ class ChatController @Inject constructor(
                             lastSyncedPresignCount = snapshot.size
                             job.uploadedCount = snapshot.size
                         }
+                        if (ingestKeys.isNotEmpty()) {
+                            FileIngestJobStore.remove(appContext, snapshot)
+                        }
                     }
                 } finally {
                     presignMutex.withLock { isPresignSyncInFlight = false }
@@ -2791,7 +2816,7 @@ class ChatController @Inject constructor(
             val backgroundUploadFailed = coroutineScope {
                 preparedSlots.map { slot ->
                     async(ioDispatcher) {
-                        val ok = executeBackgroundAttachmentUpload(slot, apiUrl, token, params.maxRetriesPerFile)
+                        val ok = executeBackgroundAttachmentUpload(slot, apiUrl, token, params.maxRetriesPerFile, ingestJobFiles[slot.index])
                         if (ok) {
                             val key = PresignFinishContent.presignKey(slot.attachment.url)
                             if (key.isNotEmpty()) {
@@ -2859,6 +2884,7 @@ class ChatController @Inject constructor(
         cdnBaseUrl: String,
         channelId: Long,
         maxRetries: Int,
+        allowIngest: Boolean = false,
     ): PreparedAttachmentSlot? {
         try {
             for (attempt in 1..maxRetries) {
@@ -2887,7 +2913,7 @@ class ChatController @Inject constructor(
                         contentResolver, item.uri, item.mimeType, appContext.cacheDir,
                     ) ?: return null
                     return try {
-                        presignStreamedAttachment(index, item, tmpFile, apiUrl, token, cdnBaseUrl, channelId)
+                        presignStreamedAttachment(index, item, tmpFile, apiUrl, token, cdnBaseUrl, channelId, allowIngest)
                     } catch (e: Exception) {
                         runCatching { tmpFile.delete() }
                         throw e
@@ -2945,6 +2971,7 @@ class ChatController @Inject constructor(
         token: String,
         cdnBaseUrl: String,
         channelId: Long,
+        allowIngest: Boolean = false,
     ): PreparedAttachmentSlot {
         val fileSize = file.length()
         val timestamp = System.currentTimeMillis() / 1000
@@ -2955,7 +2982,7 @@ class ChatController @Inject constructor(
         )
         val presigned = AttachmentUploader.presignAttachmentFromFile(
             api, apiUrl, token, uploadFilename, item.mimeType, fileSize,
-            item.width, item.height, cdnBaseUrl, channelId,
+            item.width, item.height, cdnBaseUrl, channelId, allowIngest,
         )
         val attachment = messageAttachment {
             this.filename = item.filename
@@ -3013,6 +3040,7 @@ class ChatController @Inject constructor(
         apiUrl: String,
         token: String,
         maxRetries: Int,
+        jobFile: java.io.File? = null,
     ): Boolean {
         val onProgress = attachmentUploadProgressCallback(slot.progressKey)
         try {
@@ -3020,7 +3048,14 @@ class ChatController @Inject constructor(
                 try {
                     AttachmentUploader.executeUploadPlan(
                         api, apiUrl, token, slot.plan,
-                        bytes = slot.bytes, file = slot.file, onProgress = onProgress,
+                        bytes = slot.bytes, file = jobFile ?: slot.file, onProgress = onProgress,
+                        onSent = {
+                            AttachmentUploadProgressStore.setFinishing(slot.progressKey, true)
+                            notificationCenter.postNotificationOnMainThread(
+                                NotificationCenter.attachmentUploadProgress,
+                                slot.progressKey,
+                            )
+                        },
                     )
                     AttachmentUploadProgressStore.markUploadComplete(slot.progressKey)
                     notificationCenter.postNotificationOnMainThread(
@@ -3036,6 +3071,136 @@ class ChatController @Inject constructor(
         } finally {
             clearAttachmentUploadProgress(slot.progressKey)
             runCatching { slot.file?.delete() }
+        }
+    }
+
+    private suspend fun persistFileIngestJobs(
+        params: IncrementalAttachmentSendParams,
+        messageId: Long,
+        createTimeSeconds: Int,
+        outgoingBase: String,
+        slots: List<PreparedAttachmentSlot>,
+        ingestKeys: List<String>,
+    ): Map<Int, java.io.File> {
+        val userId = cachedCurrentUserId.toString()
+        val mentions = params.protoMentions.orEmpty().map { it.toByteArray() }
+        return withContext(ioDispatcher) {
+            val jobFiles = HashMap<Int, java.io.File>()
+            for (slot in slots) {
+                val plan = slot.plan as? AttachmentUploader.UploadExecutionPlan.Ingest ?: continue
+                val source = slot.file ?: continue
+                val key = PresignFinishContent.presignKey(slot.attachment.url)
+                if (key.isEmpty()) continue
+                val id = FileIngestJob.newId()
+                val extension = slot.attachment.filename.substringAfterLast('.', "")
+                FileIngestJobStore.save(
+                    appContext,
+                    FileIngestJob(
+                        id = id,
+                        key = key,
+                        userId = userId,
+                        fileName = if (extension.isEmpty()) id else "$id.$extension",
+                        size = source.length(),
+                        presignedUrl = plan.presignedUrl,
+                        ingestUrl = plan.ingestUrl,
+                        mimeType = plan.mimeType,
+                        clanId = params.clanId,
+                        channelId = params.channelId,
+                        cacheKey = params.cacheKey,
+                        mode = params.mode,
+                        isPublic = params.isPublic,
+                        topicId = params.topicId,
+                        messageId = messageId,
+                        createTimeSeconds = createTimeSeconds,
+                        outgoingBase = outgoingBase,
+                        mentions = mentions,
+                        ingestKeys = ingestKeys,
+                        createdAtMs = System.currentTimeMillis(),
+                    ),
+                    source,
+                )?.let { jobFiles[slot.index] = it }
+            }
+            jobFiles
+        }
+    }
+
+    private suspend fun resumeFileIngestJobs() {
+        val userId = cachedCurrentUserId.toString()
+        for (job in FileIngestJobStore.all(appContext)) {
+            if (job.userId != userId) {
+                FileIngestJobStore.remove(appContext, job)
+                continue
+            }
+            resumeFileIngestJob(job)
+        }
+    }
+
+    private suspend fun resumeFileIngestJob(job: FileIngestJob) {
+        val source = FileIngestJobStore.fileFor(appContext, job)
+        if (!source.exists()) {
+            FileIngestJobStore.remove(appContext, job)
+            return
+        }
+        try {
+            FileIngestUploader.upload(
+                file = source,
+                presignedUrl = job.presignedUrl,
+                ingestUrl = job.ingestUrl,
+                onProgress = {},
+                onSent = {},
+                directPut = { api.putFileToPresignedUrlFromFile(job.presignedUrl, source, job.mimeType) },
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: FileIngestException) {
+            when (e.reason) {
+                FileIngestException.Reason.BUSY,
+                FileIngestException.Reason.UNREACHABLE,
+                FileIngestException.Reason.DIRECT_UPLOAD_FAILED -> return
+                else -> {
+                    Log.w(TAG, "File ingest resume dropped messageId=${job.messageId} reason=${e.reason}")
+                    FileIngestJobStore.remove(appContext, job)
+                    return
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "File ingest resume failed messageId=${job.messageId}", e)
+            return
+        }
+        if (patchFileIngestMessage(job)) FileIngestJobStore.remove(appContext, job)
+    }
+
+    private suspend fun patchFileIngestMessage(job: FileIngestJob): Boolean {
+        val stored = withContext(ioDispatcher) { messageDao.getById(job.cacheKey, job.messageId) }
+        val current = stored?.content.orEmpty()
+        val finishedKeys = (PresignFinishContent.parseKeys(current) ?: emptyList()).toMutableList()
+        if (finishedKeys.none { PresignFinishContent.presignKeysMatch(it, job.key) }) finishedKeys.add(job.key)
+        val ingestKeys = (PresignFinishContent.parseIngestKeys(current) + job.ingestKeys).distinct()
+        val base = if (current.isBlank()) job.outgoingBase else PresignFinishContent.presignSyncOriginContent(current)
+        val storedCreateTime = stored?.timestampSeconds?.toInt() ?: 0
+        val createTimeSeconds = if (storedCreateTime > 0) storedCreateTime else job.createTimeSeconds
+        val content = PresignFinishContent.withCreateTimeSeconds(
+            PresignFinishContent.injectIngestKeys(PresignFinishContent.injectPresignFinish(base, finishedKeys), ingestKeys),
+            createTimeSeconds,
+        )
+        val mentions = job.mentions.mapNotNull { runCatching { MessageMention.parseFrom(it) }.getOrNull() }
+        return try {
+            sessionManager.withAutoRefresh { session ->
+                channelUpdate(
+                    session.apiUrl, session.token,
+                    job.clanId, job.channelId, job.mode, job.isPublic,
+                    job.messageId, content, mentions = mentions,
+                    hideEditted = true, topicId = job.topicId,
+                    createTimeSeconds = createTimeSeconds,
+                )
+            }
+            if (stored != null) applyLocalPresignContentUpdate(job.cacheKey, job.messageId, content)
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "File ingest resume patch failed messageId=${job.messageId}", e)
+            false
         }
     }
 
@@ -4479,6 +4644,8 @@ class ChatController @Inject constructor(
         return try {
             val o = JSONObject(raw)
             o.put("fwd", true)
+            o.remove(PresignFinishContent.FIELD_KEY)
+            o.remove(PresignFinishContent.INGEST_FIELD_KEY)
             o.toString()
         } catch (_: Exception) {
             "{\"t\":\"\",\"fwd\":true}"

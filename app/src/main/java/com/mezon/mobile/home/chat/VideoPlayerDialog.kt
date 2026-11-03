@@ -30,6 +30,8 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.datasource.DefaultDataSource
@@ -52,6 +54,7 @@ import com.mezon.mobile.ui.cells.BackupImageView
 import com.mezon.mobile.ui.cells.PopupMenu
 import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.util.avatarImgproxyUrl
+import com.mezon.mobile.util.FileIngestPlaylist
 import dagger.hilt.android.EntryPointAccessors
 import java.util.Locale
 import kotlinx.coroutines.Job
@@ -107,7 +110,8 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
         val channelId: Long = 0L,
         val clanId: Long = 0L,
         val messageId: Long = 0L,
-        val senderInfoResolved: Boolean = false
+        val senderInfoResolved: Boolean = false,
+        val isIngest: Boolean = false,
     )
 
     private val backgroundDrawable = ColorDrawable(Color.BLACK)
@@ -122,6 +126,9 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
 
     private var player: ExoPlayer? = null
     private var durationProbeJob: Job? = null
+    private var ingestResolveJob: Job? = null
+    private var ingestPlaylistUrl: String? = null
+    private var ingestFallbackDone = false
     private lateinit var currentItem: VideoItem
     private var senderInfoJob: Job? = null
     private var resolvedSender: MediaViewerSender? = null
@@ -224,7 +231,7 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
             setBackgroundColor(Color.BLACK)
             useController = true
             controllerAutoShow = true
-            controllerHideOnTouch = false
+            controllerHideOnTouch = true
             controllerShowTimeoutMs = VIDEO_CONTROLLER_TIMEOUT_MS
             setShowPreviousButton(false)
             setShowNextButton(false)
@@ -429,7 +436,21 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
         playbackPositionMs = 0L
         resumePlaybackOnForeground = false
         stoppedForLifecycle = false
-        initializePlayer(startPositionMs = 0L, playWhenReady = true)
+        ingestResolveJob?.cancel()
+        ingestResolveJob = null
+        ingestPlaylistUrl = null
+        ingestFallbackDone = false
+        if (item.isIngest) {
+            ingestResolveJob = entryPoint.applicationScope().launch(entryPoint.mainDispatcher()) {
+                val playlist = FileIngestPlaylist.resolve(item.url)
+                ingestResolveJob = null
+                if (currentItem !== item || !isShowing) return@launch
+                ingestPlaylistUrl = playlist
+                initializePlayer(startPositionMs = 0L, playWhenReady = true)
+            }
+        } else {
+            initializePlayer(startPositionMs = 0L, playWhenReady = true)
+        }
 
         playerView.alpha = 1f
         topBar.alpha = 0f
@@ -446,6 +467,8 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
     override fun dismiss() {
         senderInfoJob?.cancel()
         senderInfoJob = null
+        ingestResolveJob?.cancel()
+        ingestResolveJob = null
         InAppOverlayHost.unregister(this)
         resumePlaybackOnForeground = false
         stoppedForLifecycle = false
@@ -458,6 +481,7 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
 
     private fun initializePlayer(startPositionMs: Long, playWhenReady: Boolean) {
         releasePlayer()
+        val ingestPlaylist = ingestPlaylistUrl
         val dataSourceFactory = CdnSigningDataSource.Factory(DefaultDataSource.Factory(context))
         player = ExoPlayer.Builder(context)
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
@@ -480,7 +504,9 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
 
                     override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
                         logPlayerState(exoPlayer, "timeline=$reason")
-                        if (!durationProbeStarted && exoPlayer.isCurrentMediaItemSeekable && exoPlayer.duration <= 0L) {
+                        if (ingestPlaylist == null && !durationProbeStarted &&
+                            exoPlayer.isCurrentMediaItemSeekable && exoPlayer.duration <= 0L
+                        ) {
                             durationProbeStarted = true
                             val url = currentItem.url
                             durationProbeJob = entryPoint.applicationScope().launch(entryPoint.mainDispatcher()) {
@@ -518,10 +544,37 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
                     ) {
                         logPlayerState(exoPlayer, "discontinuity=$reason")
                     }
+
+                    override fun onPlayerError(error: PlaybackException) {
+                        if (ingestPlaylist == null || ingestFallbackDone || player !== exoPlayer) return
+                        ingestFallbackDone = true
+                        val position = exoPlayer.currentPosition
+                        playerView.post {
+                            if (player !== exoPlayer || !isShowing) return@post
+                            ingestPlaylistUrl = null
+                            initializePlayer(startPositionMs = position, playWhenReady = true)
+                        }
+                    }
                 })
-                exoPlayer.setMediaItem(MediaItem.fromUri(currentItem.url))
+                if (ingestPlaylist != null) {
+                    exoPlayer.setMediaItem(
+                        MediaItem.Builder()
+                            .setUri(ingestPlaylist)
+                            .setMimeType(MimeTypes.APPLICATION_M3U8)
+                            .setLiveConfiguration(
+                                MediaItem.LiveConfiguration.Builder()
+                                    .setMinPlaybackSpeed(1f)
+                                    .setMaxPlaybackSpeed(1f)
+                                    .build()
+                            )
+                            .build(),
+                        startPositionMs,
+                    )
+                } else {
+                    exoPlayer.setMediaItem(MediaItem.fromUri(currentItem.url))
+                }
                 exoPlayer.repeatMode = Player.REPEAT_MODE_OFF
-                if (startPositionMs > 0L) exoPlayer.seekTo(startPositionMs)
+                if (ingestPlaylist == null && startPositionMs > 0L) exoPlayer.seekTo(startPositionMs)
                 exoPlayer.prepare()
                 exoPlayer.playWhenReady = playWhenReady
             }
