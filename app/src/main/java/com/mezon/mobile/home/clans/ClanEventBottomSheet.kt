@@ -59,6 +59,7 @@ class ClanEventBottomSheet(
 
     var onJoinExternalMeeting: ((ExternalMeetingRoom) -> Unit)? = null
     private val logoLoadTokens = ArrayList<MezonImageLoader.Cancellable>()
+    private var renderedEventIds: List<Long> = emptyList()
     private val eventsLoadedObserver = object : NotificationCenter.NotificationCenterDelegate {
         override fun didReceivedNotification(id: Int, account: Int, vararg args: Any?) {
             val idArg = args.firstOrNull() as? Long ?: return
@@ -69,6 +70,14 @@ class ClanEventBottomSheet(
         override fun didReceivedNotification(id: Int, account: Int, vararg args: Any?) {
             val idArg = args.firstOrNull() as? Long ?: return
             if (idArg == clanId) loadClanEvent()
+        }
+    }
+    private val channelsLoadedObserver = object : NotificationCenter.NotificationCenterDelegate {
+        override fun didReceivedNotification(id: Int, account: Int, vararg args: Any?) {
+            val idArg = args.firstOrNull() as? Long ?: return
+            if (idArg != clanId) return
+            val visibleEventIds = clanEventController.visibleEvents(clanId).map { it.id }
+            if (visibleEventIds != renderedEventIds) loadClanEvent()
         }
     }
 
@@ -141,10 +150,12 @@ class ClanEventBottomSheet(
             logoLoadTokens.forEach { it.cancel() }
             logoLoadTokens.clear()
             notificationCenter.removeObserver(eventsLoadedObserver, NotificationCenter.clanEventsDidLoad)
+            notificationCenter.removeObserver(channelsLoadedObserver, NotificationCenter.channelsDidLoad)
             notificationCenter.removeObserver(membersLoadedObserver, NotificationCenter.clanMembersDidLoad)
             notificationCenter.removeObserver(membersLoadedObserver, NotificationCenter.clanRolesDidLoad)
         }
         notificationCenter.addObserver(eventsLoadedObserver, NotificationCenter.clanEventsDidLoad)
+        notificationCenter.addObserver(channelsLoadedObserver, NotificationCenter.channelsDidLoad)
         notificationCenter.addObserver(membersLoadedObserver, NotificationCenter.clanMembersDidLoad)
         notificationCenter.addObserver(membersLoadedObserver, NotificationCenter.clanRolesDidLoad)
         loadClanEvent()
@@ -156,6 +167,7 @@ class ClanEventBottomSheet(
         logoLoadTokens.clear()
         val userId = clanEventController.currentUserId()
         val events = clanEventController.visibleEvents(clanId)
+        renderedEventIds = events.map { it.id }
         val loading = clanEventController.isLoading(clanId)
         val loadError = clanEventController.getLoadError(clanId)
         loadingView.visibility = if (loading && events.isEmpty()) View.VISIBLE else View.GONE

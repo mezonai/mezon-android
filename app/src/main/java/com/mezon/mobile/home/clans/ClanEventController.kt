@@ -13,9 +13,16 @@ import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.network.apiCacheKey
 import com.mezon.mobile.session.SessionManager
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
@@ -42,21 +49,46 @@ class ClanEventController @Inject constructor(
     private val pendingForceEventReload = HashSet<Long>()
     private val pendingSocketEventsByClan = HashMap<Long, MutableList<CreateEventRequest>>()
     private val cacheLock = Any()
+    private var sessionJob = SupervisorJob(appScope.coroutineContext[Job])
+    private var eventExpiryJob: Job? = null
+    private var eventExpiryDeadlineMillis: Long? = null
 
     init {
-        appScope.launch { observeClanEventCreated() }
+        observeClanEventCreated()
     }
 
-    private suspend fun observeClanEventCreated() {
-        socketEventDispatcher.clanEventCreated.collect { event ->
-            applyClanEventFromSocket(event)
+    fun cleanup() = synchronized(cacheLock) {
+        sessionJob.cancel()
+        eventExpiryJob = null
+        eventExpiryDeadlineMillis = null
+        sessionJob = SupervisorJob(appScope.coroutineContext[Job])
+        eventsByClan.clear()
+        loadErrorsByClan.clear()
+        loadingClanIds.clear()
+        pendingForceEventReload.clear()
+        pendingSocketEventsByClan.clear()
+        apiCacheTracker.invalidateByPrefix("listEvents_")
+        observeClanEventCreated()
+    }
+
+    private fun launchRequest(block: suspend CoroutineScope.() -> Unit) = synchronized(cacheLock) {
+        appScope.launch(ioDispatcher + sessionJob, block = block)
+    }
+
+    private fun observeClanEventCreated() {
+        val job = sessionJob
+        appScope.launch(ioDispatcher + job, start = CoroutineStart.UNDISPATCHED) {
+            socketEventDispatcher.clanEventCreated.collect { event ->
+                applyClanEventFromSocket(event, job)
+            }
         }
     }
 
-    private fun applyClanEventFromSocket(event: CreateEventRequest) {
+    private fun applyClanEventFromSocket(event: CreateEventRequest, job: Job) {
         val clanId = event.clanId
         if (clanId == 0L || event.eventId == 0L) return
         val changed = synchronized(cacheLock) {
+            job.ensureActive()
             if (loadingClanIds.contains(clanId)) {
                 pendingSocketEventsByClan.getOrPut(clanId) { ArrayList() }.add(event)
             }
@@ -66,7 +98,9 @@ class ClanEventController @Inject constructor(
                 } else {
                     return@synchronized false
                 }
-            applySocketEvent(events, event)
+            applySocketEvent(events, event).also { changed ->
+                if (changed) scheduleEventExpiryLocked()
+            }
         }
         if (changed) {
             notificationCenter.postNotificationOnMainThread(
@@ -83,15 +117,27 @@ class ClanEventController @Inject constructor(
         val index = events.indexOfFirst { it.id == update.eventId }
         val existing = events.getOrNull(index)
 
+        if (update.action == ClanEventAction.DELETE) {
+            if (existing == null) return false
+            events.removeAt(index)
+            return true
+        }
+
         if (update.action == ClanEventAction.CREATED) {
             if (existing != null) return false
             events.add(update.toClanEventEntity())
             return true
         }
 
-        if (update.eventStatus == ClanEventStatus.UPCOMING || update.eventStatus == ClanEventStatus.ONGOING) {
+        if (update.action != ClanEventAction.UPDATE &&
+            (update.eventStatus == ClanEventStatus.UPCOMING || update.eventStatus == ClanEventStatus.ONGOING)
+        ) {
             if (existing == null) return false
-            events[index] = existing.copy(eventStatus = update.eventStatus)
+            events[index] = existing.copy(
+                eventStatus = update.eventStatus,
+                startTimeSeconds = update.startTimeSeconds.takeIf { it != 0 } ?: existing.startTimeSeconds,
+                endTimeSeconds = update.endTimeSeconds.takeIf { it != 0 } ?: existing.endTimeSeconds,
+            )
             return true
         }
 
@@ -100,8 +146,10 @@ class ClanEventController @Inject constructor(
         ) {
             if (existing == null) return false
             events[index] = existing.copy(
-                eventStatus = update.eventStatus,
+                eventStatus = ClanEventStatus.CREATED,
                 startTimeSeconds = update.startTimeSeconds,
+                endTimeSeconds = update.endTimeSeconds,
+                repeatType = update.repeatType,
             )
             return true
         }
@@ -116,9 +164,8 @@ class ClanEventController @Inject constructor(
             return true
         }
 
-        if ((update.eventStatus == ClanEventStatus.COMPLETED &&
-                update.repeatType == ClanEventRepeatType.DOES_NOT_REPEAT) ||
-            update.action == ClanEventAction.DELETE
+        if (update.eventStatus == ClanEventStatus.COMPLETED &&
+            update.repeatType == ClanEventRepeatType.DOES_NOT_REPEAT
         ) {
             if (existing == null) return false
             events.removeAt(index)
@@ -159,7 +206,7 @@ class ClanEventController @Inject constructor(
         creatorId = creatorId.takeIf { it != 0L } ?: existing?.creatorId ?: 0L,
         userIds = existing?.userIds ?: listOfNotNull(creatorId.takeIf { it != 0L }),
         maxPermission = existing?.maxPermission ?: 0,
-        eventStatus = existing?.eventStatus ?: eventStatus,
+        eventStatus = eventStatus,
         repeatType = repeatType,
         isPrivate = isPrivate,
         externalLink = meetRoom.externalLink.ifBlank { existing?.externalLink.orEmpty() },
@@ -198,30 +245,82 @@ class ClanEventController @Inject constructor(
             permissionPolicy.checkPermission(PermissionPolicy.CLAN_OWNER, clanId = event.clanId)
 
     fun visibleEvents(clanId: Long): List<ClanEventEntity> {
-        val textChannelIds = textChannels(clanId).mapTo(HashSet()) { it.channelId }
+        val channelIds = channelController.getChannels(clanId).mapTo(HashSet()) { it.channelId }
+        val nowSeconds = System.currentTimeMillis() / 1_000
         return getEvents(clanId).filter { event ->
-            event.channelId == 0L || textChannelIds.contains(event.channelId)
+            event.eventStatus != ClanEventStatus.COMPLETED &&
+                (event.endTimeSeconds == 0 || event.endTimeSeconds.toLong() > nowSeconds) &&
+                (event.channelId == 0L || event.channelId in channelIds) &&
+                (event.channelVoiceId == 0L || event.channelVoiceId in channelIds)
+        }
+    }
+
+    fun refreshEventExpiry() = synchronized(cacheLock) {
+        eventExpiryJob?.cancel()
+        eventExpiryJob = null
+        eventExpiryDeadlineMillis = null
+        scheduleEventExpiryLocked()
+        eventsByClan.keys.forEach { clanId ->
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.clanEventsDidLoad, clanId)
+        }
+    }
+
+    private fun scheduleEventExpiryLocked() {
+        val nowMillis = System.currentTimeMillis()
+        if (eventExpiryJob?.isActive == true &&
+            eventExpiryDeadlineMillis?.let { it <= nowMillis } == true
+        ) return
+        val deadline = eventsByClan.values.asSequence().flatten()
+            .filter { it.eventStatus != ClanEventStatus.COMPLETED }
+            .map { it.endTimeSeconds.toLong() * 1_000 }
+            .filter { it > nowMillis }
+            .minOrNull()
+        if (deadline == eventExpiryDeadlineMillis) return
+        eventExpiryJob?.cancel()
+        eventExpiryJob = null
+        eventExpiryDeadlineMillis = deadline
+        if (deadline == null) return
+        eventExpiryJob = appScope.launch(ioDispatcher + sessionJob) {
+            delay((deadline - System.currentTimeMillis()).coerceAtLeast(1L))
+            synchronized(cacheLock) {
+                ensureActive()
+                if (eventExpiryDeadlineMillis != deadline) return@synchronized
+                eventExpiryJob = null
+                eventExpiryDeadlineMillis = null
+                val now = System.currentTimeMillis()
+                val expiredClanIds = eventsByClan.filterValues { events ->
+                    events.any { event ->
+                        event.eventStatus != ClanEventStatus.COMPLETED &&
+                            event.endTimeSeconds.toLong() * 1_000 in deadline..now
+                    }
+                }.keys
+                scheduleEventExpiryLocked()
+                expiredClanIds.forEach { clanId ->
+                    notificationCenter.postNotificationOnMainThread(NotificationCenter.clanEventsDidLoad, clanId)
+                }
+            }
         }
     }
 
     fun loadEvents(clanId: Long, force: Boolean = false) {
         if (clanId == 0L) return
         val cacheKey = apiCacheKey("listEvents", clanId)
-        appScope.launch(ioDispatcher) {
+        launchRequest {
             if (!force && apiCacheTracker.shouldCall(cacheKey) == ApiCacheTracker.ShouldCall.SKIP) {
                 val cached = synchronized(cacheLock) { eventsByClan[clanId] }
-                if (!cached.isNullOrEmpty()) {
+                if (cached != null) {
                     notificationCenter.postNotificationOnMainThread(
                         NotificationCenter.clanEventsDidLoad,
                         clanId,
                     )
-                    return@launch
+                    return@launchRequest
                 }
             }
             synchronized(cacheLock) {
+                ensureActive()
                 if (!loadingClanIds.add(clanId)) {
                     if (force) pendingForceEventReload.add(clanId)
-                    return@launch
+                    return@launchRequest
                 }
             }
             notificationCenter.postNotificationOnMainThread(
@@ -234,28 +333,36 @@ class ClanEventController @Inject constructor(
                 }
                 val mapped = ArrayList(list.map { it.toClanEventEntity() })
                 synchronized(cacheLock) {
+                    ensureActive()
                     pendingSocketEventsByClan.remove(clanId)?.forEach { event ->
                         applySocketEvent(mapped, event)
                     }
                     eventsByClan[clanId] = mapped
+                    scheduleEventExpiryLocked()
+                    loadErrorsByClan.remove(clanId)
+                    apiCacheTracker.markCalled(cacheKey)
                 }
-                loadErrorsByClan.remove(clanId)
-                apiCacheTracker.markCalled(cacheKey)
             } catch (e: Exception) {
-                Log.w(TAG, "loadEvents failed clanId=$clanId", e)
-                loadErrorsByClan[clanId] = e.message?.takeIf { it.isNotBlank() }
-                    ?: "Failed to load events"
-            } finally {
-                val reload = synchronized(cacheLock) {
-                    loadingClanIds.remove(clanId)
-                    pendingSocketEventsByClan.remove(clanId)
-                    pendingForceEventReload.remove(clanId)
+                if (e is CancellationException) throw e
+                synchronized(cacheLock) {
+                    ensureActive()
+                    Log.w(TAG, "loadEvents failed clanId=$clanId", e)
+                    loadErrorsByClan[clanId] = e.message?.takeIf { it.isNotBlank() }
+                        ?: "Failed to load events"
                 }
-                notificationCenter.postNotificationOnMainThread(
-                    NotificationCenter.clanEventsDidLoad,
-                    clanId,
-                )
-                if (reload) loadEvents(clanId, force = true)
+            } finally {
+                synchronized(cacheLock) {
+                    if (isActive) {
+                        loadingClanIds.remove(clanId)
+                        pendingSocketEventsByClan.remove(clanId)
+                        val reload = pendingForceEventReload.remove(clanId)
+                        notificationCenter.postNotificationOnMainThread(
+                            NotificationCenter.clanEventsDidLoad,
+                            clanId,
+                        )
+                        if (reload) loadEvents(clanId, force = true)
+                    }
+                }
             }
         }
     }
@@ -265,7 +372,7 @@ class ClanEventController @Inject constructor(
         clanId: Long,
         onDone: (success: Boolean, error: String?) -> Unit,
     ) {
-        appScope.launch(ioDispatcher) {
+        launchRequest {
             try {
                 sessionManager.withAutoRefresh { session ->
                     api.createEvent(
@@ -285,12 +392,16 @@ class ClanEventController @Inject constructor(
                         creatorId = currentUserId(),
                     )
                 }
-                apiCacheTracker.invalidate(apiCacheKey("listEvents", clanId))
-                loadEvents(clanId, force = true)
+                synchronized(cacheLock) {
+                    ensureActive()
+                    apiCacheTracker.invalidate(apiCacheKey("listEvents", clanId))
+                    loadEvents(clanId, force = true)
+                }
                 withContext(Dispatchers.Main.immediate) {
                     onDone(true, null)
                 }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 withContext(Dispatchers.Main.immediate) {
                     onDone(false, e.message)
                 }
@@ -304,7 +415,7 @@ class ClanEventController @Inject constructor(
         original: ClanEventEntity,
         onDone: (success: Boolean, error: String?) -> Unit,
     ) {
-        appScope.launch(ioDispatcher) {
+        launchRequest {
             try {
                 sessionManager.withAutoRefresh { session ->
                     api.updateEvent(
@@ -325,12 +436,16 @@ class ClanEventController @Inject constructor(
                         creatorId = original.creatorId,
                     )
                 }
-                apiCacheTracker.invalidate(apiCacheKey("listEvents", clanId))
-                loadEvents(clanId, force = true)
+                synchronized(cacheLock) {
+                    ensureActive()
+                    apiCacheTracker.invalidate(apiCacheKey("listEvents", clanId))
+                    loadEvents(clanId, force = true)
+                }
                 withContext(Dispatchers.Main.immediate) {
                     onDone(true, null)
                 }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 withContext(Dispatchers.Main.immediate) {
                     onDone(false, e.message)
                 }
@@ -346,7 +461,7 @@ class ClanEventController @Inject constructor(
         channelId: Long = 0L,
         onDone: (success: Boolean, error: String?) -> Unit,
     ) {
-        appScope.launch(ioDispatcher) {
+        launchRequest {
             try {
                 sessionManager.withAutoRefresh { session ->
                     api.deleteEvent(
@@ -360,9 +475,11 @@ class ClanEventController @Inject constructor(
                     )
                 }
                 synchronized(cacheLock) {
+                    ensureActive()
                     eventsByClan[clanId]?.removeAll { it.id == eventId }
+                    scheduleEventExpiryLocked()
+                    apiCacheTracker.invalidate(apiCacheKey("listEvents", clanId))
                 }
-                apiCacheTracker.invalidate(apiCacheKey("listEvents", clanId))
                 notificationCenter.postNotificationOnMainThread(
                     NotificationCenter.clanEventsDidLoad,
                     clanId,
@@ -371,6 +488,7 @@ class ClanEventController @Inject constructor(
                     onDone(true, null)
                 }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 withContext(Dispatchers.Main.immediate) {
                     onDone(false, e.message)
                 }
@@ -384,7 +502,7 @@ class ClanEventController @Inject constructor(
         interested: Boolean,
         onDone: (success: Boolean, error: String?) -> Unit,
     ) {
-        appScope.launch(ioDispatcher) {
+        launchRequest {
             try {
                 sessionManager.withAutoRefresh { session ->
                     if (interested) {
@@ -394,7 +512,8 @@ class ClanEventController @Inject constructor(
                     }
                 }
                 synchronized(cacheLock) {
-                    val list = eventsByClan[clanId] ?: return@launch
+                    ensureActive()
+                    val list = eventsByClan[clanId] ?: return@launchRequest
                     val idx = list.indexOfFirst { it.id == eventId }
                     if (idx >= 0) {
                         val event = list[idx]
@@ -416,6 +535,7 @@ class ClanEventController @Inject constructor(
                     onDone(true, null)
                 }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 withContext(Dispatchers.Main.immediate) {
                     onDone(false, e.message)
                 }

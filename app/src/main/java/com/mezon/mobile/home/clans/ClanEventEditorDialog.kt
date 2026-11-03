@@ -504,7 +504,6 @@ class ClanEventEditorDialog private constructor(
             }
         }
 
-        val textChannels = clanEventController.textChannels(clanId)
         channelPickerRow = ClanEventOptionPicker(
             context,
             themeColors,
@@ -515,7 +514,7 @@ class ClanEventEditorDialog private constructor(
                 channelId = 0L
                 clearSelection()
             }
-            bind(channelId, textChannels)
+            bind(clanEventController.getChannel(clanId, channelId))
         }
         channelSection = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -896,7 +895,7 @@ class ClanEventEditorDialog private constructor(
 
     private fun refreshChannelPickerRow() {
         if (!::channelPickerRow.isInitialized) return
-        channelPickerRow.bind(channelId, clanEventController.textChannels(clanId))
+        channelPickerRow.bind(clanEventController.getChannel(clanId, channelId))
     }
 
     private fun showVoiceChannelPicker(context: Context, channels: List<ClanChannelEntity>) {
