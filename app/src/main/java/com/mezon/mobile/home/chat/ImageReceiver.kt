@@ -18,7 +18,15 @@ import java.util.LinkedHashSet
 class ImageReceiver(private val parentView: View) {
 
     companion object {
+        private val LOAD_RETRY_DELAYS_MS = longArrayOf(4_000L, 12_000L, 50_000L)
     }
+
+    var retryFailedLoads = false
+    private var requestedUrl: String? = null
+    private var requestedThumbUrl: String? = null
+    private var requestedAnimated = false
+    private var loadRetryAttempt = 0
+    private val loadRetryRunnable = Runnable { retryFailedLoad() }
 
     private var imageBitmap: Bitmap? = null
     private var thumbBitmap: Bitmap? = null
@@ -163,6 +171,8 @@ class ImageReceiver(private val parentView: View) {
         thumbCancellable?.cancel()
         thumbCancellable = null
         pendingLocalUri = null
+        parentView.removeCallbacks(loadRetryRunnable)
+        loadRetryAttempt = 0
     }
 
     fun setImage(url: String?, thumbUrl: String?, context: Context, forceAnimated: Boolean = false) {
@@ -215,6 +225,11 @@ class ImageReceiver(private val parentView: View) {
 
         if ((urlChanged || forceReload) && url != null) {
             loadExhausted = false
+            parentView.removeCallbacks(loadRetryRunnable)
+            if (url != requestedUrl) loadRetryAttempt = 0
+            requestedUrl = url
+            requestedThumbUrl = thumbUrl
+            requestedAnimated = forceAnimated
             mainCancellable?.cancel()
             currentUrl = url
             val rw = if (requestW > 0) requestW else 800
@@ -309,12 +324,33 @@ class ImageReceiver(private val parentView: View) {
     private fun onLoadError(failedUrl: String, rw: Int, rh: Int, loader: MezonImageLoader) {
         val chain = buildMainImageFallbackUrls(failedUrl)
         if (chain.isEmpty()) {
-            loadExhausted = true
-            mainCancellable = null
-            parentView.invalidate()
+            onLoadExhausted()
             return
         }
         loadFallbackUrlFromChain(chain, 0, rw, rh, loader)
+    }
+
+    private fun onLoadExhausted() {
+        mainCancellable = null
+        loadExhausted = !scheduleLoadRetry()
+        parentView.invalidate()
+    }
+
+    private fun scheduleLoadRetry(): Boolean {
+        if (!retryFailedLoads || !attached) return false
+        val delayMs = LOAD_RETRY_DELAYS_MS.getOrNull(loadRetryAttempt) ?: return false
+        loadRetryAttempt++
+        parentView.removeCallbacks(loadRetryRunnable)
+        parentView.postDelayed(loadRetryRunnable, delayMs)
+        return true
+    }
+
+    private fun retryFailedLoad() {
+        val url = requestedUrl ?: return
+        if (!attached || hasMainImage()) return
+        mainCancellable = null
+        currentUrl = null
+        setImage(url, requestedThumbUrl, parentView.context, requestedAnimated)
     }
 
     private fun buildMainImageFallbackUrls(failedUrl: String): List<String> {
@@ -336,9 +372,7 @@ class ImageReceiver(private val parentView: View) {
         loader: MezonImageLoader
     ) {
         if (index >= chain.size) {
-            loadExhausted = true
-            mainCancellable = null
-            parentView.invalidate()
+            onLoadExhausted()
             return
         }
         val nextUrl = chain[index]
@@ -619,6 +653,11 @@ class ImageReceiver(private val parentView: View) {
         pendingForceAnimated = false
         pendingLocalUri = null
         loadExhausted = false
+        parentView.removeCallbacks(loadRetryRunnable)
+        requestedUrl = null
+        requestedThumbUrl = null
+        requestedAnimated = false
+        loadRetryAttempt = 0
     }
 
     fun setLocalUri(uri: android.net.Uri, context: Context) {

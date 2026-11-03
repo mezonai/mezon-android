@@ -36,6 +36,7 @@ import com.mezon.mezon.rtapi.statusUnfollow
 import com.mezon.mezon.rtapi.statusUpdate
 import com.mezon.mezon.rtapi.voiceReactionSend
 import com.mezon.mezon.rtapi.webrtcSignalingFwd
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -99,6 +100,7 @@ class MezonSocket @Inject constructor(
 
     private val _events = MutableSharedFlow<Envelope>(extraBufferCapacity = 64)
     val events: SharedFlow<Envelope> = _events.asSharedFlow()
+    private val pendingEvents = Channel<Envelope>(Channel.UNLIMITED)
 
     private val _reconnected = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val reconnected: SharedFlow<Unit> = _reconnected.asSharedFlow()
@@ -148,6 +150,9 @@ class MezonSocket @Inject constructor(
     private val connectLock = Any()
 
     init {
+        scope.launch {
+            for (event in pendingEvents) _events.emit(event)
+        }
         scope.launch { observeNetwork() }
     }
 
@@ -1089,9 +1094,7 @@ class MezonSocket @Inject constructor(
             else -> Unit
         }
 
-        if (!_events.tryEmit(envelope)) {
-            scope.launch { _events.emit(envelope) }
-        }
+        pendingEvents.trySend(envelope)
     }
 
     private fun startHeartbeat() {

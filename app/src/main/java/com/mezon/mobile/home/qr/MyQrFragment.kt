@@ -516,7 +516,7 @@ class MyQrFragment : BaseFragment() {
     ): Bitmap {
         profileQr?.let { return it }
         val json = JSONObject()
-            .put("id", userId)
+            .put("id", userId.toString())
             .put("avatar", avatar)
             .put("name", name)
             .toString()

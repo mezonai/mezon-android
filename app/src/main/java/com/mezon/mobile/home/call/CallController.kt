@@ -6,6 +6,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 import com.mezon.mobile.MainActivity
+import com.mezon.mobile.R
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.StartupCache
 import com.mezon.mobile.di.ApplicationScope
@@ -15,6 +16,7 @@ import com.mezon.mobile.home.profile.UserController
 import com.mezon.mobile.network.ConnectionState
 import com.mezon.mobile.network.MezonSocket
 import com.mezon.mobile.network.SocketEventDispatcher
+import com.mezon.mobile.notification.NotificationHelper
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -40,6 +42,12 @@ private const val CALL_TIMEOUT_MS = 30_000L
 internal const val CONNECT_TIMEOUT_MS = 30_000L
 private const val REMOTE_VIDEO_INITIAL_SUPPRESS_MS = 2000L
 private const val MAX_KNOWN_PEER_SESSIONS = 8
+private val MISSED_INCOMING_CALL_REASONS = setOf(
+    CallEndReason.TIMEOUT,
+    CallEndReason.REMOTE_HANGUP,
+    CallEndReason.REMOTE_TIMEOUT,
+    CallEndReason.CANCELLED
+)
 
 internal fun offerSdpSendsVideo(sdp: String): Boolean {
     var inVideoSection = false
@@ -65,6 +73,7 @@ class CallController @Inject constructor(
     private val telecomBridge: CallTelecomBridge,
     private val chatController: Lazy<ChatController>,
     private val callLogHelper: CallLogHelper,
+    private val notificationHelper: Lazy<NotificationHelper>,
     @ApplicationContext private val appContext: Context,
     @ApplicationScope private val appScope: CoroutineScope,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher
@@ -171,7 +180,8 @@ class CallController @Inject constructor(
         clanId: Long,
         channelType: Int,
         isChannelPrivate: Boolean,
-        isVideo: Boolean
+        isVideo: Boolean,
+        preferSpeaker: Boolean = false,
     ) {
         if (isCallSessionActive()) {
             Log.w(TAG, "Cannot start call: already in call state ${callState::class.simpleName}")
@@ -197,9 +207,9 @@ class CallController @Inject constructor(
 
         isLocalAudioEnabled = true
         isLocalVideoEnabled = false
-        isSpeakerOn = isVideo
 
-        callAudioManager = CallAudioManager(appContext).also { it.start(isVideo) }
+        callAudioManager = CallAudioManager(appContext).also { it.start(isVideo, preferSpeaker) }
+        isSpeakerOn = callAudioManager?.isSpeakerDesired == true
         callAudioManager?.playDialTone()
 
         telecomBridge.startOutgoing(callInfo)
@@ -788,6 +798,9 @@ class CallController @Inject constructor(
             callLog.ended = CallLogEnd(reason, wasConnected, durationMs)
             updateEndedCallLog(callLog)
         }
+        if (snapState is CallState.Incoming && reason in MISSED_INCOMING_CALL_REASONS) {
+            showMissedCallNotification(snapState.callInfo)
+        }
 
         try {
             appContext.getSharedPreferences("call_data", android.content.Context.MODE_PRIVATE)
@@ -796,6 +809,22 @@ class CallController @Inject constructor(
 
         notificationCenter.postNotificationOnMainThread(NotificationCenter.callEnded, reason, prevInfo)
         notificationCenter.postNotificationOnMainThread(NotificationCenter.callStateChanged, CallState.Idle)
+    }
+
+    private fun showMissedCallNotification(callInfo: CallInfo) {
+        if (callInfo.channelId == 0L) return
+        try {
+            notificationHelper.get().showDmNotification(
+                title = callInfo.peerName,
+                body = appContext.getString(R.string.notification_missed_call),
+                dmChannelId = callInfo.channelId,
+                canReply = false,
+                senderName = callInfo.peerName,
+                avatarUrl = callInfo.peerAvatar.orEmpty()
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "missed call notification failed", e)
+        }
     }
 
     private fun updateEndedCallLog(callLog: OutgoingCallLog) {

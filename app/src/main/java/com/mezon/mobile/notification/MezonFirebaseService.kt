@@ -32,6 +32,22 @@ class MezonFirebaseService : FirebaseMessagingService() {
     companion object {
         private val CHANNEL_LINK_REGEX = Regex("""/chat/clans/(\d+)/channels/(\d+)""")
         private val DM_LINK_REGEX = Regex("""/chat/direct/message/(\d+)""")
+        private val CALL_START_SUFFIXES = listOf(
+            " started a audio call",
+            " started an audio call",
+            " started a voice call",
+            " started a video call"
+        )
+        private val CALL_START_BODIES = setOf(
+            "Started voice call", "Started video call", "Đã bắt đầu cuộc gọi thoại", "Đã bắt đầu cuộc gọi video",
+            "Тавышлы шалтырату башлады", "Видео-шалтырату башлады", "Inició llamada de voz", "Inició llamada de video",
+            "Rozpoczęto połączenie głosowe", "Rozpoczęto połączenie wideo", "Stembellen is gestart", "Videobellen is gestart",
+            "음성 통화 시작", "영상 통화 시작", "Appel vocal commencé", "Appel vidéo commencé",
+            "Chamada de voz iniciada", "Chamada de vídeo iniciada", "Sprachanruf gestartet", "Videoanruf gestartet",
+            "Пачаты галасавы званок", "Пачаты відэазванок", "音声通話を開始しました", "ビデオ通話を開始しました",
+            "Avviata chiamata vocale", "Avviata videochiamata", "Började röstsamtal", "Började videosamtal",
+            "Начал голосовой вызов", "Начал видео-звонок", "Розпочато голосовий дзвінок", "Розпочато відеодзвінок",
+        )
     }
 
     override fun onNewToken(token: String) {
@@ -250,10 +266,17 @@ class MezonFirebaseService : FirebaseMessagingService() {
     }
 
     private fun isCallCompanionSystemMessageBody(body: String): Boolean {
-        val normalized = body.trim().lowercase()
-        if (normalized.isEmpty()) return false
+        val trimmed = body.trim()
+        if (trimmed.isEmpty()) return false
+        if (trimmed in CALL_START_BODIES) return true
+        val normalized = trimmed.lowercase()
         if (normalized == "started voice call" || normalized == "started video call") return true
-        if (normalized.endsWith(" started a voice call") || normalized.endsWith(" started a video call")) return true
+        val isUsernameStartLine = CALL_START_SUFFIXES.any { suffix ->
+            normalized.endsWith(suffix) && normalized.dropLast(suffix.length).let { username ->
+                username.isNotEmpty() && username.none { it.isWhitespace() }
+            }
+        }
+        if (isUsernameStartLine) return true
         return normalized.contains("voice call started") || normalized.contains("video call started")
     }
 

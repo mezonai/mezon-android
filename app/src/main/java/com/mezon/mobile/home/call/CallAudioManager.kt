@@ -54,18 +54,19 @@ class CallAudioManager(context: Context) {
     private var vibrator: Vibrator? = null
     private var isVibrating = false
     var isStarted = false; private set
+    val isSpeakerDesired: Boolean get() = desiredSpeaker
 
     init {
         audioSwitch.registerAudioDeviceChangeListener(deviceChangeListener)
     }
 
-    fun start(isVideo: Boolean) {
+    fun start(isVideo: Boolean, preferSpeaker: Boolean = false) {
         if (isStarted) return
         isStarted = true
 
         activateRouting()
         acquireCpuWakeLock()
-        applyInitialRoute(isVideo)
+        applyInitialRoute(isVideo, preferSpeaker)
         ensureAudibleCallVolume()
     }
 
@@ -82,7 +83,7 @@ class CallAudioManager(context: Context) {
             return
         }
         activateRouting()
-        applyInitialRoute(isVideo)
+        applyInitialRoute(isVideo, preferSpeaker = false)
         ensureAudibleCallVolume()
     }
 
@@ -116,7 +117,7 @@ class CallAudioManager(context: Context) {
         }
     }
 
-    private fun applyInitialRoute(isVideo: Boolean) {
+    private fun applyInitialRoute(isVideo: Boolean, preferSpeaker: Boolean) {
         val hasHeadset = hasExternalAudioDevice()
         when {
             isVideo -> setSpeaker()
@@ -124,6 +125,7 @@ class CallAudioManager(context: Context) {
                 desiredSpeaker = false
                 releaseProximityWakeLock()
             }
+            preferSpeaker -> setSpeaker()
             else -> setEarpiece()
         }
     }

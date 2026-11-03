@@ -31,8 +31,11 @@ data class CdnRequestUrl(
 object CdnSigner {
     private const val REFRESH_AFTER_MS = 2 * 60 * 60 * 1000L
     private const val REFUSED_RETRY_AFTER_MS = 60_000L
+    private const val UNAVAILABLE_RETRY_AFTER_MS = 5_000L
     private const val FORBIDDEN_REFETCH_AFTER_MS = 30_000L
     private const val FETCH_TIMEOUT_MS = 10_000L
+    private const val SOCKET_PERMISSION_DENIED_CODE = 7
+    private const val HTTP_FORBIDDEN_CODE = 403
     private const val CHANNEL_SEGMENT_LENGTH = 16
     private const val IMGPROXY_SOURCE_MARKER = "/plain/"
     private const val HEX_DIGITS = "0123456789ABCDEF"
@@ -46,11 +49,13 @@ object CdnSigner {
     private sealed class Entry {
         class Signed(val signature: String, val at: Long) : Entry()
         class Refused(val at: Long) : Entry()
+        class Unavailable(val at: Long) : Entry()
     }
 
     private sealed class CacheState {
         object Missing : CacheState()
         object Refused : CacheState()
+        object Unavailable : CacheState()
         class Signed(val signature: String) : CacheState()
     }
 
@@ -107,11 +112,20 @@ object CdnSigner {
 
     fun wants(url: String): Boolean = signingTarget(url) != null
 
+    fun isAccessDenied(url: String, requestWasSigned: Boolean): Boolean {
+        val target = signingTarget(url) ?: return true
+        return when (synchronized(lock) { stateLocked(target.channelId) }) {
+            CacheState.Refused -> true
+            is CacheState.Signed -> requestWasSigned
+            CacheState.Missing, CacheState.Unavailable -> false
+        }
+    }
+
     fun readyRequestUrl(url: String): CdnRequestUrl? {
         val target = signingTarget(url) ?: return CdnRequestUrl.unsigned(url)
         return when (val state = synchronized(lock) { stateLocked(target.channelId) }) {
             CacheState.Missing -> null
-            CacheState.Refused -> CdnRequestUrl.unsigned(url)
+            CacheState.Refused, CacheState.Unavailable -> CdnRequestUrl.unsigned(url)
             is CacheState.Signed -> CdnRequestUrl(target.build(state.signature), target.channelId, state.signature)
         }
     }
@@ -171,6 +185,7 @@ object CdnSigner {
         return when (val entry = entries[channelId]) {
             is Entry.Signed -> if (now - entry.at < REFRESH_AFTER_MS) CacheState.Signed(entry.signature) else CacheState.Missing
             is Entry.Refused -> if (now - entry.at < REFUSED_RETRY_AFTER_MS) CacheState.Refused else CacheState.Missing
+            is Entry.Unavailable -> if (now - entry.at < UNAVAILABLE_RETRY_AFTER_MS) CacheState.Unavailable else CacheState.Missing
             null -> CacheState.Missing
         }
     }
@@ -179,7 +194,7 @@ object CdnSigner {
         val flight = synchronized(lock) {
             when (val state = stateLocked(channelId)) {
                 is CacheState.Signed -> return state.signature
-                CacheState.Refused -> return null
+                CacheState.Refused, CacheState.Unavailable -> return null
                 CacheState.Missing -> Unit
             }
             val currentProvider = provider ?: return null
@@ -192,32 +207,52 @@ object CdnSigner {
     }
 
     private suspend fun fetchSignature(channelId: Long, provider: suspend (Long) -> String, started: Int): String? {
-        val fetched = fetchWithTimeout(channelId, provider)
+        val fetched = fetchWithTimeout(channelId, provider, started)
         synchronized(lock) {
             if (generation != started) return null
             flights.remove(channelId)
-            val now = SystemClock.elapsedRealtime()
-            entries[channelId] = if (fetched != null) Entry.Signed(fetched, now) else Entry.Refused(now)
+            if (fetched is Entry.Signed) {
+                entries[channelId] = fetched
+                return fetched.signature
+            }
+            (stateLocked(channelId) as? CacheState.Signed)?.let { return it.signature }
+            entries[channelId] = fetched
         }
-        return fetched
+        return null
     }
 
-    private suspend fun fetchWithTimeout(channelId: Long, provider: suspend (Long) -> String): String? {
+    private suspend fun fetchWithTimeout(channelId: Long, provider: suspend (Long) -> String, started: Int): Entry {
         val call = scope.async { provider(channelId) }
         val fetched = try {
             withTimeoutOrNull(FETCH_TIMEOUT_MS) { call.await() }
         } catch (_: CancellationException) {
             currentCoroutineContext().ensureActive()
-            return null
-        } catch (_: Exception) {
-            return null
+            return Entry.Unavailable(SystemClock.elapsedRealtime())
+        } catch (e: Exception) {
+            val now = SystemClock.elapsedRealtime()
+            return if (isPermissionDenied(e)) Entry.Refused(now) else Entry.Unavailable(now)
         }
+        val now = SystemClock.elapsedRealtime()
         if (fetched == null) {
-            call.cancel()
-            return null
+            scope.launch {
+                val late = runCatching { call.await() }.getOrNull()?.takeIf { it.isNotEmpty() } ?: return@launch
+                storeLateSignature(channelId, late, started)
+            }
+            return Entry.Unavailable(now)
         }
-        return fetched.takeIf { it.isNotEmpty() }
+        return if (fetched.isNotEmpty()) Entry.Signed(fetched, now) else Entry.Unavailable(now)
     }
+
+    private fun storeLateSignature(channelId: Long, signature: String, started: Int) {
+        synchronized(lock) {
+            if (generation != started) return
+            entries[channelId] = Entry.Signed(signature, SystemClock.elapsedRealtime())
+        }
+    }
+
+    private fun isPermissionDenied(error: Exception): Boolean =
+        (error as? SocketRpcServerException)?.code == SOCKET_PERMISSION_DENIED_CODE ||
+            (error as? HttpRpcStatusException)?.code == HTTP_FORBIDDEN_CODE
 
     private fun signingTarget(url: String): SigningTarget? {
         channelIdOf(url)?.let { channelId ->

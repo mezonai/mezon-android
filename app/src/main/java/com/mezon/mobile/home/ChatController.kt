@@ -33,6 +33,7 @@ import com.mezon.mobile.network.UnauthorizedException
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.network.MezonSocket
 import com.mezon.mobile.network.NetworkMonitor
+import com.mezon.mobile.network.ChannelMessageEvent
 import com.mezon.mobile.network.SocketEventDispatcher
 import com.mezon.mobile.network.apiCacheKey
 import com.mezon.mobile.network.channelTypeToStreamMode
@@ -323,7 +324,6 @@ class ChatController @Inject constructor(
 
     init {
         appScope.launch { observeIncomingMessages() }
-        appScope.launch { observeIncomingMessageUpdates() }
         appScope.launch { observeReactionEvents() }
         appScope.launch { observeSdTopicEvents() }
         appScope.launch { observeTopicInMessageEvents() }
@@ -544,16 +544,54 @@ class ChatController @Inject constructor(
         clanId: Long,
         channelType: Int,
         isChannelPrivate: Boolean = false,
-        parentId: Long = 0L
+        parentId: Long = 0L,
+        refreshTopicIdAfterJoin: Long? = null,
     ) {
         appScope.launch {
-            try {
-                sessionManager.sessionFlow.first() ?: return@launch
-                joinChannelOnSocket(channelId, clanId, channelType, isChannelPrivate, parentId)
-            } catch (e: Exception) {
-                Log.e(TAG, "joinChat failed channelId=$channelId", e)
+            val joinJob = launch {
+                try {
+                    sessionManager.sessionFlow.first() ?: return@launch
+                    joinChannelWithRetry(channelId, clanId, channelType, isChannelPrivate, parentId)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.e(TAG, "joinChat failed channelId=$channelId", e)
+                }
+            }
+            val topicId = refreshTopicIdAfterJoin ?: return@launch
+            val joinedInTime = withTimeoutOrNull(JOIN_BEFORE_LOAD_TIMEOUT_MS) {
+                joinJob.join()
+                true
+            } ?: false
+            loadMessages(channelId, clanId, forceRefresh = true, refreshWhenBackOnline = true, topicId = topicId)
+            if (!joinedInTime) {
+                joinJob.join()
+                if (networkMonitor.isOnline.value) {
+                    loadMessages(channelId, clanId, forceRefresh = true, refreshWhenBackOnline = true, topicId = topicId)
+                }
             }
         }
+    }
+
+    private suspend fun joinChannelWithRetry(
+        channelId: Long,
+        clanId: Long,
+        channelType: Int,
+        isChannelPrivate: Boolean,
+        parentId: Long,
+    ) {
+        for (retryDelayMs in CHANNEL_JOIN_RETRY_DELAYS_MS) {
+            try {
+                joinChannelOnSocket(channelId, clanId, channelType, isChannelPrivate, parentId)
+                return
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "joinChat retrying channelId=$channelId", e)
+                delay(retryDelayMs)
+            }
+        }
+        joinChannelOnSocket(channelId, clanId, channelType, isChannelPrivate, parentId)
     }
 
     private suspend fun joinChannelOnSocket(
@@ -673,7 +711,7 @@ class ChatController @Inject constructor(
                         )
                      
                         try {
-                            messageDao.upsertAll(messages)
+                            messageDao.cacheFetchedMessages(messages)
                             messageDao.trimToLatest(cacheKey, PAGE_SIZE * 4)
                         } catch (e: CancellationException) {
                             throw e
@@ -1324,26 +1362,8 @@ class ChatController @Inject constructor(
             if (isUpdateMsgTopic) this.isUpdateMsgTopic = true
             if (createTimeSeconds > 0) this.createTimeSeconds = createTimeSeconds
         }
-        try {
-            withContext(ioDispatcher) {
-                api.updateChannelMessage(apiUrl, token, request)
-            }
-            return
-        } catch (e: Exception) {
-            Log.w(TAG, "Channel message update via REST failed, using socket", e)
-            sentryReporter.logSocketWarning(
-                "channelMessageUpdate",
-                "fallback socket channelId=$channelId topicId=$topicId messageId=$messageId err=${e.message}"
-            )
-            if (mezonSocket.connectionState.value != ConnectionState.CONNECTED) throw e
-        }
         withContext(ioDispatcher) {
-            mezonSocket.updateChatMessage(
-                clanId, channelId, mode, isPublic, messageId, content,
-                mentions?.takeIf { it.isNotEmpty() }, attachmentPayload, hideEditted, topicId,
-                isUpdateMsgTopic = isUpdateMsgTopic,
-                createTimeSeconds = createTimeSeconds,
-            )
+            api.updateChannelMessage(apiUrl, token, request)
         }
     }
 
@@ -2076,6 +2096,9 @@ class ChatController @Inject constructor(
         private const val ATTACHMENT_UPLOAD_PARALLELISM = 4
         private const val PRESIGN_EDIT_BATCH_SIZE = 4
         private const val PRESIGN_FINISH_SYNC_DELAY_MS = 300L
+        private val PRESIGN_FINISH_FLUSH_RETRY_DELAYS_MS = longArrayOf(1_000L, 3_000L)
+        private val CHANNEL_JOIN_RETRY_DELAYS_MS = longArrayOf(1_000L, 3_000L)
+        private const val JOIN_BEFORE_LOAD_TIMEOUT_MS = 500L
         private const val PRESIGN_SEND_FIRST_MIN_COUNT = 1
         private const val IMAGE_COMPRESSION_PARALLELISM = 2
         private const val LARGE_ATTACHMENT_BYTES = 50L * 1024 * 1024
@@ -2731,7 +2754,7 @@ class ChatController @Inject constructor(
                         PresignFinishContent.injectPresignFinish(outgoingBase, snapshot),
                         createTimeSeconds,
                     )
-                    val maxAttempts = if (forceFlush) 2 else 1
+                    val maxAttempts = if (forceFlush) PRESIGN_FINISH_FLUSH_RETRY_DELAYS_MS.size + 1 else 1
                     var synced = false
                     for (attempt in 1..maxAttempts) {
                         try {
@@ -2744,9 +2767,13 @@ class ChatController @Inject constructor(
                             )
                             synced = true
                             break
+                        } catch (e: CancellationException) {
+                            throw e
                         } catch (e: Exception) {
                             if (attempt == maxAttempts) {
                                 Log.e(TAG, "presign_finish sync failed messageId=$realMessageId", e)
+                            } else {
+                                delay(PRESIGN_FINISH_FLUSH_RETRY_DELAYS_MS[attempt - 1])
                             }
                         }
                     }
@@ -3460,11 +3487,11 @@ class ChatController @Inject constructor(
         val resolvedContent = when {
             forceContentReplace && incoming.content.isNotBlank() -> mergedContent
             incoming.isPollMessage -> mergedContent
-            else -> resolveEchoContent(mergedContent, base.content)
+            else -> resolveEchoContent(base.content, mergedContent)
         }
         if (!preserveLocalAttachments) {
             return incoming.copy(
-                content = resolvedContent,
+                content = PresignFinishContent.mergePresignFinishContent(mergedContent, resolvedContent),
                 updateTimeSeconds = if (presignOnly) base.updateTimeSeconds else incoming.updateTimeSeconds,
                 hideEditted = incoming.hideEditted || presignOnly,
             )
@@ -3474,7 +3501,7 @@ class ChatController @Inject constructor(
             else -> resolveEchoContent(base.content, mergedContent)
         }
         return base.copy(
-            content = preservedContent,
+            content = PresignFinishContent.mergePresignFinishContent(mergedContent, preservedContent),
             updateTimeSeconds = if (presignOnly) base.updateTimeSeconds else incoming.updateTimeSeconds,
             hideEditted = incoming.hideEditted || presignOnly,
             code = incoming.code,
@@ -3785,166 +3812,170 @@ class ChatController @Inject constructor(
         val currentUserId = sessionManager.sessionFlow
             .first { it != null }?.userId?.toLongOrNull() ?: 0L
 
-        socketEventDispatcher.channelMessages.collect { raw ->
-            val msg = assignMissingMessageId(resolveEphemeralSender(raw, currentUserId))
-            buzzController.receive(msg, currentUserId)
-            val entity = msg.toMessageEntity(currentUserId)
-
-            when (msg.code) {
-                CODE_CHAT_UPDATE -> {
-                    appScope.launch(ioDispatcher) {
-                        publishIncomingMessageEdit(entity, msg.topicId)
-                    }
+        socketEventDispatcher.channelMessageEvents.collect { event ->
+            try {
+                if (event is ChannelMessageEvent.Update) {
+                    withContext(ioDispatcher) { handleIncomingMessageUpdate(event.value) }
                     return@collect
                 }
-                MessageEntity.CODE_UPDATE_EPHEMERAL -> {
-                    val codeToStore = MessageEntity.CODE_EPHEMERAL
-                    val notifyEntity = if (codeToStore != entity.code) entity.copy(code = codeToStore) else entity
-                    appScope.launch(ioDispatcher) {
-                        val existing = messageDao.getById(notifyEntity.channelId, notifyEntity.id)
-                        if (existing == null) {
-                            messageDao.upsertPreservingReactions(notifyEntity)
+                val raw = (event as ChannelMessageEvent.Message).value
+                val msg = assignMissingMessageId(resolveEphemeralSender(raw, currentUserId))
+                buzzController.receive(msg, currentUserId)
+                val entity = msg.toMessageEntity(currentUserId)
+
+                when (msg.code) {
+                    CODE_CHAT_UPDATE -> {
+                        withContext(ioDispatcher) {
+                            publishIncomingMessageEdit(entity, msg.topicId)
+                        }
+                        return@collect
+                    }
+                    MessageEntity.CODE_UPDATE_EPHEMERAL -> {
+                        val codeToStore = MessageEntity.CODE_EPHEMERAL
+                        val notifyEntity = if (codeToStore != entity.code) entity.copy(code = codeToStore) else entity
+                        appScope.launch(ioDispatcher) {
+                            val existing = messageDao.getById(notifyEntity.channelId, notifyEntity.id)
+                            if (existing == null) {
+                                messageDao.upsertPreservingReactions(notifyEntity)
+                                notificationCenter.postNotificationOnMainThread(
+                                    NotificationCenter.didReceiveNewMessages, notifyEntity.channelId, notifyEntity
+                                )
+                                notificationCenter.postNotificationOnMainThread(
+                                    NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_NEW_MESSAGE
+                                )
+                            } else {
+                                messageDao.updateContent(
+                                    entity.channelId, entity.id, entity.content,
+                                    entity.updateTimeSeconds, entity.hideEditted, codeToStore
+                                )
+                                notificationCenter.postNotificationOnMainThread(
+                                    NotificationCenter.messageDidUpdate, notifyEntity.channelId, notifyEntity,
+                                    NotificationCenter.UPDATE_MASK_MESSAGE_TEXT
+                                )
+                            }
+                        }
+                    }
+                    CODE_CHAT_REMOVE,
+                    MessageEntity.CODE_DELETE_EPHEMERAL -> {
+                        val deleteCacheKey = if (msg.topicId != 0L) msg.topicId else msg.channelId
+                        appScope.launch(ioDispatcher) {
+                            messageDao.delete(deleteCacheKey, msg.messageId)
                             notificationCenter.postNotificationOnMainThread(
-                                NotificationCenter.didReceiveNewMessages, notifyEntity.channelId, notifyEntity
+                                NotificationCenter.messageDidDelete, deleteCacheKey, msg.messageId
+                            )
+                        }
+                        synchronized(this) {
+                            if (lastMessageByChannel.get(deleteCacheKey, 0L) == msg.messageId) {
+                                appScope.launch(ioDispatcher) {
+                                    val newLast = messageDao.getLatestByChannel(deleteCacheKey, PAGE_SIZE)
+                                        .firstOrNull { it.canAdvanceServerTimeline() }
+                                    synchronized(this@ChatController) {
+                                        if (newLast != null) lastMessageByChannel.put(deleteCacheKey, newLast.id)
+                                        else lastMessageByChannel.delete(deleteCacheKey)
+                                    }
+                                }
+                            }
+                        }
+                        if (msg.topicId != 0L) {
+                            appScope.launch(ioDispatcher) {
+                                updateTopicRootStats(msg.topicId, msg.channelId, -1, 0L)
+                            }
+                        }
+                    }
+                    else -> {
+                        if (msg.topicId != 0L) {
+                            if (!entity.isRenderable) return@collect
+                            val topicEntity = remapForCache(entity, msg.topicId)
+                            val storedTopicEntity = withContext(ioDispatcher) {
+                                val existing = messageDao.getById(topicEntity.channelId, topicEntity.id)
+                                val stored = messageDao.upsertPreservingReactions(mergeIncomingAttachmentEntity(existing, topicEntity))
+                                if (existing == null) {
+                                    updateTopicRootStats(msg.topicId, msg.channelId, 1, stored.timestampSeconds)
+                                }
+                                stored
+                            }
+                            if (storedTopicEntity.canAdvanceServerTimeline()) {
+                                synchronized(this) {
+                                    if (storedTopicEntity.id > lastMessageByChannel.get(storedTopicEntity.channelId, 0L)) {
+                                        lastMessageByChannel.put(storedTopicEntity.channelId, storedTopicEntity.id)
+                                    }
+                                }
+                            }
+                            notificationCenter.postNotificationOnMainThread(
+                                NotificationCenter.didReceiveNewMessages, storedTopicEntity.channelId, storedTopicEntity
                             )
                             notificationCenter.postNotificationOnMainThread(
                                 NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_NEW_MESSAGE
                             )
-                        } else {
-                            messageDao.updateContent(
-                                entity.channelId, entity.id, entity.content,
-                                entity.updateTimeSeconds, entity.hideEditted, codeToStore
+                            topicBadgeTracker.tryIncrementForMention(
+                                entity,
+                                msg.channelId,
+                                msg.topicId,
+                                msg.clanId,
+                                currentUserId
+                            )
+                            return@collect
+                        }
+                        if (!entity.isRenderable) {
+                            return@collect
+                        }
+                        withContext(ioDispatcher) {
+                            val existing = messageDao.getById(entity.channelId, entity.id)
+                            val merged = messageDao.upsertPreservingReactions(mergeIncomingAttachmentEntity(existing, entity))
+                            if (merged.canAdvanceServerTimeline()) {
+                                synchronized(this@ChatController) {
+                                    dialogMessage.put(merged.channelId, merged)
+                                    if (merged.id > lastMessageByChannel.get(merged.channelId, 0L)) {
+                                        lastMessageByChannel.put(merged.channelId, merged.id)
+                                    }
+                                }
+                            }
+                            notificationCenter.postNotificationOnMainThread(
+                                NotificationCenter.didReceiveNewMessages, merged.channelId, merged
                             )
                             notificationCenter.postNotificationOnMainThread(
-                                NotificationCenter.messageDidUpdate, notifyEntity.channelId, notifyEntity,
-                                NotificationCenter.UPDATE_MASK_MESSAGE_TEXT
+                                NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_NEW_MESSAGE
+                            )
+                            dialogsController.updateOnNewMessage(
+                                msg.toBuilder()
+                                    .setContent(merged.content)
+                                    .setCode(merged.code)
+                                    .build(),
+                                currentUserId
                             )
                         }
-                    }
-                }
-                CODE_CHAT_REMOVE,
-                MessageEntity.CODE_DELETE_EPHEMERAL -> {
-                    val deleteCacheKey = if (msg.topicId != 0L) msg.topicId else msg.channelId
-                    appScope.launch(ioDispatcher) {
-                        messageDao.delete(deleteCacheKey, msg.messageId)
-                        notificationCenter.postNotificationOnMainThread(
-                            NotificationCenter.messageDidDelete, deleteCacheKey, msg.messageId
-                        )
-                    }
-                    synchronized(this) {
-                        if (lastMessageByChannel.get(deleteCacheKey, 0L) == msg.messageId) {
-                            appScope.launch(ioDispatcher) {
-                                val newLast = messageDao.getLatestByChannel(deleteCacheKey, PAGE_SIZE)
-                                    .firstOrNull { it.canAdvanceServerTimeline() }
-                                synchronized(this@ChatController) {
-                                    if (newLast != null) lastMessageByChannel.put(deleteCacheKey, newLast.id)
-                                    else lastMessageByChannel.delete(deleteCacheKey)
-                                }
-                            }
-                        }
-                    }
-                    if (msg.topicId != 0L) {
-                        appScope.launch(ioDispatcher) {
-                            updateTopicRootStats(msg.topicId, msg.channelId, -1, 0L)
-                        }
-                    }
-                }
-                else -> {
-                    if (msg.topicId != 0L) {
-                        if (!entity.isRenderable) return@collect
-                        val topicEntity = remapForCache(entity, msg.topicId)
-                        appScope.launch(ioDispatcher) {
-                            messageDao.upsertPreservingReactions(topicEntity)
-                            updateTopicRootStats(msg.topicId, msg.channelId, 1, topicEntity.timestampSeconds)
-                        }
-                        if (topicEntity.canAdvanceServerTimeline()) {
-                            synchronized(this) {
-                                if (topicEntity.id > lastMessageByChannel.get(topicEntity.channelId, 0L)) {
-                                    lastMessageByChannel.put(topicEntity.channelId, topicEntity.id)
-                                }
-                            }
-                        }
-                        notificationCenter.postNotificationOnMainThread(
-                            NotificationCenter.didReceiveNewMessages, topicEntity.channelId, topicEntity
-                        )
-                        notificationCenter.postNotificationOnMainThread(
-                            NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_NEW_MESSAGE
-                        )
-                        topicBadgeTracker.tryIncrementForMention(
-                            entity,
-                            msg.channelId,
-                            msg.topicId,
-                            msg.clanId,
-                            currentUserId
-                        )
                         return@collect
                     }
-                    if (!entity.isRenderable) {
-                        return@collect
-                    }
-                    appScope.launch(ioDispatcher) {
-                        val existing = messageDao.getById(entity.channelId, entity.id)
-                        val merged = messageDao.upsertPreservingReactions(mergeIncomingAttachmentEntity(existing, entity))
-                        if (merged.canAdvanceServerTimeline()) {
-                            synchronized(this@ChatController) {
-                                dialogMessage.put(merged.channelId, merged)
-                                if (merged.id > lastMessageByChannel.get(merged.channelId, 0L)) {
-                                    lastMessageByChannel.put(merged.channelId, merged.id)
-                                }
-                            }
-                        }
-                        notificationCenter.postNotificationOnMainThread(
-                            NotificationCenter.didReceiveNewMessages, merged.channelId, merged
-                        )
-                        notificationCenter.postNotificationOnMainThread(
-                            NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_NEW_MESSAGE
-                        )
-                        dialogsController.updateOnNewMessage(
-                            msg.toBuilder()
-                                .setContent(merged.content)
-                                .setCode(merged.code)
-                                .build(),
-                            currentUserId
-                        )
-                    }
-                    return@collect
                 }
-            }
 
-            dialogsController.updateOnNewMessage(msg, currentUserId)
+                dialogsController.updateOnNewMessage(msg, currentUserId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to process incoming channel message event", e)
+            }
         }
     }
 
-    private suspend fun observeIncomingMessageUpdates() {
-        socketEventDispatcher.channelMessageUpdates.collect { update ->
-            val mentionsBytes = if (update.mentionsCount == 0) {
-                ByteString.EMPTY
-            } else {
-                ByteString.copyFrom(
-                    MessageMentionList.newBuilder().addAllMentions(update.mentionsList).build().toByteArray()
-                )
-            }
-            val mergedContent = mergeChannelContentMentionsAndRefs(update.content, mentionsBytes, ByteString.EMPTY)
-            val updateTime = System.currentTimeMillis() / 1000L
-            appScope.launch(ioDispatcher) {
-                publishChannelMessageUpdate(update, mergedContent, updateTime)
-            }
+    private suspend fun handleIncomingMessageUpdate(update: com.mezon.mezon.rtapi.ChannelMessageUpdate) {
+        val mentionsBytes = if (update.mentionsCount == 0) {
+            ByteString.EMPTY
+        } else {
+            ByteString.copyFrom(
+                MessageMentionList.newBuilder().addAllMentions(update.mentionsList).build().toByteArray()
+            )
         }
+        val mergedContent = mergeChannelContentMentionsAndRefs(update.content, mentionsBytes, ByteString.EMPTY)
+        publishChannelMessageUpdate(update, mergedContent, System.currentTimeMillis() / 1000L)
     }
 
     private suspend fun lookupMessageForSocketEdit(
         cacheKey: Long,
         messageId: Long,
         parentChannelId: Long,
-    ): MessageEntity? {
-        suspend fun lookupOnce(): MessageEntity? =
-            messageDao.getById(cacheKey, messageId)
-                ?: if (cacheKey != parentChannelId) messageDao.getById(parentChannelId, messageId) else null
-        return lookupOnce() ?: run {
-            delay(200)
-            lookupOnce()
-        }
-    }
+    ): MessageEntity? =
+        messageDao.getById(cacheKey, messageId)
+            ?: if (cacheKey != parentChannelId) messageDao.getById(parentChannelId, messageId) else null
 
     private suspend fun publishIncomingMessageEdit(incoming: MessageEntity, topicId: Long) {
         val cacheKey = messageCacheKey(incoming.channelId, topicId)

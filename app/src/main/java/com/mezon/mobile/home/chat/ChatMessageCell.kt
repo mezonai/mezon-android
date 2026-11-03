@@ -313,6 +313,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private val audioWavePath = Path()
 
     private val photoImage = ImageReceiver(this).apply {
+        retryFailedLoads = true
         onMainImageLoaded = { adoptLoadedMediaDimsIfUnknown() }
     }
     private val extraPhotoImages = ArrayList<ImageReceiver>()
@@ -325,6 +326,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val extraIndex = index - 1
         while (extraPhotoImages.size <= extraIndex) {
             val receiver = ImageReceiver(this)
+            receiver.retryFailedLoads = true
             if (attachedToWindow) receiver.onAttachedToWindow()
             extraPhotoImages.add(receiver)
         }

@@ -71,6 +71,11 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
 
+sealed interface ChannelMessageEvent {
+    data class Message(val value: ChannelMessage) : ChannelMessageEvent
+    data class Update(val value: ChannelMessageUpdate) : ChannelMessageEvent
+}
+
 @Singleton
 class SocketEventDispatcher @Inject constructor(
     private val mezonSocket: MezonSocket,
@@ -79,8 +84,8 @@ class SocketEventDispatcher @Inject constructor(
     private val _channelMessages = MutableSharedFlow<ChannelMessage>(extraBufferCapacity = 32)
     val channelMessages: SharedFlow<ChannelMessage> = _channelMessages.asSharedFlow()
 
-    private val _channelMessageUpdates = MutableSharedFlow<ChannelMessageUpdate>(extraBufferCapacity = 32)
-    val channelMessageUpdates: SharedFlow<ChannelMessageUpdate> = _channelMessageUpdates.asSharedFlow()
+    private val _channelMessageEvents = MutableSharedFlow<ChannelMessageEvent>(extraBufferCapacity = 64)
+    val channelMessageEvents: SharedFlow<ChannelMessageEvent> = _channelMessageEvents.asSharedFlow()
 
     private val _typingEvents = MutableSharedFlow<MessageTypingEvent>(extraBufferCapacity = 16)
     val typingEvents: SharedFlow<MessageTypingEvent> = _typingEvents.asSharedFlow()
@@ -270,17 +275,20 @@ class SocketEventDispatcher @Inject constructor(
         }
     }
 
+    private suspend fun emitChannelMessage(message: ChannelMessage) {
+        _channelMessageEvents.emit(ChannelMessageEvent.Message(message))
+        _channelMessages.emit(message)
+    }
+
     private suspend fun dispatch(envelope: Envelope) {
         when (envelope.messageCase) {
-            Envelope.MessageCase.CHANNEL_MESSAGE -> {
-                _channelMessages.emit(envelope.channelMessage)
-            }
+            Envelope.MessageCase.CHANNEL_MESSAGE -> emitChannelMessage(envelope.channelMessage)
             Envelope.MessageCase.CHANNEL_MESSAGE_UPDATE ->
-                _channelMessageUpdates.emit(envelope.channelMessageUpdate)
+                _channelMessageEvents.emit(ChannelMessageEvent.Update(envelope.channelMessageUpdate))
             Envelope.MessageCase.CHANNEL_MESSAGE_SEND ->
-                _channelMessages.emit(envelope.channelMessageSend.toApiChannelMessage())
+                emitChannelMessage(envelope.channelMessageSend.toApiChannelMessage())
             Envelope.MessageCase.EPHEMERAL_MESSAGE_SEND -> {
-                envelope.ephemeralMessageSend.toApiChannelMessage()?.let { _channelMessages.emit(it) }
+                envelope.ephemeralMessageSend.toApiChannelMessage()?.let { emitChannelMessage(it) }
             }
             Envelope.MessageCase.MESSAGE_TYPING_EVENT ->
                 _typingEvents.emit(envelope.messageTypingEvent)

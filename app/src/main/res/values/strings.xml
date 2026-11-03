@@ -119,7 +119,7 @@
     <string name="lucky_money_invalid_payload">This QR code is not valid lucky money.</string>
 
     <!-- qr profile sheet -->
-    <string name="qr_profile_sheet_title">USER PROFILE</string>
+    <string name="qr_profile_sheet_title">User profile</string>
     <string name="qr_profile_add_friend">Add friend</string>
     <string name="qr_profile_message">Message</string>
     <string name="qr_profile_decline">No, thank you</string>
@@ -1032,6 +1032,7 @@
     <string name="notification_channel_system">System</string>
     <string name="notification_channel_system_desc">System notifications</string>
     <string name="notification_action_mute_15m">Mute 15 min</string>
+    <string name="notification_missed_call">Missed call</string>
     <string name="notification_mute_failed">Could not mute notifications. Try again.</string>
     <string name="notification_action_reply">Reply</string>
     <string name="notification_action_like">Like</string>
