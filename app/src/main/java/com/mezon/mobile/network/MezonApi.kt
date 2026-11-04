@@ -387,6 +387,7 @@ class MezonApi @Inject constructor(
         private val SERVER_KEY = BuildConfig.MEZON_API_KEY
         private const val DISCOVER_ITEMS_PER_PAGE = 6
         private const val SOCKET_WAIT_MS = 5_000L
+        private const val SOCKET_MESSAGE_FETCH_WAIT_MS = 300L
         private const val SOCKET_API_TIMEOUT_MS = 4_000L
         private const val SOCKET_MESSAGE_FETCH_TIMEOUT_MS = 1_500L
         private val MESSAGE_FETCH_API_NAMES = setOf("ListChannelMessages")
@@ -706,8 +707,14 @@ class MezonApi @Inject constructor(
 
     private suspend fun rpcOverSocket(method: String, body: ByteArray, token: String): ByteArray {
         val socket = mezonSocketLazy.get()
-        if (!socket.awaitConnected(SOCKET_WAIT_MS)) {
-            markSocketDegraded()
+        val isMessageFetch = method in MESSAGE_FETCH_API_NAMES
+        val connected = if (isMessageFetch) {
+            socket.awaitConnected(SOCKET_MESSAGE_FETCH_WAIT_MS, reportTimeout = false)
+        } else {
+            socket.awaitConnected(SOCKET_WAIT_MS)
+        }
+        if (!connected) {
+            if (!isMessageFetch) markSocketDegraded()
             throw SocketRpcTransportException(
                 "WebSocket unavailable for '$method'",
                 retryOverHttp = true

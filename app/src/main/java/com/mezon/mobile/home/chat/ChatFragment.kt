@@ -1588,7 +1588,11 @@ open class ChatFragment : BaseFragment() {
         notificationCenter.addPostponeNotificationsCallback(postponeNewMessagesCallback)
 
         isLoading = true
-        if (startLoadFromMessageId == 0L) rejoinChannelOnSocket(refreshAfterJoin = true) else loadInitialMessages()
+        if (startLoadFromMessageId == 0L) {
+            rejoinChannelOnSocket(refreshAfterJoin = true, showCachedMessagesFirst = true)
+        } else {
+            loadInitialMessages()
+        }
         return true
     }
 
@@ -5102,11 +5106,12 @@ open class ChatFragment : BaseFragment() {
         }
     }
 
-    private fun rejoinChannelOnSocket(refreshAfterJoin: Boolean = false) {
+    private fun rejoinChannelOnSocket(refreshAfterJoin: Boolean = false, showCachedMessagesFirst: Boolean = false) {
         if (channelId == 0L) return
         chatController.openChannel(
             channelId, clanId, channelType, resolveChannelPrivate(), routeParentId,
             refreshTopicIdAfterJoin = if (refreshAfterJoin) topicId else null,
+            showCachedMessagesFirst = showCachedMessagesFirst,
         )
     }
 
