@@ -956,7 +956,8 @@
     <string name="clan_event_end">Kết thúc sự kiện</string>
     <string name="clan_event_interested">Quan tâm</string>
     <string name="clan_event_uninterested">Bỏ quan tâm</string>
-    <string name="clan_event_private_room">Phòng họp bên ngoài</string>
+    <string name="clan_event_private_room">Phòng thoại riêng tư</string>
+    <string name="clan_event_external_meeting_room">Phòng họp bên ngoài</string>
     <string name="clan_event_invite_action">Mời</string>
     <string name="clan_event_invite_title">Mời bạn bè tham gia Sự kiện bên ngoài</string>
     <string name="clan_event_invite_search_placeholder">Tìm kiếm bạn bè</string>

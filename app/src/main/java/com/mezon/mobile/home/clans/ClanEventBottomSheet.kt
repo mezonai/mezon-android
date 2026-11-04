@@ -59,7 +59,6 @@ class ClanEventBottomSheet(
 
     var onJoinExternalMeeting: ((ExternalMeetingRoom) -> Unit)? = null
     private val logoLoadTokens = ArrayList<MezonImageLoader.Cancellable>()
-    private var renderedEventIds: List<Long> = emptyList()
     private val eventsLoadedObserver = object : NotificationCenter.NotificationCenterDelegate {
         override fun didReceivedNotification(id: Int, account: Int, vararg args: Any?) {
             val idArg = args.firstOrNull() as? Long ?: return
@@ -75,9 +74,7 @@ class ClanEventBottomSheet(
     private val channelsLoadedObserver = object : NotificationCenter.NotificationCenterDelegate {
         override fun didReceivedNotification(id: Int, account: Int, vararg args: Any?) {
             val idArg = args.firstOrNull() as? Long ?: return
-            if (idArg != clanId) return
-            val visibleEventIds = clanEventController.visibleEvents(clanId).map { it.id }
-            if (visibleEventIds != renderedEventIds) loadClanEvent()
+            if (idArg == clanId) loadClanEvent()
         }
     }
 
@@ -167,7 +164,6 @@ class ClanEventBottomSheet(
         logoLoadTokens.clear()
         val userId = clanEventController.currentUserId()
         val events = clanEventController.visibleEvents(clanId)
-        renderedEventIds = events.map { it.id }
         val loading = clanEventController.isLoading(clanId)
         val loadError = clanEventController.getLoadError(clanId)
         loadingView.visibility = if (loading && events.isEmpty()) View.VISIBLE else View.GONE
@@ -513,7 +509,10 @@ class ClanEventBottomSheet(
             )
         } else {
             val label = voiceChannel?.channelLabel?.takeIf { it.isNotBlank() }
-                ?: context.getString(R.string.clan_event_private_room)
+                ?: context.getString(
+                    if (event.channelVoiceId != 0L) R.string.clan_event_private_room
+                    else R.string.clan_event_external_meeting_room,
+                )
             val row = buildInlineInfoRow(
                 context,
                 theme,

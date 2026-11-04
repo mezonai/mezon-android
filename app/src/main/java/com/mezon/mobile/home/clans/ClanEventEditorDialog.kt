@@ -1226,7 +1226,7 @@ class ClanEventEditorDialog private constructor(
             ClanEventOption.SPEAKER ->
                 clanEventController.getChannel(clanId, draft.channelVoiceId)?.channelLabel
                     ?: context.getString(R.string.clan_event_private_room)
-            else -> context.getString(R.string.clan_event_private_room)
+            else -> context.getString(R.string.clan_event_external_meeting_room)
         }
         val locationIcon = if (draft.option == ClanEventOption.LOCATION) MezonIcon.locationIcon else MezonIcon.channelVoice
         textCol.addView(

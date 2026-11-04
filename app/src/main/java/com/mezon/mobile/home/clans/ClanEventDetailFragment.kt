@@ -620,7 +620,10 @@ class ClanEventDetailFragment : BaseFragment() {
             )
         } else {
             val label = voiceChannel?.channelLabel?.takeIf { it.isNotBlank() }
-                ?: context.getString(R.string.clan_event_private_room)
+                ?: context.getString(
+                    if (event.channelVoiceId != 0L) R.string.clan_event_private_room
+                    else R.string.clan_event_external_meeting_room,
+                )
             val row = buildInlineInfoRow(
                 context,
                 theme,

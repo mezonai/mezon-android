@@ -1060,7 +1060,8 @@
     <string name="clan_event_end">End Event</string>
     <string name="clan_event_interested">Interested</string>
     <string name="clan_event_uninterested">Not interested</string>
-    <string name="clan_event_private_room">External Meeting Room</string>
+    <string name="clan_event_private_room">Private Voice Room</string>
+    <string name="clan_event_external_meeting_room">External Meeting Room</string>
     <string name="clan_event_invite_action">Invite</string>
     <string name="clan_event_invite_title">Invite friends to join External Event</string>
     <string name="clan_event_invite_search_placeholder">Search friends</string>

@@ -250,8 +250,7 @@ class ClanEventController @Inject constructor(
         return getEvents(clanId).filter { event ->
             event.eventStatus != ClanEventStatus.COMPLETED &&
                 (event.endTimeSeconds == 0 || event.endTimeSeconds.toLong() > nowSeconds) &&
-                (event.channelId == 0L || event.channelId in channelIds) &&
-                (event.channelVoiceId == 0L || event.channelVoiceId in channelIds)
+                (event.channelId == 0L || event.channelId in channelIds)
         }
     }
 
