@@ -453,7 +453,7 @@ class MezonSocket @Inject constructor(
         }
     }
 
-    suspend fun awaitConnected(timeoutMs: Long = 15_000L): Boolean {
+    suspend fun awaitConnected(timeoutMs: Long = 15_000L, reportTimeout: Boolean = true): Boolean {
         if (_connectionState.value == ConnectionState.CONNECTED) return true
         return try {
             withTimeout(timeoutMs) {
@@ -461,8 +461,10 @@ class MezonSocket @Inject constructor(
             }
             true
         } catch (_: TimeoutCancellationException) {
-            Log.w(TAG, "awaitConnected: timeout ${timeoutMs}ms")
-            sentryReporter.logSocketWarning("awaitConnected", "timeout ${timeoutMs}ms")
+            if (reportTimeout) {
+                Log.w(TAG, "awaitConnected: timeout ${timeoutMs}ms")
+                sentryReporter.logSocketWarning("awaitConnected", "timeout ${timeoutMs}ms")
+            }
             false
         }
     }

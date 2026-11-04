@@ -53,6 +53,7 @@ import com.mezon.mobile.home.notifications.NOTIF_CODE_MESSAGE_TO_INBOX
 import com.mezon.mobile.home.notifications.NotificationEntity
 import com.mezon.mobile.home.notifications.NotificationStore
 import com.mezon.mobile.home.notifications.pendingNotificationId
+import com.mezon.mobile.session.SessionExpiredException
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.util.AttachmentUploadProgressStore
@@ -126,6 +127,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
@@ -551,6 +553,7 @@ class ChatController @Inject constructor(
         isChannelPrivate: Boolean = false,
         parentId: Long = 0L,
         refreshTopicIdAfterJoin: Long? = null,
+        showCachedMessagesFirst: Boolean = false,
     ) {
         appScope.launch {
             val joinJob = launch {
@@ -564,6 +567,7 @@ class ChatController @Inject constructor(
                 }
             }
             val topicId = refreshTopicIdAfterJoin ?: return@launch
+            if (showCachedMessagesFirst) postCachedMessages(channelId, topicId)
             val joinedInTime = withTimeoutOrNull(JOIN_BEFORE_LOAD_TIMEOUT_MS) {
                 joinJob.join()
                 true
@@ -576,6 +580,27 @@ class ChatController @Inject constructor(
                 }
             }
         }
+    }
+
+    private suspend fun postCachedMessages(channelId: Long, topicId: Long) {
+        val cacheKey = messageCacheKey(channelId, topicId)
+        val cached = try {
+            withContext(ioDispatcher) { messageDao.getLatestByChannel(cacheKey, PAGE_SIZE) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "postCachedMessages failed for channel $cacheKey", e)
+            return
+        }
+        if (cached.isEmpty()) return
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.messagesDidLoad,
+            cacheKey,
+            ArrayList(cached),
+            computeHasMoreTop(topicId, cached.size, cached),
+            false,
+            true
+        )
     }
 
     private suspend fun joinChannelWithRetry(
@@ -638,7 +663,8 @@ class ChatController @Inject constructor(
         clanId: Long,
         forceRefresh: Boolean = false,
         refreshWhenBackOnline: Boolean = false,
-        topicId: Long = 0L
+        topicId: Long = 0L,
+        retryAttempt: Int = 0
     ) {
         val cacheKey = messageCacheKey(channelId, topicId)
         val onlineRefresh = OnlineMessageRefresh(channelId, clanId, topicId)
@@ -676,16 +702,18 @@ class ChatController @Inject constructor(
                 CdnSigner.prefetch(channelId)
                 sessionManager.withAutoRefresh { session ->
                     val currentUserId = session.userId.toLongOrNull() ?: 0L
-                    val response = api.listChannelMessages(
-                        session.apiUrl,
-                        session.token,
-                        channelId,
-                        clanId,
-                        messageId = 0L,
-                        direction = 0,
-                        limit = PAGE_SIZE,
-                        topicId = topicId
-                    )
+                    val response = withTimeout(MESSAGE_FETCH_DEADLINE_MS) {
+                        api.listChannelMessages(
+                            session.apiUrl,
+                            session.token,
+                            channelId,
+                            clanId,
+                            messageId = 0L,
+                            direction = 0,
+                            limit = PAGE_SIZE,
+                            topicId = topicId
+                        )
+                    }
                     val allMessages = response.messagesList.map { it.toMessageEntity(currentUserId) }
                     if (topicId == 0L) {
                         allMessages.filter { it.isRenderable && it.isTopicRootMessage }.forEach { msg ->
@@ -740,10 +768,44 @@ class ChatController @Inject constructor(
                         NotificationCenter.messagesLoadError, cacheKey, e.message ?: "Failed to load"
                     )
                 }
-                if (refreshWhenBackOnline && !networkMonitor.isOnline.value) {
-                    scheduleMessageRefreshWhenOnline(onlineRefresh)
+                if (refreshWhenBackOnline) {
+                    if (!networkMonitor.isOnline.value) {
+                        scheduleMessageRefreshWhenOnline(onlineRefresh)
+                    } else if (
+                        retryAttempt < LATEST_MESSAGES_RETRY_DELAYS_MS.size &&
+                        e !is SessionExpiredException &&
+                        e !is UnauthorizedException
+                    ) {
+                        scheduleLatestMessagesRetry(onlineRefresh, retryAttempt)
+                    }
                 }
             }
+        }
+    }
+
+    private fun scheduleLatestMessagesRetry(refresh: OnlineMessageRefresh, attempt: Int) {
+        lateinit var job: Job
+        job = appScope.launch(start = CoroutineStart.LAZY) {
+            try {
+                delay(LATEST_MESSAGES_RETRY_DELAYS_MS[attempt])
+                networkMonitor.isOnline.first { it }
+                if (!pendingOnlineMessageRefreshJobs.remove(refresh, job)) return@launch
+                loadMessages(
+                    refresh.channelId,
+                    refresh.clanId,
+                    forceRefresh = true,
+                    refreshWhenBackOnline = true,
+                    topicId = refresh.topicId,
+                    retryAttempt = attempt + 1
+                )
+            } finally {
+                pendingOnlineMessageRefreshJobs.remove(refresh, job)
+            }
+        }
+        if (pendingOnlineMessageRefreshJobs.putIfAbsent(refresh, job) == null) {
+            job.start()
+        } else {
+            job.cancel()
         }
     }
 
@@ -850,16 +912,18 @@ class ChatController @Inject constructor(
                 CdnSigner.prefetch(channelId)
                 sessionManager.withAutoRefresh { session ->
                     val currentUserId = session.userId.toLongOrNull() ?: 0L
-                    val response = api.listChannelMessages(
-                        session.apiUrl,
-                        session.token,
-                        channelId,
-                        clanId,
-                        anchorMessageId,
-                        DIRECTION_AROUND,
-                        PAGE_SIZE,
-                        topicId = topicId
-                    )
+                    val response = withTimeout(MESSAGE_FETCH_DEADLINE_MS) {
+                        api.listChannelMessages(
+                            session.apiUrl,
+                            session.token,
+                            channelId,
+                            clanId,
+                            anchorMessageId,
+                            DIRECTION_AROUND,
+                            PAGE_SIZE,
+                            topicId = topicId
+                        )
+                    }
                     val allMsgs = response.messagesList.map { it.toMessageEntity(currentUserId) }
                     val hasMoreTop = computeHasMoreTop(
                         topicId,
@@ -2104,6 +2168,8 @@ class ChatController @Inject constructor(
         private val PRESIGN_FINISH_FLUSH_RETRY_DELAYS_MS = longArrayOf(1_000L, 3_000L)
         private val CHANNEL_JOIN_RETRY_DELAYS_MS = longArrayOf(1_000L, 3_000L)
         private const val JOIN_BEFORE_LOAD_TIMEOUT_MS = 500L
+        private const val MESSAGE_FETCH_DEADLINE_MS = 15_000L
+        private val LATEST_MESSAGES_RETRY_DELAYS_MS = longArrayOf(2_000L, 5_000L, 10_000L)
         private const val PRESIGN_SEND_FIRST_MIN_COUNT = 1
         private const val IMAGE_COMPRESSION_PARALLELISM = 2
         private const val LARGE_ATTACHMENT_BYTES = 50L * 1024 * 1024

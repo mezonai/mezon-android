@@ -349,7 +349,7 @@ object AttachmentUploader {
             )
             require(presign.filename.isNotEmpty()) { "ingest presign returned an empty filename" }
             val cdnUrl = cdnUrlForView(presign.typeCdn, cdnBaseUrl, presign.filename)
-            val ingestUrl = FileIngest.ingestUrl(presign.url)
+            val ingestUrl = FileIngest.ingestUrl(presign.url)?.takeIf { FileIngestAvailability.isAvailable(it) }
             if (ingestUrl != null) {
                 return PresignedFileResult(
                     serverFilename = presign.filename,

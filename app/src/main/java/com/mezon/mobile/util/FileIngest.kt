@@ -138,6 +138,50 @@ object FileIngest {
     }
 }
 
+object FileIngestAvailability {
+    private const val AVAILABLE_FOR_MS = 30L * 60 * 1000
+    private const val UNAVAILABLE_FOR_MS = 5L * 60 * 1000
+    private val ORIGIN_REGEX = Regex("^(https?://[^/?#]+)", RegexOption.IGNORE_CASE)
+
+    private class Verdict(val available: Boolean, val expiresAtMs: Long)
+
+    private val verdicts = ConcurrentHashMap<String, Verdict>()
+    private val client: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(5, TimeUnit.SECONDS)
+            .readTimeout(5, TimeUnit.SECONDS)
+            .callTimeout(5, TimeUnit.SECONDS)
+            .build()
+    }
+
+    suspend fun isAvailable(ingestUrl: String): Boolean {
+        val unsigned = ingestUrl.substringBefore('?')
+        val origin = ORIGIN_REGEX.find(unsigned)?.groupValues?.get(1)?.lowercase() ?: return false
+        verdicts[origin]?.takeIf { it.expiresAtMs > System.currentTimeMillis() }?.let { return it.available }
+        val available = runInterruptible(Dispatchers.IO) {
+            try {
+                client.newCall(Request.Builder().url(unsigned).get().build()).execute().use { response ->
+                    response.code != 404 && isJsonObject(response.body?.string().orEmpty())
+                }
+            } catch (_: IOException) {
+                null
+            } catch (_: IllegalArgumentException) {
+                null
+            }
+        } ?: return false
+        val lifetimeMs = if (available) AVAILABLE_FOR_MS else UNAVAILABLE_FOR_MS
+        verdicts[origin] = Verdict(available, System.currentTimeMillis() + lifetimeMs)
+        return available
+    }
+
+    private fun isJsonObject(body: String): Boolean = try {
+        JSONObject(body)
+        true
+    } catch (_: Exception) {
+        false
+    }
+}
+
 object FileIngestPlaylist {
     const val PROBE_INTERVAL_MS = 3_000L
 
