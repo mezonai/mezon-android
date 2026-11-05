@@ -59,8 +59,8 @@ android {
                 arguments += "-DONNXRUNTIME_ROOT=${layout.buildDirectory.get().asFile}/onnxruntime-native"
             }
         }
-        versionCode = 1247
-        versionName = "2.1.0"
+        versionCode = 1251
+        versionName = "2.1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -311,6 +311,7 @@ dependencies {
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
     implementation(libs.zxing.core)
+    implementation(libs.mlkit.barcode.scanning)
 
     // Lottie for animated stickers (TGS)
     implementation("com.airbnb.android:lottie:6.4.0")
