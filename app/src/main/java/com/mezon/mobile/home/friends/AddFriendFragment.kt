@@ -17,6 +17,7 @@ import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.RecyclerListView
+import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.chat.UserProfileBottomSheet
 import com.mezon.mobile.ui.cells.MezonIcon
@@ -64,7 +65,7 @@ class AddFriendFragment : BaseFragment() {
             setPadding(LayoutHelper.dp(14), LayoutHelper.dp(12), LayoutHelper.dp(14), LayoutHelper.dp(12))
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(12f).toFloat()
-                setColor(themeColors.surfaceVariant)
+                setColor(themeColors.getColor(ThemeColors.key_sheetItemBackground))
             }
             isClickable = true
             isFocusable = true

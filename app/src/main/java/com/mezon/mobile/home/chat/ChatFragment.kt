@@ -70,6 +70,7 @@ import com.mezon.mobile.home.chat.thread.ThreadListFragment
 import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.home.LOAD_TYPE_INITIAL
 import com.mezon.mobile.home.DialogsController
+import com.mezon.mobile.home.DmOpenResult
 import com.mezon.mobile.home.MemberResolver
 import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.friends.FRIEND_STATE_BLOCKED
@@ -7374,13 +7375,17 @@ open class ChatFragment : BaseFragment() {
         return kotlin.math.abs(newer.timestampSeconds - older.timestampSeconds) <= FORWARD_NEARBY_WINDOW_SECONDS
     }
 
+    private fun dmOpenErrorRes(result: DmOpenResult): Int =
+        if (result == DmOpenResult.OnlyFriends) R.string.dm_only_friends_denied else R.string.contact_shared_error
+
     private fun openProfileDm(userId: Long, displayName: String, username: String) {
         if (userId == 0L) return
         fragmentScope.launch {
-            val dmId = withContext(ioDispatcher) { dialogsController.getOrCreateDm(userId) }
+            val result = withContext(ioDispatcher) { dialogsController.openOrCreateDm(userId) }
             withContext(mainDispatcher) {
-                if (dmId == 0L) {
-                    MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.ERROR, getString(R.string.contact_shared_error))
+                val dmId = (result as? DmOpenResult.Opened)?.channelId
+                if (dmId == null) {
+                    MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.ERROR, getString(dmOpenErrorRes(result)))
                     return@withContext
                 }
                 (getParentActivity() as? MainActivity)?.openChat(
@@ -7413,10 +7418,11 @@ open class ChatFragment : BaseFragment() {
         requestCallPermissions(needsCamera = false, reason = "profileVoiceCall") {
             runOutgoingCallAfterFullScreenIntentPrompt {
                 fragmentScope.launch {
-                    val dmId = withContext(ioDispatcher) { dialogsController.getOrCreateDm(userId) }
+                    val result = withContext(ioDispatcher) { dialogsController.openOrCreateDm(userId) }
                     withContext(mainDispatcher) {
-                        if (dmId == 0L) {
-                            MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.ERROR, getString(R.string.contact_shared_error))
+                        val dmId = (result as? DmOpenResult.Opened)?.channelId
+                        if (dmId == null) {
+                            MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.ERROR, getString(dmOpenErrorRes(result)))
                             return@withContext
                         }
                         callController.startCall(

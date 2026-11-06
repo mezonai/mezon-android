@@ -28,6 +28,7 @@ import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.ui.cells.AvatarView
 import com.mezon.mobile.ui.cells.ColoredImageSpan
 import com.mezon.mobile.ui.cells.MezonIcon
+import kotlin.math.roundToInt
 
 class QrProfileDialog(
     context: Context,
@@ -113,6 +114,7 @@ class QrProfileDialog(
                 themeColors.channelPanelBg,
                 themeColors.textStrong,
                 onAddFriend,
+                iconHeightDp = 18f,
             ), buttonLayout(12f))
         }
 
@@ -178,13 +180,22 @@ class QrProfileDialog(
         color: Int,
         textColor: Int,
         onClick: () -> Unit,
+        iconHeightDp: Float = 20f,
     ): TextView = object : TextView(context) {
         override fun getAccessibilityClassName(): CharSequence = Button::class.java.name
     }.apply {
-        val iconSpan = ColoredImageSpan(icon.getDrawable(context, textColor), ColoredImageSpan.ALIGN_CENTER).apply {
-            setSize(LayoutHelper.dp(20))
-            setWidth(LayoutHelper.dp(28))
+        val iconDrawable = icon.getDrawable(context, textColor)
+        val iconHeight = LayoutHelper.dp(iconHeightDp)
+        val iconWidth = if (iconDrawable.intrinsicWidth > 0 && iconDrawable.intrinsicHeight > 0) {
+            (iconDrawable.intrinsicWidth * iconHeight.toFloat() / iconDrawable.intrinsicHeight).roundToInt()
+        } else {
+            iconHeight
         }
+        val iconSpan = ColoredImageSpan(iconDrawable, ColoredImageSpan.ALIGN_CENTER).apply {
+            setSize(iconHeight)
+            setWidth(iconWidth + LayoutHelper.dp(8))
+        }
+        iconDrawable.setBounds(0, 0, iconWidth, iconHeight)
         text = SpannableString("\uFFFC$label").apply {
             setSpan(iconSpan, 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         }

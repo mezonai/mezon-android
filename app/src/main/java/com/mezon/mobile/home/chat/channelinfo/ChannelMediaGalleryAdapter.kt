@@ -29,6 +29,7 @@ import com.mezon.mobile.home.chat.VideoPlayerDialog
 import com.mezon.mobile.ui.cells.AvatarView
 import com.mezon.mobile.ui.cells.BackupImageView
 import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.util.VideoFrameStore
 import com.mezon.mobile.util.channelMediaThumbnailImgproxyUrl
 import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
@@ -358,7 +359,7 @@ internal class ChannelMediaGalleryAdapter(
             } else {
                 slot.thumb.setImageDrawable(null)
                 slot.thumbJob = scope.launch {
-                    val frame = withContext(Dispatchers.IO) { extractRemoteVideoFrame(item.url) }
+                    val frame = withContext(Dispatchers.IO) { extractRemoteVideoFrame(slot.thumb.context, item.url) }
                     if (frame != null &&
                         (slot.root.tag as? ChannelGalleryMediaItem)?.url == item.url
                     ) {
@@ -371,12 +372,19 @@ internal class ChannelMediaGalleryAdapter(
         }
     }
 
-    private fun extractRemoteVideoFrame(url: String): Bitmap? {
+    private fun extractRemoteVideoFrame(context: Context, url: String): Bitmap? {
         if (url.isBlank()) return null
         videoThumbCache.get(videoThumbCacheKey(url))?.let { return it }
+        val isLocal = url.startsWith("content://") || url.startsWith("file://")
+        if (!isLocal) {
+            VideoFrameStore.load(context, videoThumbCacheKey(url))?.let { stored ->
+                videoThumbCache.put(videoThumbCacheKey(url), stored)
+                return stored
+            }
+        }
         val retriever = MediaMetadataRetriever()
         return try {
-            if (url.startsWith("content://") || url.startsWith("file://")) {
+            if (isLocal) {
                 val ctx = hostContext() ?: return null
                 retriever.setDataSource(ctx, android.net.Uri.parse(url))
             } else {
@@ -398,6 +406,7 @@ internal class ChannelMediaGalleryAdapter(
                     if (out !== frame) frame.recycle()
                     out
                 }
+            if (!isLocal) VideoFrameStore.save(context, videoThumbCacheKey(url), scaled)
             videoThumbCache.put(videoThumbCacheKey(url), scaled)
             scaled
         } catch (_: Exception) {

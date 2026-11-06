@@ -15,6 +15,7 @@ import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.RecyclerListView
+import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.chat.UserProfileBottomSheet
 
@@ -64,7 +65,7 @@ class FriendRequestsFragment : BaseFragment() {
             orientation = LinearLayout.HORIZONTAL
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(12f).toFloat()
-                setColor(themeColors.surfaceVariant)
+                setColor(themeColors.getColor(ThemeColors.key_sheetItemBackground))
             }
             setPadding(LayoutHelper.dp(4), LayoutHelper.dp(4), LayoutHelper.dp(4), LayoutHelper.dp(4))
         }
@@ -97,8 +98,13 @@ class FriendRequestsFragment : BaseFragment() {
             overScrollMode = View.OVER_SCROLL_NEVER
             isVerticalScrollBarEnabled = false
             adapter = this@FriendRequestsFragment.adapter
+            background = GradientDrawable().apply {
+                cornerRadius = LayoutHelper.dp(12f).toFloat()
+                setColor(themeColors.getColor(ThemeColors.key_sheetItemBackground))
+            }
+            clipToOutline = true
         }
-        listContainer.addView(recyclerView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
+        listContainer.addView(recyclerView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
         val emptyContainer = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL

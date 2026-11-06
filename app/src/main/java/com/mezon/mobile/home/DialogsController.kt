@@ -39,8 +39,10 @@ import com.mezon.mobile.home.clans.isDmMutedFromNotificationSetting
 import com.mezon.mobile.home.clans.isMutedFromNotificationUserChannel
 import com.mezon.mobile.home.clans.isMutedFromSetMuteRequest
 import com.mezon.mobile.home.clans.normalizeDmMuteExpirySeconds
+import com.mezon.mobile.network.HttpRpcStatusException
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.network.NetworkMonitor
+import com.mezon.mobile.network.SocketRpcServerException
 import com.mezon.mobile.network.STREAM_MODE_DM
 import com.mezon.mobile.network.STREAM_MODE_GROUP
 import com.mezon.mobile.network.SocketEventDispatcher
@@ -80,12 +82,24 @@ private const val MAX_TRANSCODE_SOURCE_BYTES = 32 * 1024 * 1024
 private const val DM_BADGES_SYNC_THROTTLE_MS = 10_000L
 private const val MAX_COUNTED_DM_MESSAGE_IDS = 512
 private const val UNKNOWN_DM_PUSH_REFRESH_MS = 5_000L
+private const val GRPC_PERMISSION_DENIED = 7
+private const val HTTP_FORBIDDEN = 403
 
 sealed class DmGroupAvatarUploadResult {
     data class Success(val url: String) : DmGroupAvatarUploadResult()
     data object TooLarge : DmGroupAvatarUploadResult()
     data object Failed : DmGroupAvatarUploadResult()
 }
+
+sealed class DmOpenResult {
+    data class Opened(val channelId: Long) : DmOpenResult()
+    data object OnlyFriends : DmOpenResult()
+    data object Failed : DmOpenResult()
+}
+
+private fun Throwable.isNewDmDenied(): Boolean =
+    (this is SocketRpcServerException && code == GRPC_PERMISSION_DENIED) ||
+        (this is HttpRpcStatusException && code == HTTP_FORBIDDEN)
 
 @Singleton
 class DialogsController @Inject constructor(
@@ -428,12 +442,15 @@ class DialogsController @Inject constructor(
         }
     }
 
-    suspend fun getOrCreateDm(userId: Long): Long {
+    suspend fun getOrCreateDm(userId: Long): Long =
+        (openOrCreateDm(userId) as? DmOpenResult.Opened)?.channelId ?: 0L
+
+    suspend fun openOrCreateDm(userId: Long): DmOpenResult {
         synchronized(this) {
             for (i in 0 until dialogsDict.size()) {
                 val dm = dialogsDict.valueAt(i)
                 if (dm.type == CHANNEL_TYPE_DM && dm.otherUserId == userId) {
-                    return dm.channelId
+                    return DmOpenResult.Opened(dm.channelId)
                 }
             }
         }
@@ -447,11 +464,11 @@ class DialogsController @Inject constructor(
                     userIds = listOf(userId)
                 )
                 ingestChannelDescForCreatedDm(response, currentUserId)
-                response.channelId
+                if (response.channelId == 0L) DmOpenResult.Failed else DmOpenResult.Opened(response.channelId)
             }
         } catch (e: Exception) {
             Log.e(TAG, "getOrCreateDm failed for userId=$userId", e)
-            0L
+            if (e.isNewDmDenied()) DmOpenResult.OnlyFriends else DmOpenResult.Failed
         }
     }
 
