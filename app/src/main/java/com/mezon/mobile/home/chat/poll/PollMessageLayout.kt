@@ -1,7 +1,9 @@
 package com.mezon.mobile.home.chat.poll
 
 import android.content.Context
+import android.content.res.Configuration
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
@@ -38,6 +40,10 @@ private data class OptionLabelCacheEntry(
 class PollMessageLayout(private val context: Context) {
 
     private val cardPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val cardBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = LayoutHelper.dpf(1f)
+    }
     private val optionBgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val barFillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val buttonPaint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -47,10 +53,6 @@ class PollMessageLayout(private val context: Context) {
         strokeWidth = LayoutHelper.dp(2f).toFloat()
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
-    }
-    private val optionSelectionFillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val optionSelectionStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
     }
 
     private val titlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -118,20 +120,14 @@ class PollMessageLayout(private val context: Context) {
         val showResults = parsed.isClosed || expired || hasVoted || state.showResultsPreview
 
         titlePaint.color = theme.onSurface
-        subtitlePaint.color = theme.onSurfaceVariant
+        subtitlePaint.color = theme.textDisabled
         optionLabelPaint.color = theme.onSurface
-        metaPaint.color = theme.onSurfaceVariant
         linkPaint.color = theme.blurple
         buttonTextPaint.color = 0xFFFFFFFF.toInt()
-        cardPaint.color = theme.surfaceVariant
-        optionBgPaint.color = (theme.onSurface and 0x00FFFFFF) or 0x18000000
-        barFillPaint.color = theme.primary
-        buttonPaint.color = theme.primary
-        checkPaint.color = theme.primary
-        checkStroke.color = 0xFFFFFFFF.toInt()
-        optionSelectionFillPaint.color = (theme.primary and 0x00FFFFFF) or 0x28000000
-        optionSelectionStrokePaint.color = theme.primary
-        optionSelectionStrokePaint.strokeWidth = LayoutHelper.dpf(2f)
+        cardPaint.color = theme.surface
+        cardBorderPaint.color = theme.border
+        optionBgPaint.color = theme.mobile.secondaryWeight
+        buttonPaint.color = POLL_ACTION_COLOR
 
         val qText = pollAnswerPlainText(parsed.question)
         questionLayout = StaticLayout.Builder.obtain(qText, 0, qText.length, titlePaint, innerW)
@@ -187,10 +183,12 @@ class PollMessageLayout(private val context: Context) {
                 count
             )
             val mw = metaPaint.measureText(meta)
-            var labelMaxW = labelBaseW.toFloat()
-            if (showResults) {
-                labelMaxW = (labelBaseW - mw - CHECK_SIDE - CHECK_EDGE_PAD - META_CHECK_GAP).coerceAtLeast(LayoutHelper.dp(40).toFloat())
+            val rightReserve = when {
+                showResults -> mw + CHECK_SIDE + CHECK_EDGE_PAD + META_CHECK_GAP
+                ans.index in state.selection -> CHECK_SIDE + META_CHECK_GAP
+                else -> 0f
             }
+            val labelMaxW = (labelBaseW - rightReserve).coerceAtLeast(LayoutHelper.dp(40).toFloat())
             val labelLayout = obtainOptionLabelLayout(
                 answerIndex = ans.index,
                 rawLabel = ans.label,
@@ -369,6 +367,7 @@ class PollMessageLayout(private val context: Context) {
         canvas.translate(left, top)
         tmpRect.set(cardRect)
         canvas.drawRoundRect(tmpRect, CARD_RADIUS, CARD_RADIUS, cardPaint)
+        canvas.drawRoundRect(tmpRect, CARD_RADIUS, CARD_RADIUS, cardBorderPaint)
 
         val pad = CARD_PAD
         var y = pad
@@ -393,13 +392,11 @@ class PollMessageLayout(private val context: Context) {
         val expired = parsed.expireAtSeconds > 0 && parsed.expireAtSeconds < nowSec
         val showResults = parsed.isClosed || expired || hasVoted || state.showResultsPreview
         val innerW = cardWidth - pad * 2
-        val canPick = !state.isVoting && !parsed.isClosed && !expired && !hasVoted && !state.showResultsPreview
-
         for (line in optionLines) {
-            val highlight = canPick && state.selection.contains(line.answerIndex)
             drawOptionLine(
-                canvas, pad, line, innerW.toFloat(), showResults,
-                voted.contains(line.answerIndex), highlight
+                canvas, pad, line, innerW, showResults,
+                isChosen = line.answerIndex in voted,
+                isPending = !showResults && line.answerIndex in state.selection
             )
         }
 
@@ -407,6 +404,7 @@ class PollMessageLayout(private val context: Context) {
             canvas.drawText(expandLinkText, expandLinkRect.left, expandLinkRect.bottom - EXPAND_LINK_BASELINE_PAD, linkPaint)
         }
 
+        metaPaint.color = if (parsed.isClosed) closedPollTextColor() else titlePaint.color
         canvas.drawText(
             footerStatsDrawText,
             footerStatsRect.left,
@@ -434,61 +432,67 @@ class PollMessageLayout(private val context: Context) {
         canvas.restore()
     }
 
+    private fun closedPollTextColor(): Int {
+        val systemIsDark = context.resources.configuration.uiMode and
+            Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
+        return if (systemIsDark) CLOSED_POLL_RED_DARK else CLOSED_POLL_RED_LIGHT
+    }
+
     private fun drawOptionLine(
         canvas: Canvas,
-        pad: Float,
+        left: Float,
         line: OptionLine,
         innerW: Float,
         showResults: Boolean,
         isChosen: Boolean,
-        highlightSelection: Boolean
+        isPending: Boolean
     ) {
         val top = line.top
-        val h = line.height
-        val left = pad
-        val right = pad + innerW
-        tmpRect.set(left, top, right, top + h)
+        val height = line.height
+        val right = left + innerW
+        tmpRect.set(left, top, right, top + height)
         canvas.drawRoundRect(tmpRect, OPTION_RADIUS, OPTION_RADIUS, optionBgPaint)
 
-        if (highlightSelection) {
-            canvas.drawRoundRect(tmpRect, OPTION_RADIUS, OPTION_RADIUS, optionSelectionFillPaint)
-            canvas.drawRoundRect(tmpRect, OPTION_RADIUS, OPTION_RADIUS, optionSelectionStrokePaint)
+        val fillWidth = if (showResults) {
+            min(innerW * line.percentage / 100f, innerW - BAR_INSET_RIGHT)
+        } else {
+            0f
         }
-
-        if (showResults) {
-            val fillW = innerW * (line.percentage / 100f)
-            barFillPaint.alpha = if (isChosen) 210 else 110
-            tmpRect.set(
-                left + BAR_INSET,
-                top + BAR_INSET,
-                left + BAR_INSET + min(fillW, innerW - BAR_INSET_RIGHT),
-                top + h - BAR_INSET
-            )
+        val fillRight = left + BAR_INSET + fillWidth
+        if (fillWidth > 0f) {
+            barFillPaint.color = if (isChosen) POLL_ACTION_COLOR else POLL_RESULT_COLOR
+            tmpRect.set(left + BAR_INSET, top + BAR_INSET, fillRight, top + height - BAR_INSET)
             canvas.drawRoundRect(tmpRect, BAR_RADIUS, BAR_RADIUS, barFillPaint)
-            barFillPaint.alpha = 255
         }
 
         val labelX = left + OPTION_LABEL_PAD
-        val lay = line.labelLayout
-        val labelTop = top + (h - lay.height) / 2f
+        val layout = line.labelLayout
+        val labelTop = top + (height - layout.height) / 2f
+        val fillCoversLabel = fillWidth > 0f && fillRight > labelX + layout.getLineWidth(0) * 0.4f
+        optionLabelPaint.color = if (isChosen && fillCoversLabel) Color.WHITE else titlePaint.color
         canvas.save()
         canvas.translate(labelX, labelTop)
-        lay.draw(canvas)
+        layout.draw(canvas)
         canvas.restore()
 
+        val side = CHECK_SIDE
+        val cx = right - CHECK_EDGE_PAD - side / 2f
         if (showResults) {
-            val labelY = top + h / 2f - (optionLabelPaint.descent() + optionLabelPaint.ascent()) / 2f
-            val side = CHECK_SIDE
-            val cx = right - CHECK_EDGE_PAD - side / 2f
+            val labelY = top + height / 2f - (optionLabelPaint.descent() + optionLabelPaint.ascent()) / 2f
             val metaRight = if (isChosen) cx - side / 2f - META_CHECK_GAP else right - OPTION_LABEL_PAD
+            val fillCoversMeta = fillWidth > 0f && fillRight >= metaRight - LayoutHelper.dp(4)
+            metaPaint.color = if (isChosen && fillCoversMeta) Color.WHITE else titlePaint.color
             canvas.drawText(line.metaText, metaRight - line.metaWidth, labelY, metaPaint)
-            if (isChosen) {
-                val cy = top + h / 2f
-                tmpRect.set(cx - side / 2f, cy - side / 2f, cx + side / 2f, cy + side / 2f)
-                canvas.drawRoundRect(tmpRect, CHECK_RADIUS, CHECK_RADIUS, checkPaint)
-                canvas.drawLine(cx - side * 0.12f, cy, cx - side * 0.02f, cy + side * 0.14f, checkStroke)
-                canvas.drawLine(cx - side * 0.02f, cy + side * 0.14f, cx + side * 0.18f, cy - side * 0.12f, checkStroke)
-            }
+        }
+
+        if (isChosen || isPending) {
+            checkPaint.color = if (isChosen) POLL_ACTION_COLOR else titlePaint.color
+            checkStroke.color = if (isChosen) Color.WHITE else cardPaint.color
+            val cy = top + height / 2f
+            tmpRect.set(cx - side / 2f, cy - side / 2f, cx + side / 2f, cy + side / 2f)
+            canvas.drawRoundRect(tmpRect, CHECK_RADIUS, CHECK_RADIUS, checkPaint)
+            canvas.drawLine(cx - side * 0.12f, cy, cx - side * 0.02f, cy + side * 0.14f, checkStroke)
+            canvas.drawLine(cx - side * 0.02f, cy + side * 0.14f, cx + side * 0.18f, cy - side * 0.12f, checkStroke)
         }
     }
 
@@ -529,6 +533,11 @@ class PollMessageLayout(private val context: Context) {
     }
 
     companion object {
+        private val POLL_ACTION_COLOR = 0xFF5865F2.toInt()
+        private val POLL_RESULT_COLOR = 0x595865F2
+        // UIColor.systemRed in iOS 27.2, resolved against the system appearance.
+        private val CLOSED_POLL_RED_LIGHT = 0xFFFF383C.toInt()
+        private val CLOSED_POLL_RED_DARK = 0xFFFF4245.toInt()
         private val CARD_RADIUS = LayoutHelper.dpf(12f)
         private val CARD_PAD = LayoutHelper.dp(12).toFloat()
         private val QUESTION_GAP = LayoutHelper.dp(6)

@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.chat
 
+import com.mezon.mobile.core.theme.DesktopThemeToken
 import android.app.DatePickerDialog
 import android.content.Context
 import android.content.Intent
@@ -1637,9 +1638,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         return if (hasText) {
             val contentToParse = if (hasActualText) msg.content else ""
             val parsedToParse = if (hasActualText) parsedContent else ""
-            val linkColor = theme.blurple
+            val linkColor = theme.desktop[DesktopThemeToken.MENTION_COLOR]
             val mentionColors = MentionColors(
-                theme.textLink,
+                linkColor,
                 theme.midnightBlue,
                 theme.textRoleLink,
                 theme.darkMossGreen
@@ -3653,7 +3654,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             )
         } else if (!photoImage.hasMainImage() && photoImage.shouldAnimateLoadingPlaceholder()) {
             shimmerEffect.draw(canvas, imgX, yOff, imgX + photoWidth, yOff + photoHeight, 0f,
-                theme.resolvedMode != com.mezon.mobile.ui.theme.ThemeMode.LIGHT)
+                !theme.resolvedMode.isLight)
             if (visibleOnScreen) postInvalidateDelayed(32)
         } else if (!photoImage.hasImage()) {
             drawBrokenImagePlaceholder(
@@ -4210,7 +4211,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     }
 
     private fun drawMediaGrid(canvas: Canvas, msg: MessageEntity, startX: Float, startY: Float): Float {
-        val isDark = theme.resolvedMode != com.mezon.mobile.ui.theme.ThemeMode.LIGHT
+        val isDark = !theme.resolvedMode.isLight
         var needsShimmerRedraw = false
         var maxBottom = startY
         for (i in 0 until mediaGridCount) {
@@ -4248,7 +4249,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 drawVideoPlaceholder(canvas, imgX, imgY, w, h, MEDIA_RADIUS)
             } else if (photoImage.shouldAnimateLoadingPlaceholder()) {
                 shimmerEffect.draw(canvas, imgX, imgY, imgX + w, imgY + h, MEDIA_RADIUS,
-                    theme.resolvedMode != com.mezon.mobile.ui.theme.ThemeMode.LIGHT)
+                    !theme.resolvedMode.isLight)
                 if (visibleOnScreen) postInvalidateDelayed(32)
             } else if (!photoImage.hasImage()) {
                 drawBrokenImagePlaceholder(canvas, imgX, imgY, w, h, MEDIA_RADIUS)
@@ -4491,7 +4492,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             groups[i].senders.any { it.senderId == currentUserId && it.count > 0 }
         }
 
-        REACTION_COUNT_PAINT.color = theme.onSurface
+        REACTION_COUNT_PAINT.color = theme.textThemePrimary
         val countLayouts = Array<StaticLayout?>(groups.size) { i ->
             val txt = groups[i].totalCount.toString()
             StaticLayout.Builder.obtain(txt, 0, txt.length, REACTION_COUNT_PAINT, LayoutHelper.dp(60))
@@ -4595,7 +4596,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 val countY = chipY + (REACTION_CHIP_H - countLayout.height) / 2f
                 canvas.save()
                 canvas.translate(countX, countY)
-                REACTION_COUNT_PAINT.color = theme.onSurface
+                REACTION_COUNT_PAINT.color = theme.textThemePrimary
                 countLayout.draw(canvas)
                 canvas.restore()
             }

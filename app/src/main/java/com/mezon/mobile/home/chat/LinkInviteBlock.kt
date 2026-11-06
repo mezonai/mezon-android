@@ -302,7 +302,7 @@ class LinkInviteBlock(
 
     private fun invalidPlaceholderBackground(): Int {
         return when (theme.resolvedMode) {
-            ThemeMode.LIGHT -> 0xFFF0F0F0.toInt()
+            ThemeMode.LIGHT, ThemeMode.SUNRISE, ThemeMode.CISHER -> 0xFFF0F0F0.toInt()
             else -> theme.secondaryLight
         }
     }

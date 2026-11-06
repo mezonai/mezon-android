@@ -8,7 +8,6 @@ import android.os.Bundle
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.style.ClickableSpan
-import android.text.style.ForegroundColorSpan
 import android.text.method.LinkMovementMethod
 import android.view.View
 import android.view.ViewGroup
@@ -21,6 +20,7 @@ import com.mezon.mobile.R
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.core.theme.MobileThemeColors
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.clans.CreateClanRnUiTokens
@@ -64,7 +64,7 @@ class IntegrationSettingFragment : BaseFragment() {
     override fun createView(context: Context): View {
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(themeColors.background)
+            setBackgroundColor(themeColors.surface)
         }
 
         actionBar = ActionBarView(context, themeColors).apply {
@@ -119,8 +119,6 @@ class IntegrationSettingFragment : BaseFragment() {
         val start = fullText.indexOf(linkChannel)
         if (start >= 0) {
             val end = start + linkChannel.length
-            val linkColor = themeColors.primary
-            ss.setSpan(ForegroundColorSpan(linkColor), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             ss.setSpan(object : ClickableSpan() {
                 override fun onClick(widget: View) {
                     safeOpenDocs(context, WebhookConfig.CHANNEL_WEBHOOK_DOCS_URL)
@@ -189,6 +187,8 @@ class IntegrationSettingFragment : BaseFragment() {
                                 onClanWebhooks,
                             ),
                         ),
+                        cardColor = themeColors.background,
+                        separatorColor = themeColors.border,
                     ),
                 )
             }
@@ -202,6 +202,7 @@ class IntegrationSettingFragment : BaseFragment() {
             return TextView(context).apply {
                 textSize = 12f
                 setTextColor(CreateClanRnUiTokens.textDisabled(themeColors))
+                setLinkTextColor(MobileThemeColors.accent)
                 movementMethod = LinkMovementMethod.getInstance()
                 setPadding(0, 0, 0, LayoutHelper.dp(18f))
             }

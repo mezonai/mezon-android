@@ -76,7 +76,7 @@ class ShareContactCardLayout(private val context: Context) {
     fun prepare(data: ShareContactData, theme: ThemeColors, maxBubbleWidth: Int, isOnline: Boolean = false) {
         cardWidth = (maxBubbleWidth * 0.9f).toInt().coerceAtLeast(LayoutHelper.dp(200))
         showOnline = isOnline
-        rippleLight = theme.resolvedMode == com.mezon.mobile.ui.theme.ThemeMode.LIGHT
+        rippleLight = theme.resolvedMode.isLight
         val textBlockW = (cardWidth - INNER_PAD_H - TEXT_RIGHT_PAD - AVATAR_SIZE - AVATAR_GAP).coerceAtLeast(1)
 
         DISPLAY_PAINT.typeface = Typeface.DEFAULT_BOLD

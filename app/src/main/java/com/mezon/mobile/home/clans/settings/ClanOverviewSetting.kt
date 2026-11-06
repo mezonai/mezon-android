@@ -19,6 +19,7 @@ import com.mezon.mobile.core.AlertDialog
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
+import com.mezon.mobile.core.theme.MobileThemeColors
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.chat.MezonImageLoader
@@ -176,7 +177,6 @@ class ClanOverviewSettingFragment : BaseFragment() {
             val saveItem = createMenu().addItem(1, context.getString(R.string.common_save))
             val saveTv = TextView(context).apply {
                 text = context.getString(R.string.common_save)
-                setTextColor(themeColors.primary)
                 textSize = 16f
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER_VERTICAL
@@ -368,8 +368,11 @@ class ClanOverviewSettingFragment : BaseFragment() {
 
         nameInput = InputCell(context, themeColors).apply {
             setLabel(context.getString(R.string.clan_overview_name_label))
-            setCellBackgroundColor(themeColors.surfaceVariant)
-            setCellStrokeColor(0x00000000)
+            setCellBackgroundColor(themeColors.surface)
+            setCellStrokeColor(themeColors.border)
+            editText.setOnFocusChangeListener { _, focused ->
+                setCellStrokeColor(if (focused) themeColors.primary else themeColors.border)
+            }
             editText.filters = arrayOf(InputFilter.LengthFilter(CLAN_OVERVIEW_NAME_MAX_LENGTH))
             setText(draftName)
             onTextChanged = { s ->
@@ -437,6 +440,8 @@ class ClanOverviewSettingFragment : BaseFragment() {
                 welcomeStickerCell,
                 auditLogCell,
             ),
+            cardColor = themeColors.surface,
+            separatorColor = themeColors.mobile.borderDim
         )
         sysSection.addView(sysCard, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
         scrollContent.addView(sysSection, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 18f, 0f, 0f))
@@ -461,6 +466,8 @@ class ClanOverviewSettingFragment : BaseFragment() {
                 themeColors,
                 null,
                 listOf(anonymousCell),
+                cardColor = themeColors.surface,
+                separatorColor = themeColors.mobile.borderDim
             ),
             LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT),
         )
@@ -494,6 +501,8 @@ class ClanOverviewSettingFragment : BaseFragment() {
                 themeColors,
                 null,
                 listOf(notifPickerRow(context)),
+                cardColor = themeColors.surface,
+                separatorColor = themeColors.mobile.borderDim
             ),
             LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT),
         )
@@ -744,7 +753,11 @@ class ClanOverviewSettingFragment : BaseFragment() {
 
     private fun updateSaveUi() {
         val dirty = (clanFieldsDirty() || systemMessageDirty()) && isClanNameValid(draftName)
-        saveButton?.alpha = if (dirty && canEditClanFields() && !isBannerUploading) 1f else 0.45f
+        val canSave = dirty && canEditClanFields() && !isBannerUploading
+        saveButton?.apply {
+            alpha = if (canSave) 1f else 0.5f
+            setTextColor(if (canSave) MobileThemeColors.accent else themeColors.textDisabled)
+        }
     }
 
     private fun invalidateBannerCachesForSources(urls: Collection<String>) {

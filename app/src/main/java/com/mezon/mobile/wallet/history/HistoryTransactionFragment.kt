@@ -97,7 +97,7 @@ class HistoryTransactionFragment : BaseFragment() {
         fragmentView = rootLinear
 
         val themeColors = com.mezon.mobile.core.ThemeColors.instance
-        view.setBackgroundColor(themeColors.background)
+        view.setBackgroundColor(themeColors.surface)
         val baseColor = themeColors.primaryContainer
         val midColor = themeColors.surfaceVariant
         val lightColor = themeColors.secondaryLight

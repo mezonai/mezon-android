@@ -141,13 +141,14 @@ class ChannelSearchCell(context: Context, private val theme: ThemeColors) : Base
             joinButton.isPressed = false
             joinButton.visibility = if (showJoin && joinClickListener != null) VISIBLE else GONE
         }
+        setBackgroundColor(theme.background)
         joinTextPaint.textSize = theme.dialogNamePaint.textSize
         joinTextPaint.color = theme.primary
         (joinButton.background as RippleDrawable).setColor(
             ColorStateList.valueOf((theme.primary and 0x00FFFFFF) or 0x26000000)
         )
         clanLinePaint.textSize = theme.dialogNamePaint.textSize
-        clanLinePaint.color = theme.dialogNamePaint.color
+        clanLinePaint.color = theme.textDisabled
         requestLayout()
         invalidate()
     }

@@ -179,7 +179,7 @@ class ChannelAppsStripView(
             )
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(12).toFloat()
-                setColor(themeColors.serverRailBg)
+                setColor(themeColors.secondaryLight)
                 setStroke(LayoutHelper.dp(1), themeColors.border)
             }
             val lp = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
@@ -206,7 +206,7 @@ class ChannelAppsStripView(
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
             textSize = 14f
-            setTextColor(themeColors.tabLabelActive)
+            setTextColor(themeColors.textStrong)
             typeface = android.graphics.Typeface.DEFAULT_BOLD
         }
         textCol.addView(nameTv)

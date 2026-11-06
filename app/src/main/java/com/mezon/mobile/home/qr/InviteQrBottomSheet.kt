@@ -36,6 +36,9 @@ class InviteQrBottomSheet(
     private val clanLogo: String,
 ) : BottomSheet(context) {
 
+    override val sheetBackgroundColor: Int
+        get() = theme.background
+
     private lateinit var qrCard: QrInviteCardCell
     private var qrBitmap: Bitmap? = null
     private var lastQrSizePx = 0
@@ -49,7 +52,6 @@ class InviteQrBottomSheet(
     private fun buildContent(context: Context): View {
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(theme.background)
             setPadding(LayoutHelper.dp(16f), LayoutHelper.dp(8f), LayoutHelper.dp(16f), LayoutHelper.dp(20f))
         }
 

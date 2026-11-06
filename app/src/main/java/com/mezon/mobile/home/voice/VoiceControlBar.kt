@@ -18,11 +18,11 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.graphics.ColorUtils
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.R
 import com.mezon.mobile.ui.cells.MezonIcon
-import com.mezon.mobile.ui.theme.ThemeMode
 
 class VoiceControlBar(
     context: Context,
@@ -37,6 +37,8 @@ class VoiceControlBar(
         private val INNER_PADDING = LayoutHelper.dp(6)
         private val PILL_RADIUS = LayoutHelper.dp(80).toFloat()
         private val RAISE_HAND_ACTIVE = 0xFFEFBC39.toInt()
+        private val SCREEN_SHARE_ACTIVE = 0xFF16A34A.toInt()
+        private val LEAVE_ROOM_COLOR = 0xFFE32E2E.toInt()
         private val WEAK_DOT_SIZE = LayoutHelper.dp(14)
         private val WEAK_DOT_BORDER = LayoutHelper.dp(2)
 
@@ -102,9 +104,8 @@ class VoiceControlBar(
     private val pttChatIcon: ImageView
     private val pttBottomRow: LinearLayout
 
-    private val defaultMicTint: Int get() = themeColors.tabLabelActive
-    private val pttIdleBg: Int
-        get() = if (themeColors.resolvedMode == ThemeMode.LIGHT) themeColors.channelPanelBg else themeColors.tertiary
+    private val controlIconTint: Int get() = themeColors.textStrong
+    private val controlBorderColor: Int get() = ColorUtils.setAlphaComponent(themeColors.textDisabled, 0x99)
     private val defaultMicIconSize = VoiceStyleCircleButton.defaultIconSizePx(context)
 
     private var microphoneAvailable = true
@@ -164,8 +165,8 @@ class VoiceControlBar(
             )
         }
 
-        val defaultTint = themeColors.tabLabelActive
-        val btnBorder = themeColors.textDisabled
+        val defaultTint = controlIconTint
+        val btnBorder = controlBorderColor
 
         cameraButton = VoiceStyleCircleButton(context, MezonIcon.videoSlashIcon, themeColors.tertiary, btnBorder, defaultTint).apply {
             setOnClickListener {
@@ -195,9 +196,8 @@ class VoiceControlBar(
         }
         micButton.addView(micWeakDot, LayoutParams(WEAK_DOT_SIZE, WEAK_DOT_SIZE, Gravity.TOP or Gravity.END))
 
-        chatButton = VoiceStyleCircleButton(context, MezonIcon.notificationTabMessages, themeColors.tertiary, btnBorder, defaultTint).apply {
+        chatButton = VoiceStyleCircleButton(context, MezonIcon.chatIcon, themeColors.tertiary, btnBorder, defaultTint).apply {
             setOnClickListener { onChatClick?.invoke() }
-            setApplyTint(false)
         }
         addButton(row, chatButton, true)
 
@@ -216,7 +216,7 @@ class VoiceControlBar(
         endCallButton = VoiceStyleCircleButton(
             context,
             MezonIcon.callCancelIcon,
-            VoiceChrome.RED_STRONG,
+            LEAVE_ROOM_COLOR,
             0,
             0xFFFFFFFF.toInt(),
             VoiceStyleCircleButton.endCallIconSizePx(context)
@@ -229,7 +229,7 @@ class VoiceControlBar(
 
         pttMicIcon = ImageView(context).apply {
             scaleType = ImageView.ScaleType.CENTER_INSIDE
-            setImageDrawable(tintedIcon(MezonIcon.microphoneSlashIcon, defaultMicTint))
+            setImageDrawable(tintedIcon(MezonIcon.microphoneSlashIcon, controlIconTint))
         }
         pttMicProgress = ProgressBar(context, null, android.R.attr.progressBarStyleSmall).apply {
             visibility = View.GONE
@@ -243,7 +243,7 @@ class VoiceControlBar(
         }
         pttMicLabel = TextView(context).apply {
             setText(R.string.voice_room_ptt_hold)
-            setTextColor(defaultMicTint)
+            setTextColor(controlIconTint)
             textSize = PTT_LABEL_SIZE
             typeface = android.graphics.Typeface.DEFAULT_BOLD
             maxLines = 1
@@ -262,7 +262,7 @@ class VoiceControlBar(
             ).apply { topMargin = PTT_LABEL_GAP })
         }
         pttMicPill = FrameLayout(context).apply {
-            background = pttIdleBackground(PTT_BIG_RADIUS)
+            background = pttIdleBackground()
             isClickable = true
             addView(pttMicContent, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT, Gravity.CENTER))
             accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
@@ -288,21 +288,20 @@ class VoiceControlBar(
             }
         }
 
-        val endPill = makePttPill(MezonIcon.callEndMeetIcon, VoiceChrome.RED_STRONG, 0xFFFFFFFF.toInt(), PTT_END_ICON)
+        val endPill = makePttPill(MezonIcon.callEndMeetIcon, LEAVE_ROOM_COLOR, 0xFFFFFFFF.toInt(), PTT_END_ICON)
         endPill.first.setOnClickListener { onEndCallClick?.invoke() }
 
         val raisePillPair = makePttPill(MezonIcon.raiseHandIcon, themeColors.tertiary, defaultTint, PTT_RAISE_ICON)
         pttRaisePill = raisePillPair.first
-        pttRaisePill.background = pttIdleBackground(PTT_BOTTOM_RADIUS)
         pttRaiseIcon = raisePillPair.second
         pttRaisePill.setOnClickListener { onRaiseHandClick?.invoke() }
 
         pttChatIcon = ImageView(context).apply {
             scaleType = ImageView.ScaleType.CENTER_INSIDE
-            setImageDrawable(tintedIcon(MezonIcon.chatIcon, defaultMicTint))
+            setImageDrawable(tintedIcon(MezonIcon.chatIcon, controlIconTint))
         }
         val chatPill = FrameLayout(context).apply {
-            background = pttIdleBackground(PTT_BOTTOM_RADIUS)
+            background = roundedBg(themeColors.tertiary, PTT_BOTTOM_RADIUS)
             isClickable = true
             addView(pttChatIcon, LayoutParams(PTT_BOTTOM_ICON, PTT_BOTTOM_ICON, Gravity.CENTER))
             setOnClickListener { onChatClick?.invoke() }
@@ -333,18 +332,16 @@ class VoiceControlBar(
         (row.background as? GradientDrawable)?.setColor(themeColors.channelPanelBg)
         for (button in listOf(cameraButton, micButton, chatButton, screenShareButton)) {
             button.updateBgColor(themeColors.tertiary)
-            button.updateBorderColor(themeColors.textDisabled)
-            button.updateIconTint(themeColors.tabLabelActive)
+            button.updateBorderColor(controlBorderColor)
+            button.updateIconTint(controlIconTint)
         }
         (micWeakDot.background as? GradientDrawable)?.apply {
             setColor(themeColors.connectingColor)
             setStroke(WEAK_DOT_BORDER, themeColors.channelPanelBg)
         }
-        pttRaisePill.background = pttIdleBackground(PTT_BOTTOM_RADIUS)
-        pttChatPill.background = pttIdleBackground(PTT_BOTTOM_RADIUS)
-        pttChatIcon.setImageDrawable(tintedIcon(MezonIcon.chatIcon, defaultMicTint))
-        pttMicProgress.indeterminateDrawable.mutate().colorFilter =
-            PorterDuffColorFilter(themeColors.connectingColor, PorterDuff.Mode.SRC_IN)
+        pttRaisePill.background = roundedBg(themeColors.tertiary, PTT_BOTTOM_RADIUS)
+        pttChatPill.background = roundedBg(themeColors.tertiary, PTT_BOTTOM_RADIUS)
+        pttChatIcon.setImageDrawable(tintedIcon(MezonIcon.chatIcon, controlIconTint))
         setRaiseHandActive(raiseHandActive)
         setScreenShareEnabled(screenShareEnabled)
         updatePttFeedback()
@@ -398,9 +395,11 @@ class VoiceControlBar(
         setColor(color)
     }
 
-    private fun pttIdleBackground(radius: Float) = roundedBg(pttIdleBg, radius).apply {
-        if (themeColors.resolvedMode == ThemeMode.LIGHT) {
-            setStroke(LayoutHelper.dp(1), themeColors.borderDim)
+    private fun pttIdleBackground(): GradientDrawable {
+        val lightTheme = themeColors.resolvedMode.isLight
+        val color = if (lightTheme) themeColors.channelPanelBg else themeColors.tertiary
+        return roundedBg(color, PTT_BIG_RADIUS).apply {
+            if (lightTheme) setStroke(LayoutHelper.dp(1), themeColors.borderDim)
         }
     }
 
@@ -438,14 +437,14 @@ class VoiceControlBar(
         val tint = when {
             ready -> 0xFFFFFFFF.toInt()
             showLoading -> themeColors.connectingColor
-            else -> defaultMicTint
+            else -> controlIconTint
         }
         pttMicPill.background = (if (ready) {
             roundedBg(themeColors.blurple, PTT_BIG_RADIUS)
         } else {
-            pttIdleBackground(PTT_BIG_RADIUS)
+            pttIdleBackground()
         }).apply {
-            if (showLoading) setStroke(LayoutHelper.dp(1), themeColors.connectingColor)
+            if (showLoading) setStroke(LayoutHelper.dp(1), tint)
         }
         pttMicIcon.visibility = if (showLoading) View.INVISIBLE else View.VISIBLE
         pttMicProgress.visibility = if (showLoading) View.VISIBLE else View.GONE
@@ -604,10 +603,11 @@ class VoiceControlBar(
 
     fun setMicrophoneAvailable(available: Boolean) {
         microphoneAvailable = available
+        val controlAlpha = if (available) 1f else 0.4f
         micButton.isEnabled = available
-        micButton.alpha = if (available) 1f else 0.4f
+        micButton.alpha = controlAlpha
         pttMicPill.isEnabled = available
-        pttMicPill.alpha = if (available) 1f else 0.4f
+        pttMicPill.alpha = controlAlpha
         if (!available) {
             pttMicPill.removeCallbacks(holdRunnable)
             firstPttPreparationComplete = false
@@ -642,13 +642,17 @@ class VoiceControlBar(
 
     fun setRaiseHandActive(active: Boolean) {
         raiseHandActive = active
-        pttRaiseIcon.setImageDrawable(tintedIcon(MezonIcon.raiseHandIcon, if (active) RAISE_HAND_ACTIVE else defaultMicTint))
+        pttRaiseIcon.setImageDrawable(tintedIcon(MezonIcon.raiseHandIcon, if (active) RAISE_HAND_ACTIVE else controlIconTint))
     }
 
     fun setScreenShareEnabled(enabled: Boolean) {
         screenShareEnabled = enabled
-        val green = themeColors.voiceActiveGreen
-        screenShareButton.updateBgColor(if (enabled) (green and 0x00FFFFFF) or 0x38000000 else themeColors.tertiary)
-        screenShareButton.updateIconTint(if (enabled) green else themeColors.tabLabelActive)
+        val background = if (enabled) {
+            ColorUtils.setAlphaComponent(SCREEN_SHARE_ACTIVE, 0x38)
+        } else {
+            themeColors.tertiary
+        }
+        screenShareButton.updateBgColor(background)
+        screenShareButton.updateIconTint(if (enabled) SCREEN_SHARE_ACTIVE else controlIconTint)
     }
 }

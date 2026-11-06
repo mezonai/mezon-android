@@ -35,6 +35,7 @@ class InputCell(context: Context, private val theme: ThemeColors) : LinearLayout
     private val inputContainer: FrameLayout
     private val bgDrawable: GradientDrawable
     private var strokeWhenValid: Int? = null
+    private var captionColorOverride: Int? = null
     private var maxCharacter = 200
     private var isTextarea = false
     private var showCharacterCount = false
@@ -250,6 +251,12 @@ class InputCell(context: Context, private val theme: ThemeColors) : LinearLayout
         }
     }
 
+    fun setCaptionColor(color: Int) {
+        captionColorOverride = color
+        labelView.setTextColor(color)
+        charCountView.setTextColor(color)
+    }
+
     fun setCellBackgroundColor(color: Int) {
         bgDrawable.setColor(color)
     }
@@ -262,23 +269,29 @@ class InputCell(context: Context, private val theme: ThemeColors) : LinearLayout
         inputContainer.setPadding(padding, padding, padding, padding)
     }
 
+    fun setInputAlpha(alpha: Float) {
+        inputContainer.alpha = alpha
+    }
+
     fun setLightInputAppearance(
         fill: Int = 0xFFFFFFFF.toInt(),
         stroke: Int = 0xFFD1D5DB.toInt(),
         text: Int = 0xFF374151.toInt(),
         hint: Int = 0xFF9CA3AF.toInt(),
-        clearIcon: Int = 0xFF6B7280.toInt()
+        clearIcon: Int = 0xFF6B7280.toInt(),
+        preserveError: Boolean = false,
     ) {
         strokeWhenValid = stroke
         bgDrawable.setColor(fill)
-        bgDrawable.setStroke(LayoutHelper.dp(1), stroke)
+        val border = if (preserveError && errorView.visibility == View.VISIBLE) theme.error else stroke
+        bgDrawable.setStroke(LayoutHelper.dp(1), border)
         editText.setTextColor(text)
         editText.setHintTextColor(hint)
         clearButton.setColorFilter(clearIcon)
     }
 
     fun refreshThemeColors() {
-        labelView.setTextColor(theme.onSurfaceVariant)
+        labelView.setTextColor(captionColorOverride ?: theme.onSurfaceVariant)
         requiredMark.setTextColor(theme.error)
         descriptionView.setTextColor(theme.onSurfaceVariant)
         bgDrawable.setColor(theme.surfaceVariant)
@@ -287,7 +300,7 @@ class InputCell(context: Context, private val theme: ThemeColors) : LinearLayout
         editText.setTextColor(theme.onSurface)
         editText.setHintTextColor(theme.onSurfaceVariant and 0x80FFFFFF.toInt())
         clearButton.setColorFilter(theme.onSurfaceVariant)
-        charCountView.setTextColor(theme.onSurfaceVariant)
+        charCountView.setTextColor(captionColorOverride ?: theme.onSurfaceVariant)
         errorView.setTextColor(theme.error)
         invalidate()
     }

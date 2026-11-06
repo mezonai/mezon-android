@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.notifications
 
+import com.mezon.mobile.core.theme.MobileThemeColors
 import android.content.Context
 import android.text.TextUtils
 import android.view.Gravity
@@ -175,7 +176,7 @@ class NotificationsFragment : BaseFragment() {
         observe(NotificationCenter.themeChanged) { _, _, _ ->
             if (fragmentView == null) return@observe
             root.setBackgroundColor(themeColors.background)
-            emptyView.setTextColor(themeColors.onSurfaceVariant)
+            emptyView.setTextColor(themeColors.textStrong)
             rebuildTabChipColors()
             adapter.notifyDataSetChanged()
             topicAdapter.notifyDataSetChanged()
@@ -201,7 +202,6 @@ class NotificationsFragment : BaseFragment() {
             val padH = LayoutHelper.dp(16)
             val padV = LayoutHelper.dp(10)
             setPaddingRelative(padH, padV, padH, padV)
-            setBackgroundColor(themeColors.surface)
         }
         tabScrollView.addView(
             tabContainer,
@@ -237,7 +237,7 @@ class NotificationsFragment : BaseFragment() {
 
         emptyView = TextView(context).apply {
             text = getString(R.string.notif_empty)
-            setTextColor(themeColors.onSurfaceVariant)
+            setTextColor(themeColors.textStrong)
             textSize = 16f
             gravity = Gravity.CENTER
             visibility = View.GONE
@@ -608,7 +608,6 @@ class NotificationsFragment : BaseFragment() {
 
     private fun buildHeader(context: Context): View {
         val header = FrameLayout(context).apply {
-            setBackgroundColor(themeColors.surface)
             val pad = LayoutHelper.dp(16)
             setPadding(pad, LayoutHelper.dp(16), pad, LayoutHelper.dp(12))
         }
@@ -670,14 +669,14 @@ class NotificationsFragment : BaseFragment() {
                 ellipsize = TextUtils.TruncateAt.END
                 gravity = Gravity.CENTER_VERTICAL
                 includeFontPadding = false
-                setTextColor(if (active) android.graphics.Color.WHITE else themeColors.onSurface)
+                setTextColor(if (active) android.graphics.Color.WHITE else themeColors.textDisabled)
             }, LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1f))
         }
     }
 
     private fun buildChipBackground(active: Boolean): android.graphics.drawable.Drawable {
-        val fill = if (active) themeColors.blurple else themeColors.secondaryLight
-        val stroke = if (active) themeColors.blurple else themeColors.outlineVariant
+        val fill = if (active) MobileThemeColors.accent else themeColors.mobile.secondaryLight
+        val stroke = if (active) MobileThemeColors.accent else themeColors.mobile.borderDim
         val bg = android.graphics.drawable.GradientDrawable().apply {
             shape = android.graphics.drawable.GradientDrawable.RECTANGLE
             cornerRadius = LayoutHelper.dp(8).toFloat()
@@ -757,7 +756,7 @@ class NotificationsFragment : BaseFragment() {
             val active = tab.category == currentCategory
             chip.background = buildChipBackground(active)
             val labelTv = chip.getChildAt(1) as TextView
-            labelTv.setTextColor(if (active) android.graphics.Color.WHITE else themeColors.onSurface)
+            labelTv.setTextColor(if (active) android.graphics.Color.WHITE else themeColors.textDisabled)
         }
     }
 

@@ -47,7 +47,7 @@ class CategoryMenuBottomSheet(
         fun buildRow(
             label: String,
             icon: MezonIcon,
-            labelColor: Int = theme.colorText,
+            labelColor: Int = theme.textStrong,
             iconColor: Int = theme.textStrong,
             onClick: () -> Unit,
         ) = ClanSettingsUiHelpers.buildMezonMenuRow(
@@ -58,12 +58,13 @@ class CategoryMenuBottomSheet(
             labelColor,
             iconColor,
             dismissAndRun(onClick),
+            rowBackgroundColor = theme.background,
         )
 
         fun addSection(parent: LinearLayout, rows: List<View>, topGap: Float = sectionGap) {
             if (rows.all { it.visibility == View.GONE }) return
             parent.addView(
-                ClanSettingsUiHelpers.buildMezonSection(context, theme, null, rows),
+                ClanSettingsUiHelpers.buildMezonSection(context, theme, null, rows, cardColor = theme.background, separatorColor = theme.border),
                 LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, topGap, 0f, 0f)
             )
         }
@@ -123,7 +124,7 @@ class CategoryMenuBottomSheet(
 
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(theme.background)
+            setBackgroundColor(sheetBackgroundColor)
             setPadding(LayoutHelper.dp(20), 0, LayoutHelper.dp(20), LayoutHelper.dp(20))
             addView(header, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
             addSection(this, watchRows, topGap = 0f)

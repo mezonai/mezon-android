@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.profile
 
+import com.mezon.mobile.core.theme.MobileThemeColors
 import android.app.Activity
 import android.app.Dialog
 import android.content.Context
@@ -171,13 +172,14 @@ class EditProfileFragment : BaseFragment() {
         observe(NotificationCenter.selectedClanChanged) { _, _, args -> onClanNotificationReceived(args) }
 
         actionBar = createActionBar(context).apply {
+            setBackgroundColor(themeColors.background)
             setBackButtonImage(R.drawable.ic_close_icon)
             setTitle(getString(R.string.edit_profile_title))
             setCenterTitle(true)
             val saveItem = createMenu().addItem(1, getString(R.string.edit_profile_save))
             saveButtonView = TextView(context).apply {
                 text = getString(R.string.edit_profile_save)
-                setTextColor(themeColors.primary)
+                setTextColor(MobileThemeColors.accent)
                 textSize = 16f
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER_VERTICAL
@@ -219,7 +221,7 @@ class EditProfileFragment : BaseFragment() {
             typeface = android.graphics.Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
             val activeBg = GradientDrawable().apply {
-                setColor(themeColors.primary)
+                setColor(MobileThemeColors.accent)
                 cornerRadius = LayoutHelper.dpf(16f)
             }
             background = activeBg
@@ -228,7 +230,7 @@ class EditProfileFragment : BaseFragment() {
         tabPersonalView = tabPersonal
         val tabClan = TextView(context).apply {
             text = getString(R.string.edit_profile_tab_clan)
-            setTextColor(themeColors.onSurfaceVariant)
+            setTextColor(themeColors.onSurface)
             textSize = 14f
             typeface = android.graphics.Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
@@ -271,7 +273,7 @@ class EditProfileFragment : BaseFragment() {
             setSizeDp(100)
             if (currentAvatarUrl.isNotEmpty()) setImageUrl(currentAvatarUrl)
         }
-        val avatarBorderColor = if (themeColors.resolvedMode == com.mezon.mobile.ui.theme.ThemeMode.LIGHT) 0xFFFFFFFF.toInt() else 0xFF0D0D18.toInt()
+        val avatarBorderColor = themeColors.background
         val avatarBorderBg = GradientDrawable().apply {
             setColor(0x00000000)
             cornerRadius = LayoutHelper.dpf(999f)
@@ -295,6 +297,7 @@ class EditProfileFragment : BaseFragment() {
         val infoCardBg = GradientDrawable().apply {
             setColor(themeColors.getColor(ThemeColors.key_sheetItemBackground))
             cornerRadius = LayoutHelper.dpf(12f)
+            setStroke(LayoutHelper.dp(1), themeColors.border)
         }
         val inputGroupCard = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -313,7 +316,7 @@ class EditProfileFragment : BaseFragment() {
 
         usernameSubView = TextView(context).apply {
             text = username
-            setTextColor(themeColors.onSurfaceVariant)
+            setTextColor(themeColors.onSurface)
             textSize = 15f
         }
         inputGroupCard.addView(usernameSubView, LayoutHelper.createLinear(
@@ -321,11 +324,12 @@ class EditProfileFragment : BaseFragment() {
         ))
 
         displayNameCell = InputCell(context, themeColors).apply {
-            setLabel(getString(R.string.edit_profile_display_name_label)) 
+            setLabel(getString(R.string.edit_profile_display_name_label))
+            setCaptionColor(themeColors.onSurface)
             setHint(getString(R.string.edit_profile_display_name_hint))
             setMaxUtf8Bytes(MAX_DISPLAY_NAME_UTF8_BYTES)
             setText(displayName)
-            setCellBackgroundColor(themeColors.surface)
+            setCellBackgroundColor(themeColors.background)
             setCellStrokeColor(0x00000000)
             onTextChanged = { text ->
                 nameView.text = text.ifEmpty { username }
@@ -337,10 +341,11 @@ class EditProfileFragment : BaseFragment() {
 
         aboutMeCell = InputCell(context, themeColors).apply {
             setLabel(getString(R.string.edit_profile_about_me))
+            setCaptionColor(themeColors.onSurface)
             setHint(getString(R.string.edit_profile_about_me_hint))
             setTextarea(true, 128)
             setText(info.aboutMe)
-            setCellBackgroundColor(themeColors.surface)
+            setCellBackgroundColor(themeColors.background)
             setCellStrokeColor(0x00000000)
             editText.gravity = Gravity.TOP or Gravity.START
         }
@@ -354,6 +359,7 @@ class EditProfileFragment : BaseFragment() {
         val logoCardBg = GradientDrawable().apply {
             setColor(themeColors.getColor(ThemeColors.key_sheetItemBackground))
             cornerRadius = LayoutHelper.dpf(12f)
+            setStroke(LayoutHelper.dp(1), themeColors.border)
         }
         val dmGroupCard = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -443,7 +449,7 @@ class EditProfileFragment : BaseFragment() {
         if (clans.isEmpty()) {
             return TextView(context).apply {
                 text = getString(R.string.edit_profile_no_clans)
-                setTextColor(themeColors.onSurfaceVariant)
+                setTextColor(themeColors.onSurface)
                 textSize = 16f
                 gravity = Gravity.CENTER
                 val pad = LayoutHelper.dp(32)
@@ -497,7 +503,7 @@ class EditProfileFragment : BaseFragment() {
 
         val chevron = TextView(context).apply {
             text = "›"
-            setTextColor(themeColors.onSurfaceVariant)
+            setTextColor(themeColors.onSurface)
             textSize = 22f
             gravity = Gravity.CENTER
         }
@@ -520,7 +526,7 @@ class EditProfileFragment : BaseFragment() {
             setSizeDp(100)
             if (currentAvatarUrl.isNotEmpty()) setImageUrl(currentAvatarUrl)
         }
-        val clanAvatarBorderColor = if (themeColors.resolvedMode == com.mezon.mobile.ui.theme.ThemeMode.LIGHT) 0xFFFFFFFF.toInt() else 0xFF0D0D18.toInt()
+        val clanAvatarBorderColor = themeColors.background
         val clanAvatarBorderBg = GradientDrawable().apply {
             setColor(0x00000000)
             cornerRadius = LayoutHelper.dpf(999f)
@@ -544,6 +550,7 @@ class EditProfileFragment : BaseFragment() {
         val clanInfoCardBg = GradientDrawable().apply {
             setColor(themeColors.getColor(ThemeColors.key_sheetItemBackground))
             cornerRadius = LayoutHelper.dpf(12f)
+            setStroke(LayoutHelper.dp(1), themeColors.border)
         }
         val clanInfoCard = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -562,7 +569,7 @@ class EditProfileFragment : BaseFragment() {
 
         clanUsernameView = TextView(context).apply {
             text = username
-            setTextColor(themeColors.onSurfaceVariant)
+            setTextColor(themeColors.onSurface)
             textSize = 15f
         }
         clanInfoCard.addView(clanUsernameView, LayoutHelper.createLinear(
@@ -571,9 +578,10 @@ class EditProfileFragment : BaseFragment() {
 
         clanNicknameCell = InputCell(context, themeColors).apply {
             setLabel(getString(R.string.edit_profile_clan_nickname))
+            setCaptionColor(themeColors.onSurface)
             setHint(currentMainDisplayName)
             setMaxCharacter(32)
-            setCellBackgroundColor(themeColors.surface)
+            setCellBackgroundColor(themeColors.background)
             setCellStrokeColor(0x00000000)
             onTextChanged = { text ->
                 clanNickname = text
@@ -606,7 +614,7 @@ class EditProfileFragment : BaseFragment() {
         com.mezon.mobile.core.AndroidUtilities.hideKeyboard(fragmentView ?: return)
 
         val activeBg = GradientDrawable().apply {
-            setColor(themeColors.primary)
+            setColor(MobileThemeColors.accent)
             cornerRadius = LayoutHelper.dpf(16f)
         }
 
@@ -618,7 +626,7 @@ class EditProfileFragment : BaseFragment() {
             tabPersonalView.setTextColor(themeColors.onPrimary)
             
             tabClanView.background = null
-            tabClanView.setTextColor(themeColors.onSurfaceVariant)
+            tabClanView.setTextColor(themeColors.onSurface)
         } else {
             val clans = clansController.clans.value
             if (selectedClan == null) {
@@ -645,7 +653,7 @@ class EditProfileFragment : BaseFragment() {
             tabClanView.setTextColor(themeColors.onPrimary)
             
             tabPersonalView.background = null
-            tabPersonalView.setTextColor(themeColors.onSurfaceVariant)
+            tabPersonalView.setTextColor(themeColors.onSurface)
         }
     }
 
@@ -789,6 +797,8 @@ class EditProfileFragment : BaseFragment() {
         }
         observe(NotificationCenter.themeChanged) { _, _, _ ->
             fragmentView?.setBackgroundColor(themeColors.background)
+            if (::displayNameCell.isInitialized) displayNameCell.setCaptionColor(themeColors.onSurface)
+            if (::aboutMeCell.isInitialized) aboutMeCell.setCaptionColor(themeColors.onSurface)
         }
 
         return true

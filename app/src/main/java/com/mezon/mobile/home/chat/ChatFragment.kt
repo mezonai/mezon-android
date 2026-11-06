@@ -1,5 +1,8 @@
 package com.mezon.mobile.home.chat
 
+import android.graphics.drawable.LayerDrawable
+import com.mezon.mobile.core.theme.themeSurfaceShape
+import com.mezon.mobile.core.theme.applyThemeSurface
 import com.mezon.mezon.api.MessageReaction
 import android.Manifest
 import android.content.ClipboardManager
@@ -1402,22 +1405,21 @@ open class ChatFragment : BaseFragment() {
 
         observe(NotificationCenter.themeChanged) { _, _, _ ->
             if (fragmentView == null) return@observe
-            rootView.setBackgroundColor(themeColors.chatBackground)
+            rootView.applyThemeSurface(themeColors.chatBackground, themeColors.desktop.chatGradient, anchorToWindow = true)
             remoteTypingStrip?.setTextColor(themeColors.textDisabled)
             remoteTypingDots?.color = themeColors.textDisabled
             refreshRemoteTypingStrip()
-            inputBar.setBackgroundColor(themeColors.surface)
-            noPermissionBar.setBackgroundColor(themeColors.surface)
+            inputBar.setBackgroundColor(themeColors.background)
+            noPermissionBar.setBackgroundColor(themeColors.background)
             noPermissionText.setTextColor(themeColors.textDisabled)
-            (noPermissionText.background as? android.graphics.drawable.GradientDrawable)?.setColor(themeColors.charcoal)
-            inputField.setTextColor(themeColors.onSurface)
-            inputField.setHintTextColor(themeColors.onSurfaceVariant)
-            (inputField.background as? android.graphics.drawable.GradientDrawable)?.setColor(themeColors.tertiary)
+            inputField.setTextColor(themeColors.textThemeMessage)
+            inputField.setHintTextColor(themeColors.textDisabled)
+            inputField.background = composerFieldBackground()
             (attachButton.background as? android.graphics.drawable.GradientDrawable)?.setColor(themeColors.tertiary)
-            attachButton.setColorFilter(themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary))
-            advancedFunctionButton.setColorFilter(themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary))
-            emojiButton.setColorFilter(themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary))
-            micButton.setColorFilter(themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary))
+            attachButton.setColorFilter(themeColors.onSurface)
+            advancedFunctionButton.setColorFilter(themeColors.onSurface)
+            emojiButton.setColorFilter(themeColors.textDisabled)
+            micButton.setColorFilter(themeColors.onSurface)
             attachmentPreviewScroll?.setBackgroundColor(themeColors.surface)
             inputOgpBar?.background = android.graphics.drawable.GradientDrawable().apply {
                 setColor(themeColors.tertiary)
@@ -1434,9 +1436,9 @@ open class ChatFragment : BaseFragment() {
                 d.colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
                 btn.setImageDrawable(d)
             }
-            replyBar?.setBackgroundColor(themeColors.surface)
-            replyNameView?.setTextColor(themeColors.onSurface)
-            ephemeralBar?.setBackgroundColor(themeColors.surface)
+            replyBar?.setBackgroundColor(themeColors.background)
+            replyNameView?.setTextColor(themeColors.textDisabled)
+            ephemeralBar?.setBackgroundColor(themeColors.background)
             ephemeralNameView?.setTextColor(themeColors.onSurface)
             ephemeralCloseButton?.let { btn ->
                 val d = MezonIcon.closeSmallBold.getDrawable(btn.context)
@@ -1445,10 +1447,10 @@ open class ChatFragment : BaseFragment() {
             }
             replyCloseButton?.let { btn ->
                 val d = MezonIcon.closeSmallBold.getDrawable(btn.context)
-                d.colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
+                d.colorFilter = PorterDuffColorFilter(themeColors.textDisabled, PorterDuff.Mode.SRC_IN)
                 btn.setImageDrawable(d)
             }
-            editBar?.setBackgroundColor(themeColors.surface)
+            editBar?.setBackgroundColor(themeColors.background)
             editNameView?.setTextColor(themeColors.onSurface)
             suggestionsPopup?.applyColors()
             editCloseButton?.let { btn ->
@@ -1596,6 +1598,18 @@ open class ChatFragment : BaseFragment() {
         return true
     }
 
+    private fun composerFieldBackground(): Drawable {
+        val radius = LayoutHelper.dpf(20f)
+        val stroke = LayoutHelper.dp(1)
+        val gradient = themeColors.desktop.composerGradient ?: return themeSurfaceShape(
+            themeColors.secondaryLight, radius, themeColors.border, stroke
+        )
+        return LayerDrawable(arrayOf(
+            gradient.previewDrawable(radius),
+            themeSurfaceShape(Color.TRANSPARENT, radius, themeColors.border, stroke)
+        ))
+    }
+
     private fun loadInitialMessages() {
         if (startLoadFromMessageId != 0L) {
             chatController.loadMessagesAround(
@@ -1701,7 +1715,7 @@ open class ChatFragment : BaseFragment() {
             // Keep receiving the release event when tapping empty conversation space.
             isClickable = true
         }
-        sizeNotifierRoot.setBackgroundColor(themeColors.chatBackground)
+        sizeNotifierRoot.applyThemeSurface(themeColors.chatBackground, themeColors.desktop.chatGradient, anchorToWindow = true)
         rootView = sizeNotifierRoot
 
         val innerLayout = LinearLayout(context).apply {
@@ -1709,7 +1723,10 @@ open class ChatFragment : BaseFragment() {
             clipChildren = false
         }
 
-        val chatActionBar = ActionBarView(context, themeColors).apply {
+        val chatActionBar = ActionBarView(context, themeColors, transparentBackground = true).apply {
+            // Keep the header over the same gradient as the conversation.
+            setAddToContainer(false)
+            occupyStatusBar = true
             setBackClickListener {
                 if (emojiViewVisible) {
                     hideEmojiView()
@@ -1921,7 +1938,7 @@ open class ChatFragment : BaseFragment() {
         replyBar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = android.view.Gravity.CENTER_VERTICAL
-            setBackgroundColor(themeColors.surface)
+            setBackgroundColor(themeColors.background)
             setPadding(LayoutHelper.dp(12f), LayoutHelper.dp(8f), LayoutHelper.dp(8f), LayoutHelper.dp(4f))
             visibility = View.GONE
         }
@@ -1934,7 +1951,7 @@ open class ChatFragment : BaseFragment() {
         ).apply { rightMargin = LayoutHelper.dp(8f) })
 
         replyNameView = TextView(context).apply {
-            setTextColor(themeColors.onSurface)
+            setTextColor(themeColors.textDisabled)
             textSize = 13f
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
@@ -1945,7 +1962,7 @@ open class ChatFragment : BaseFragment() {
 
         replyCloseButton = ImageButton(context).apply {
             val drawable = MezonIcon.closeSmallBold.getDrawable(context)
-            drawable.colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
+            drawable.colorFilter = PorterDuffColorFilter(themeColors.textDisabled, PorterDuff.Mode.SRC_IN)
             setImageDrawable(drawable)
             setBackgroundColor(android.graphics.Color.TRANSPARENT)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
@@ -1962,7 +1979,7 @@ open class ChatFragment : BaseFragment() {
         ephemeralBar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = android.view.Gravity.CENTER_VERTICAL
-            setBackgroundColor(themeColors.surface)
+            setBackgroundColor(themeColors.background)
             setPadding(LayoutHelper.dp(12f), LayoutHelper.dp(8f), LayoutHelper.dp(8f), LayoutHelper.dp(4f))
             visibility = View.GONE
         }
@@ -2000,7 +2017,7 @@ open class ChatFragment : BaseFragment() {
         editBar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = android.view.Gravity.CENTER_VERTICAL
-            setBackgroundColor(themeColors.surface)
+            setBackgroundColor(themeColors.background)
             setPadding(LayoutHelper.dp(12f), LayoutHelper.dp(8f), LayoutHelper.dp(8f), LayoutHelper.dp(4f))
             visibility = View.GONE
         }
@@ -2170,7 +2187,7 @@ open class ChatFragment : BaseFragment() {
         inputBar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.BOTTOM
-            setBackgroundColor(themeColors.surface)
+            setBackgroundColor(themeColors.background)
             setPadding(LayoutHelper.dp(8f), LayoutHelper.dp(10f), LayoutHelper.dp(8f), LayoutHelper.dp(10f))
             clipChildren = false
             clipToPadding = false
@@ -2180,7 +2197,7 @@ open class ChatFragment : BaseFragment() {
         val btnPad = LayoutHelper.dp(8f)
         attachButton = ImageButton(context).apply {
             val drawable = MezonIcon.plusLargeIcon.getDrawable(context)
-            drawable.colorFilter = PorterDuffColorFilter(themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary), PorterDuff.Mode.SRC_IN)
+            drawable.colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
             setImageDrawable(drawable)
             scaleType = ImageView.ScaleType.FIT_CENTER
             setPadding(btnPad, btnPad, btnPad, btnPad)
@@ -2194,7 +2211,7 @@ open class ChatFragment : BaseFragment() {
 
         advancedFunctionButton = ImageButton(context).apply {
             val drawable = MezonIcon.advancedFunctionIcon.getDrawable(context)
-            drawable.colorFilter = PorterDuffColorFilter(themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary), PorterDuff.Mode.SRC_IN)
+            drawable.colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
             setImageDrawable(drawable)
             scaleType = ImageView.ScaleType.FIT_CENTER
             setPadding(btnPad, btnPad, btnPad, btnPad)
@@ -2222,8 +2239,8 @@ open class ChatFragment : BaseFragment() {
             }
         }.apply {
             hint = getString(R.string.message_input_placeholder)
-            setHintTextColor(themeColors.onSurfaceVariant)
-            setTextColor(themeColors.onSurface)
+            setHintTextColor(themeColors.textDisabled)
+            setTextColor(themeColors.textThemeMessage)
             textSize = 16f
             maxLines = 4
             minimumHeight = LayoutHelper.dp(40f)
@@ -2231,10 +2248,7 @@ open class ChatFragment : BaseFragment() {
             inputType = android.text.InputType.TYPE_CLASS_TEXT or
                 android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or
                 android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
-            background = android.graphics.drawable.GradientDrawable().apply {
-                setColor(themeColors.tertiary)
-                cornerRadius = LayoutHelper.dp(20f).toFloat()
-            }
+            background = composerFieldBackground()
             val verticalPadding = ((LayoutHelper.dp(40f) - lineHeight) / 2).coerceAtLeast(LayoutHelper.dp(6f))
             setPadding(LayoutHelper.dp(14f), verticalPadding, LayoutHelper.dp(40f), verticalPadding)
         }
@@ -2244,7 +2258,7 @@ open class ChatFragment : BaseFragment() {
 
         emojiButton = ImageButton(context).apply {
             setImageResource(R.drawable.ic_emoji_icon)
-            setColorFilter(PorterDuffColorFilter(themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary), PorterDuff.Mode.SRC_IN))
+            setColorFilter(PorterDuffColorFilter(themeColors.textDisabled, PorterDuff.Mode.SRC_IN))
             setBackgroundColor(android.graphics.Color.TRANSPARENT)
             scaleType = ImageView.ScaleType.CENTER
             setOnClickListener {
@@ -2303,7 +2317,7 @@ open class ChatFragment : BaseFragment() {
 
         micButton = ImageButton(context).apply {
             val drawable = MezonIcon.microphoneIcon.getDrawable(context)
-            drawable.colorFilter = PorterDuffColorFilter(themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary), PorterDuff.Mode.SRC_IN)
+            drawable.colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
             setImageDrawable(drawable)
             scaleType = ImageView.ScaleType.FIT_CENTER
             setPadding(btnPad, btnPad, btnPad, btnPad)
@@ -2316,7 +2330,7 @@ open class ChatFragment : BaseFragment() {
         inputBar.addView(micButton, LayoutHelper.createLinear(40, 40, gravity = Gravity.BOTTOM))
 
         noPermissionBar = FrameLayout(context).apply {
-            setBackgroundColor(themeColors.surface)
+            setBackgroundColor(themeColors.background)
             setPadding(LayoutHelper.dp(12f), LayoutHelper.dp(6f), LayoutHelper.dp(12f), LayoutHelper.dp(20f))
             visibility = View.GONE
         }
@@ -2326,10 +2340,6 @@ open class ChatFragment : BaseFragment() {
             textSize = 14f
             gravity = Gravity.CENTER
             setPadding(LayoutHelper.dp(16f), LayoutHelper.dp(16f), LayoutHelper.dp(16f), LayoutHelper.dp(16f))
-            background = android.graphics.drawable.GradientDrawable().apply {
-                cornerRadius = LayoutHelper.dp(20f).toFloat()
-                setColor(themeColors.charcoal)
-            }
         }
         noPermissionBar.addView(noPermissionText, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT
@@ -2852,6 +2862,11 @@ open class ChatFragment : BaseFragment() {
         }
     }
 
+    override fun getStatusBarColor(): Int =
+        if (themeColors.desktop.chatGradient != null) Color.TRANSPARENT else themeColors.chatBackground
+
+    override fun isLightStatusBar(): Boolean = themeColors.resolvedMode.isLight
+
     override fun onBecomeFullyVisible() {
         super.onBecomeFullyVisible()
         actionBar?.post {
@@ -3190,19 +3205,11 @@ open class ChatFragment : BaseFragment() {
 
     private fun updateEmojiButtonIcon(showingEmoji: Boolean) {
         if (showingEmoji) {
-            emojiButton.setImageDrawable(
-                MezonIcon.keyboardIcon.getDrawable(getContext()!!).also {
-                    it.colorFilter = PorterDuffColorFilter(
-                        themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary), PorterDuff.Mode.SRC_IN
-                    )
-                }
-            )
+            emojiButton.setImageDrawable(MezonIcon.keyboardIcon.getDrawable(emojiButton.context))
         } else {
             emojiButton.setImageResource(R.drawable.ic_emoji_icon)
-            emojiButton.setColorFilter(PorterDuffColorFilter(
-                themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary), PorterDuff.Mode.SRC_IN
-            ))
         }
+        emojiButton.setColorFilter(themeColors.textDisabled)
     }
 
     private fun createEmojiView() {

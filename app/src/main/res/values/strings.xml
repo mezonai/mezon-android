@@ -1010,6 +1010,12 @@
     <string name="setting_theme_light">Light</string>
     <string name="setting_theme_dark">Dark</string>
     <string name="setting_theme_abyss">Abyss</string>
+    <string name="setting_theme_sunrise">Sunrise</string>
+    <string name="setting_theme_red_dark">Red Dark</string>
+    <string name="setting_theme_purple_haze">Purple Haze</string>
+    <string name="setting_theme_sunset">Sunset</string>
+    <string name="setting_theme_cisher">Cisher</string>
+    <string name="setting_theme_berrynade">Berrynade</string>
     <string name="setting_theme_system">System</string>
     <string name="setting_theme_system_short">System</string>
     <string name="theme_screen_title">App theme</string>

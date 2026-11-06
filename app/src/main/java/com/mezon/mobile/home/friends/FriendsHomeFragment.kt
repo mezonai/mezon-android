@@ -58,6 +58,8 @@ class FriendsHomeFragment : BaseFragment() {
 
     private var pendingCallPermissionCallback: (() -> Unit)? = null
 
+    private lateinit var contentLayout: LinearLayout
+    private lateinit var searchIcon: ImageView
     private lateinit var searchInput: EditText
     private lateinit var requestRow: LinearLayout
     private lateinit var requestCountText: TextView
@@ -112,17 +114,18 @@ class FriendsHomeFragment : BaseFragment() {
     override fun createView(context: Context): View {
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(themeColors.background)
+            background = friendListBackground(themeColors)
             setPadding(LayoutHelper.dp(16), LayoutHelper.dp(12), LayoutHelper.dp(16), LayoutHelper.dp(12))
         }
 
+        contentLayout = root
         val searchRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             minimumHeight = LayoutHelper.dp(40)
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(12f).toFloat()
-                setColor(themeColors.surfaceVariant)
+                setColor(themeColors.background)
             }
             setPadding(LayoutHelper.dp(12), LayoutHelper.dp(10), LayoutHelper.dp(12), LayoutHelper.dp(10))
         }
@@ -133,10 +136,9 @@ class FriendsHomeFragment : BaseFragment() {
             }
         )
 
-        val searchIcon = ImageView(context).apply {
+        searchIcon = ImageView(context).apply {
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             setImageDrawable(MezonIcon.searchIcon.getDrawable(context))
-            colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
         }
         searchRow.addView(
             searchIcon,
@@ -145,7 +147,6 @@ class FriendsHomeFragment : BaseFragment() {
 
         searchInput = EditText(context).apply {
             hint = getString(R.string.common_search_placeholder)
-            setHintTextColor(themeColors.onSurfaceVariant)
             setTextColor(themeColors.onSurface)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
             background = null
@@ -206,7 +207,9 @@ class FriendsHomeFragment : BaseFragment() {
         allFriends = friendController.friends.value
         applyTheme()
         reloadList()
-        val wrapped = wrapWithActionBar(getString(R.string.friends_title), root)
+        val wrapped = wrapWithActionBar(getString(R.string.friends_title), root).apply {
+            setBackgroundColor(themeColors.surface)
+        }
         actionBar?.setMenuOnItemClick(object : com.mezon.mobile.ui.cells.ActionBarView.ActionBarMenuOnItemClick() {
             override fun onItemClick(id: Int) {
                 when (id) {
@@ -250,7 +253,7 @@ class FriendsHomeFragment : BaseFragment() {
             gravity = Gravity.CENTER_VERTICAL
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(12f).toFloat()
-                setColor(themeColors.surfaceVariant)
+                setColor(themeColors.background)
             }
             setPadding(LayoutHelper.dp(12), LayoutHelper.dp(12), LayoutHelper.dp(12), LayoutHelper.dp(12))
             isClickable = true
@@ -281,7 +284,7 @@ class FriendsHomeFragment : BaseFragment() {
         }
         textWrap.addView(requestCountText)
 
-        requestBadgeText = createFriendRequestBadgeView(context, themeColors)
+        requestBadgeText = createFriendRequestBadgeView(context)
         row.addView(
             requestBadgeText,
             LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, 18, rightMargin = 8f)
@@ -297,14 +300,18 @@ class FriendsHomeFragment : BaseFragment() {
     }
 
     private fun applyTheme() {
+        contentLayout.background = friendListBackground(themeColors)
+        fragmentView?.setBackgroundColor(themeColors.surface)
+        searchIcon.setColorFilter(themeColors.textDisabled)
+        searchInput.setHintTextColor(themeColors.textDisabled)
         requestRow.background = GradientDrawable().apply {
             cornerRadius = LayoutHelper.dp(12f).toFloat()
-            setColor(themeColors.surfaceVariant)
+            setColor(themeColors.background)
         }
-        emptyText.setTextColor(themeColors.onSurfaceVariant)
-        requestCountText.setTextColor(themeColors.onSurfaceVariant)
+        emptyText.setTextColor(themeColors.textDisabled)
+        requestCountText.setTextColor(themeColors.onSurface)
         if (::requestBadgeText.isInitialized) {
-            requestBadgeText.updateFriendRequestBadge(friendController.pendingReceivedCount.value, themeColors)
+            requestBadgeText.updateFriendRequestBadge(friendController.pendingReceivedCount.value)
         }
     }
 
@@ -330,7 +337,7 @@ class FriendsHomeFragment : BaseFragment() {
         ).size
         val sentCount = sentFriendInvitesForUi(friendController.sentFriendRequests.value).size
         requestCountText.text = getString(R.string.friends_request_counts, receivedCount, sentCount)
-        requestBadgeText.updateFriendRequestBadge(receivedCount, themeColors)
+        requestBadgeText.updateFriendRequestBadge(receivedCount)
         val shouldShowRequest = normalized.isEmpty() || filtered.isEmpty()
         requestRow.visibility = if (shouldShowRequest) View.VISIBLE else View.GONE
         emptyText.visibility = if (filtered.isEmpty()) View.VISIBLE else View.GONE

@@ -91,6 +91,9 @@ class GlobalSearchAdapter(
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         if (position !in items.indices) return
         val item = items[position]
+        if (holder.itemView is HeaderCell) {
+            holder.itemView.setBackgroundColor(themeColors.surface)
+        }
         when (val view = holder.itemView) {
             is ProfileSearchCell -> if (item is SearchMember) view.update(0, item)
             is ChannelSearchCell -> if (item is ChannelSearchDisplay) {
@@ -104,6 +107,7 @@ class GlobalSearchAdapter(
             }
             is HeaderCell -> if (item is SectionHeader) {
                 view.setText(item.title)
+                view.textView.setTextColor(if (item.muted) themeColors.textDisabled else themeColors.onSurface)
                 if (item.muted) {
                     view.textView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
                     view.textView.letterSpacing = 0.06f

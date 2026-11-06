@@ -40,6 +40,9 @@ class ReactionDetailBottomSheet(
     private val onRemoveReaction: (emojiId: Long, emoji: String) -> Unit
 ) : BottomSheet(context), NotificationCenter.NotificationCenterDelegate {
 
+    override val sheetBackgroundColor: Int
+        get() = themeColors.background
+
     private lateinit var senderList: RecyclerView
     private val listScreenLocation = IntArray(2)
     private var swipeDismissAllowed = false
@@ -143,13 +146,11 @@ class ReactionDetailBottomSheet(
         containerHeight = sheetHeight
         val rootLayout = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(themeColors.background)
         }
 
         val tabScroll = HorizontalScrollView(context).apply {
             isHorizontalScrollBarEnabled = false
             overScrollMode = View.OVER_SCROLL_NEVER
-            setBackgroundColor(themeColors.background)
         }
         tabContainer = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -386,7 +387,6 @@ class ReactionDetailBottomSheet(
                 layoutParams = RecyclerView.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, LayoutHelper.dp(56)
                 )
-                setBackgroundColor(themeColors.background)
             }
             return SenderViewHolder(row)
         }

@@ -1,11 +1,13 @@
 package com.mezon.mobile.home.profile
 
 import android.content.Context
+import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.LayerDrawable
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -24,6 +26,10 @@ import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.core.theme.DesktopThemePalette
+import com.mezon.mobile.core.theme.DesktopThemeToken as Token
+import com.mezon.mobile.core.theme.ThemeGradient
+import com.mezon.mobile.core.theme.themeSurfaceShape
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.ui.cells.AvatarView
 import com.mezon.mobile.ui.cells.MezonIcon
@@ -39,8 +45,41 @@ class AppearanceThemeFragment : BaseFragment() {
             "https://cdn.komu.vn/0/1812749818716491776/1782991817428439000/1757087543447_22.png"
         )
 
+        private fun paletteForMode(mode: ThemeMode, context: Context): DesktopThemePalette {
+            val theme = ThemeColors.instance
+            if (mode == ThemeMode.SYSTEM && theme.currentMode == ThemeMode.SYSTEM) return theme.desktop
+            return DesktopThemePalette.forTheme(mode.resolve(isSystemDark(context)))
+        }
+
+        private fun isSystemDark(context: Context): Boolean =
+            context.resources.configuration.uiMode and
+                Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
+
+        private fun previewBackground(
+            color: Int,
+            gradient: ThemeGradient?,
+            radius: Float,
+            strokeColor: Int,
+            strokeWidth: Int
+        ): android.graphics.drawable.Drawable {
+            val fill = gradient?.previewDrawable(radius) ?: GradientDrawable().apply {
+                cornerRadius = radius
+                setColor(color)
+            }
+            val border = GradientDrawable().apply {
+                cornerRadius = radius
+                setStroke(strokeWidth, strokeColor)
+            }
+            return LayerDrawable(arrayOf(fill, border))
+        }
+
+        // UIColor.systemBlue in iOS 27.2, resolved against the system appearance.
+        private val SWATCH_SELECTION_LIGHT = 0xFF0088FF.toInt()
+        private val SWATCH_SELECTION_DARK = 0xFF0091FF.toInt()
         private const val THEME_SWATCH_W_DP = 72
         private const val THEME_SWATCH_H_DP = 108
+        private const val SWATCH_FRAME_RADIUS_DP = 18
+        private const val SWATCH_INSET_DP = 4
         private const val THEME_ITEM_GAP_DP = 6
         private val THEME_ITEM_OUTER_W_DP = THEME_SWATCH_W_DP + THEME_ITEM_GAP_DP
     }
@@ -57,11 +96,7 @@ class AppearanceThemeFragment : BaseFragment() {
     private val previewRows = mutableListOf<PreviewRowViews>()
     private var shouldApplyOnNextSnap = false
 
-    private val themeOptions = listOf(
-        ThemeOption(ThemeMode.SYSTEM, R.string.setting_theme_system),
-        ThemeOption(ThemeMode.DARK, R.string.setting_theme_dark),
-        ThemeOption(ThemeMode.LIGHT, R.string.setting_theme_light)
-    )
+    private val themeOptions = ThemeMode.appearanceOptions.map { ThemeOption(it, it.titleResId) }
 
     private data class ThemeOption(
         val mode: ThemeMode,
@@ -70,7 +105,9 @@ class AppearanceThemeFragment : BaseFragment() {
 
     private data class PreviewPalette(
         val cardBackground: Int,
+        val cardGradient: ThemeGradient?,
         val cardStroke: Int,
+        val onlineColor: Int,
         val titleColor: Int,
         val nameColor: Int,
         val messageColor: Int,
@@ -82,7 +119,8 @@ class AppearanceThemeFragment : BaseFragment() {
     private data class PreviewRowViews(
         val nameView: TextView,
         val messageView: TextView,
-        val timeView: TextView
+        val timeView: TextView,
+        val onlineDot: View
     )
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
@@ -92,15 +130,23 @@ class AppearanceThemeFragment : BaseFragment() {
     override fun onFragmentCreate(): Boolean {
         super.onFragmentCreate()
         observe(NotificationCenter.themeChanged) { _, _, _ ->
-            if (::themeAdapter.isInitialized) updatePreview(themeAdapter.selectedMode)
+            if (::themeAdapter.isInitialized) {
+                updatePreview(themeAdapter.selectedMode)
+                themeAdapter.notifyDataSetChanged()
+            }
         }
         return true
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (::themeAdapter.isInitialized) themeAdapter.notifyDataSetChanged()
     }
 
     override fun createView(context: Context): View {
         rootContainer = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(themeColors.getColor(ThemeColors.key_windowBackgroundGray))
+            setBackgroundColor(themeColors.surface)
             setPadding(LayoutHelper.dp(16), LayoutHelper.dp(12), LayoutHelper.dp(16), LayoutHelper.dp(12))
         }
 
@@ -217,6 +263,7 @@ class AppearanceThemeFragment : BaseFragment() {
     }
 
     private fun createPreviewCard(context: Context): LinearLayout {
+        previewRows.clear()
         val card = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(LayoutHelper.dp(18))
@@ -261,10 +308,7 @@ class AppearanceThemeFragment : BaseFragment() {
                     LayoutHelper.dp(42)
                 )
             )
-            val onlineDot = ImageView(context).apply {
-                setImageDrawable(MezonIcon.onlineStatusIcon.getDrawable(context))
-                scaleType = ImageView.ScaleType.CENTER_INSIDE
-            }
+            val onlineDot = View(context)
             avatarWrap.addView(
                 onlineDot,
                 FrameLayout.LayoutParams(LayoutHelper.dp(14), LayoutHelper.dp(14)).apply {
@@ -311,7 +355,7 @@ class AppearanceThemeFragment : BaseFragment() {
                     1f
                 )
             )
-            previewRows += PreviewRowViews(nameView, messageView, timeView)
+            previewRows += PreviewRowViews(nameView, messageView, timeView, onlineDot)
         }
         return card
     }
@@ -348,65 +392,38 @@ class AppearanceThemeFragment : BaseFragment() {
 
     private fun updatePreview(mode: ThemeMode) {
         val palette = previewPalette(mode)
-        rootContainer.setBackgroundColor(themeColors.getColor(ThemeColors.key_windowBackgroundGray))
-        previewCard.background = GradientDrawable().apply {
-            cornerRadius = LayoutHelper.dp(16f).toFloat()
-            setColor(palette.cardBackground)
-            setStroke(LayoutHelper.dp(1), palette.cardStroke)
-        }
+        rootContainer.setBackgroundColor(themeColors.surface)
+        previewCard.background = previewBackground(
+            palette.cardBackground, palette.cardGradient, LayoutHelper.dp(16f).toFloat(),
+            palette.cardStroke, LayoutHelper.dp(1)
+        )
         previewTitle.setTextColor(palette.titleColor)
         for (row in previewRows) {
             row.nameView.setTextColor(palette.nameColor)
             row.messageView.setTextColor(palette.messageColor)
             row.timeView.setTextColor(palette.timeColor)
+            row.onlineDot.background = themeSurfaceShape(
+                palette.onlineColor, LayoutHelper.dpf(7f), palette.cardBackground, LayoutHelper.dp(2)
+            )
         }
         hintTextView.setTextColor(palette.hintColor)
         selectedThemeLabel.setTextColor(palette.selectedLabelColor)
     }
 
-    private fun previewPalette(@Suppress("UNUSED_PARAMETER") mode: ThemeMode): PreviewPalette {
-        val textPrimary = themeColors.onSurface
-        val textSecondary = themeColors.onSurfaceVariant
-        val bg = themeColors.getColor(ThemeColors.key_windowBackgroundGray)
+    private fun previewPalette(mode: ThemeMode): PreviewPalette {
+        val palette = paletteForMode(mode, requireContext())
         return PreviewPalette(
-            cardBackground = themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_sheetItemBackground),
-            cardStroke = themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_divider),
-            titleColor = textPrimary,
-            nameColor = textPrimary,
-            messageColor = textSecondary,
-            timeColor = textSecondary,
-            hintColor = textSecondary,
-            selectedLabelColor = readableOnBackground(bg, textPrimary)
+            cardBackground = palette[Token.BG_THEME_DIRECT_MESSAGE],
+            cardGradient = palette.conversationGradient,
+            cardStroke = palette[Token.BG_THEME_DIRECT_MESSAGE],
+            onlineColor = palette.semantic.statusOnline,
+            titleColor = palette.semantic.textPrimary,
+            nameColor = palette.semantic.textPrimary,
+            messageColor = palette.semantic.textMuted,
+            timeColor = palette.semantic.textMuted,
+            hintColor = themeColors.textStrong,
+            selectedLabelColor = themeColors.onSurface
         )
-    }
-
-    private fun readableOnBackground(background: Int, preferred: Int): Int {
-        val lumBg = relativeLuminance(background)
-        val lumPref = relativeLuminance(preferred)
-        val contrastPref = contrastRatio(lumBg, lumPref)
-        if (contrastPref >= 4.5) return preferred
-        val light = Color.WHITE
-        val dark = Color.parseColor("#111111")
-        val cLight = contrastRatio(lumBg, relativeLuminance(light))
-        val cDark = contrastRatio(lumBg, relativeLuminance(dark))
-        return if (cLight >= cDark) light else dark
-    }
-
-    private fun relativeLuminance(color: Int): Double {
-        fun channel(c: Int): Double {
-            val v = c / 255.0
-            return if (v <= 0.03928) v / 12.92 else Math.pow((v + 0.055) / 1.055, 2.4)
-        }
-        val r = channel(Color.red(color))
-        val g = channel(Color.green(color))
-        val b = channel(Color.blue(color))
-        return 0.2126 * r + 0.7152 * g + 0.0722 * b
-    }
-
-    private fun contrastRatio(lum1: Double, lum2: Double): Double {
-        val L1 = maxOf(lum1, lum2)
-        val L2 = minOf(lum1, lum2)
-        return (L1 + 0.05) / (L2 + 0.05)
     }
 
     private fun previewName(index: Int): String = when (index) {
@@ -449,24 +466,32 @@ class AppearanceThemeFragment : BaseFragment() {
                     RecyclerView.LayoutParams.MATCH_PARENT
                 )
             }
-            val swatch = FrameLayout(context).apply {
+            val swatchFrame = FrameLayout(context).apply {
                 layoutParams = LinearLayout.LayoutParams(
                     LayoutHelper.dp(swatchWidthDp),
                     LayoutHelper.dp(swatchHeightDp)
                 )
             }
+            val colorSwatch = View(context)
+            val inset = LayoutHelper.dp(SWATCH_INSET_DP)
+            swatchFrame.addView(
+                colorSwatch,
+                FrameLayout.LayoutParams(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT).apply {
+                    setMargins(inset, inset, inset, inset)
+                }
+            )
             val icon = ImageView(context).apply {
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
                 visibility = View.GONE
             }
-            swatch.addView(
+            swatchFrame.addView(
                 icon,
                 FrameLayout.LayoutParams(LayoutHelper.dp(28), LayoutHelper.dp(28)).apply {
                     gravity = Gravity.CENTER
                 }
             )
-            cell.addView(swatch)
-            val holder = ThemeViewHolder(cell, swatch, icon)
+            cell.addView(swatchFrame)
+            val holder = ThemeViewHolder(cell, swatchFrame, colorSwatch, icon)
             cell.setOnClickListener {
                 val pos = holder.bindingAdapterPosition
                 if (pos != RecyclerView.NO_POSITION) onItemClick(pos)
@@ -479,25 +504,30 @@ class AppearanceThemeFragment : BaseFragment() {
         override fun onBindViewHolder(holder: ThemeViewHolder, position: Int) {
             val item = options[position]
             val isSelected = item.mode == selectedMode
-            holder.swatch.background = android.graphics.drawable.GradientDrawable().apply {
-                cornerRadius = LayoutHelper.dp(18f).toFloat()
-                setStroke(
-                    LayoutHelper.dp(if (isSelected) 2 else 1),
-                    if (isSelected) Color.parseColor("#4F46E5") else Color.parseColor("#E5E7EB")
+            val context = holder.itemView.context
+            val palette = paletteForMode(item.mode, context)
+            holder.colorSwatch.background = previewBackground(
+                palette.previewColor,
+                palette.previewGradient,
+                LayoutHelper.dp(SWATCH_FRAME_RADIUS_DP - SWATCH_INSET_DP).toFloat(),
+                palette[Token.BORDER_PRIMARY],
+                LayoutHelper.dp(1)
+            )
+            holder.swatchFrame.background = if (isSelected) {
+                val selectionColor = if (isSystemDark(context)) SWATCH_SELECTION_DARK else SWATCH_SELECTION_LIGHT
+                themeSurfaceShape(
+                    Color.TRANSPARENT,
+                    LayoutHelper.dp(SWATCH_FRAME_RADIUS_DP).toFloat(),
+                    selectionColor,
+                    LayoutHelper.dp(2)
                 )
-                setColor(
-                    when (item.mode) {
-                        ThemeMode.SYSTEM -> Color.parseColor("#F9FAFB")
-                        ThemeMode.DARK -> Color.parseColor("#111827")
-                        ThemeMode.LIGHT -> Color.parseColor("#FFFFFF")
-                        ThemeMode.ABYSS -> Color.parseColor("#0B1023")
-                    }
-                )
+            } else {
+                null
             }
             if (item.mode == ThemeMode.SYSTEM) {
                 holder.icon.visibility = View.VISIBLE
                 holder.icon.setImageDrawable(MezonIcon.reloadIcon.getDrawable(holder.itemView.context))
-                holder.icon.colorFilter = PorterDuffColorFilter(Color.parseColor("#111827"), PorterDuff.Mode.SRC_IN)
+                holder.icon.colorFilter = PorterDuffColorFilter(palette.semantic.textPrimary, PorterDuff.Mode.SRC_IN)
             } else {
                 holder.icon.visibility = View.GONE
                 holder.icon.setImageDrawable(null)
@@ -507,7 +537,8 @@ class AppearanceThemeFragment : BaseFragment() {
 
         class ThemeViewHolder(
             itemView: View,
-            val swatch: FrameLayout,
+            val swatchFrame: FrameLayout,
+            val colorSwatch: View,
             val icon: ImageView
         ) : RecyclerView.ViewHolder(itemView)
     }

@@ -255,7 +255,7 @@ class AccountSettingFragment : BaseFragment() {
             when (getItemViewType(position)) {
                 VIEW_TYPE_HEADER -> {
                     val cell = holder.itemView as HeaderCell
-                    cell.textView.setTextColor(themeColors.onSurfaceVariant)
+                    cell.textView.setTextColor(themeColors.onSurface)
                     cell.setTopPadding(if (position == headerAccountInfoRow) 0 else 16)
                     cell.setSideMargin(16) 
                     when (position) {
@@ -267,6 +267,7 @@ class AccountSettingFragment : BaseFragment() {
                 VIEW_TYPE_ITEM -> {
                     val cell = holder.itemView as TextSettingsCell
                     cell.setTitleColor(0)
+                    cell.setDetailColor(themeColors.onSurface)
                     cell.setTitleBold(true)
                     cell.setIcon(null)
                     when (position) {

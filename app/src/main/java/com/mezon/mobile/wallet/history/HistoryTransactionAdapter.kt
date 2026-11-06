@@ -93,9 +93,9 @@ class HistoryTransactionAdapter(
             }
 
             val themeColors = com.mezon.mobile.core.ThemeColors.instance
-            tvStatus.setTextColor(themeColors.onSurfaceVariant)
-            tvId.setTextColor(themeColors.onSurfaceVariant)
-            tvTime.setTextColor(themeColors.onSurfaceVariant)
+            tvStatus.setTextColor(themeColors.textDisabled)
+            tvId.setTextColor(themeColors.textStrong)
+            tvTime.setTextColor(themeColors.textDisabled)
 
             val displayHash = if (transaction.hash.length > 8) {
                 transaction.hash.takeLast(8)

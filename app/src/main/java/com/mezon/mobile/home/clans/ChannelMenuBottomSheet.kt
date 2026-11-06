@@ -71,7 +71,7 @@ class ChannelMenuBottomSheet(
         fun buildRow(
             label: String,
             icon: MezonIcon,
-            labelColor: Int = theme.colorText,
+            labelColor: Int = theme.textStrong,
             iconColor: Int = theme.textStrong,
             onClick: () -> Unit,
         ) = ClanSettingsUiHelpers.buildMezonMenuRow(
@@ -83,12 +83,13 @@ class ChannelMenuBottomSheet(
             iconColor,
             keepOriginalIconColors = icon in originalColorIcons,
             onPress = dismissAndRun(onClick),
+            rowBackgroundColor = theme.background,
         )
 
         fun addSection(parent: LinearLayout, rows: List<View>, topGap: Float = sectionGap) {
             if (rows.all { it.visibility == View.GONE }) return
             parent.addView(
-                ClanSettingsUiHelpers.buildMezonSection(context, theme, null, rows),
+                ClanSettingsUiHelpers.buildMezonSection(context, theme, null, rows, cardColor = theme.background, separatorColor = theme.border),
                 LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, topGap, 0f, 0f)
             )
         }
@@ -233,8 +234,8 @@ class ChannelMenuBottomSheet(
                     buildRow(
                         context.getString(R.string.channel_settings_menu_leave_thread),
                         MezonIcon.leaveGroupIcon,
-                        labelColor = theme.redStrong,
-                        iconColor = theme.redStrong,
+                        labelColor = theme.error,
+                        iconColor = theme.error,
                         onClick = onLeaveThread,
                     )
                 )
@@ -253,8 +254,8 @@ class ChannelMenuBottomSheet(
                     buildRow(
                         context.getString(deleteLabelRes),
                         MezonIcon.closeSmallBold,
-                        labelColor = theme.redStrong,
-                        iconColor = theme.redStrong,
+                        labelColor = theme.error,
+                        iconColor = theme.error,
                         onClick = onDeleteChannel,
                     )
                 )
@@ -263,7 +264,7 @@ class ChannelMenuBottomSheet(
 
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(theme.background)
+            setBackgroundColor(sheetBackgroundColor)
             setPadding(LayoutHelper.dp(20), 0, LayoutHelper.dp(20), LayoutHelper.dp(20))
             addView(header, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
             if (watchRows.isNotEmpty()) {

@@ -291,7 +291,7 @@ class ShareContactFragment : BaseFragment() {
         SearchController.removeDiacritics(value.trim().lowercase(Locale.getDefault()))
 
     private fun rnTextDisabled(): Int = when (themeColors.resolvedMode) {
-        ThemeMode.LIGHT -> 0xFF606065.toInt()
+        ThemeMode.LIGHT, ThemeMode.SUNRISE, ThemeMode.CISHER -> 0xFF606065.toInt()
         ThemeMode.ABYSS -> 0xFFBDB4DC.toInt()
         else -> 0xFF7B7B83.toInt()
     }

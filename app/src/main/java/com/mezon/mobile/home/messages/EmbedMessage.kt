@@ -18,7 +18,6 @@ import com.mezon.mobile.home.chat.ChatMessageCell
 import com.mezon.mobile.home.chat.CodeFenceSpan
 import com.mezon.mobile.home.chat.ImageReceiver
 import com.mezon.mobile.home.chat.ShimmerEffect
-import com.mezon.mobile.ui.theme.ThemeMode
 import com.mezon.mobile.util.EmbedActionRow
 import com.mezon.mobile.util.EmbedAnimationSpec
 import com.mezon.mobile.util.EmbedButtonStyle
@@ -1058,7 +1057,7 @@ class EmbedMessageRenderer(
                             y,
                             cwAnim,
                             shimmer,
-                            theme().resolvedMode != ThemeMode.LIGHT,
+                            !theme().resolvedMode.isLight,
                         )
                         y += bh + GAP
                     }
@@ -1111,7 +1110,7 @@ class EmbedMessageRenderer(
                 if (!ir.hasMainImage()) {
                     shimmer.draw(
                         canvas, xImg, y, xImg + cw, y + ch,
-                        IMG_RADIUS, theme().resolvedMode != ThemeMode.LIGHT,
+                        IMG_RADIUS, !theme().resolvedMode.isLight,
                     )
                     if (parent.isAttachedToWindow && (parent as? ChatMessageCell)?.visibleOnScreen != false) {
                         parent.postInvalidateDelayed(32)
@@ -1154,7 +1153,7 @@ class EmbedMessageRenderer(
             tmpRect.set(l, tt, l + b.width, tt + b.height)
             canvas.drawRoundRect(tmpRect, BUTTON_RADIUS, BUTTON_RADIUS, BUTTON_BG_PAINT)
             if (!b.disabled && pressedButtonKey.isNotEmpty() && pressedButtonKey == b.buttonId.ifEmpty { b.url.orEmpty() }) {
-                BUTTON_RIPPLE_PAINT.color = if (t.resolvedMode == ThemeMode.LIGHT) {
+                BUTTON_RIPPLE_PAINT.color = if (t.resolvedMode.isLight) {
                     0x26000000
                 } else {
                     0x33FFFFFF

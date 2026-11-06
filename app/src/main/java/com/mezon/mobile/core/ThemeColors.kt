@@ -1,9 +1,12 @@
 package com.mezon.mobile.core
 
+import com.mezon.mobile.core.theme.MobileThemeColors
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.text.TextPaint
+import com.mezon.mobile.core.theme.DesktopThemePalette
+import com.mezon.mobile.core.theme.DesktopThemeToken as Token
 import com.mezon.mobile.ui.theme.ThemeMode
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -127,16 +130,26 @@ class ThemeColors @Inject constructor() {
     val switchThumbPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
     val shadowPaint = Paint().apply { color = 0x12000000 }
 
+    val desktop: DesktopThemePalette get() = DesktopThemePalette.forTheme(resolvedMode)
+    internal var mobile: MobileThemeColors = MobileThemeColors.forMode(resolvedMode, desktop)
+        private set
+
+    val textThemePrimary: Int get() = desktop[Token.TEXT_THEME_PRIMARY]
+    val textThemeMessage: Int get() = desktop[Token.TEXT_THEME_MESSAGE]
+
     init {
         applyPaintColors()
+        refreshColorKeys()
     }
 
-    fun setTheme(mode: ThemeMode, systemIsDark: Boolean = true) {
+    fun setTheme(
+        mode: ThemeMode,
+        systemIsDark: Boolean = true,
+        effectiveMode: ThemeMode = mode.resolve(systemIsDark)
+    ) {
         currentMode = mode
-        resolvedMode = when (mode) {
-            ThemeMode.SYSTEM -> if (systemIsDark) ThemeMode.DARK else ThemeMode.LIGHT
-            else -> mode
-        }
+        resolvedMode = effectiveMode.resolve(systemIsDark)
+        mobile = MobileThemeColors.forMode(resolvedMode, desktop)
         applyPaintColors()
         refreshColorKeys()
     }
@@ -176,22 +189,22 @@ class ThemeColors @Inject constructor() {
         currentColors[key_actionBarDefaultSubtitle] = onSurfaceVariant
         currentColors[key_actionBarDefaultSelector] = (primary and 0x00FFFFFF) or 0x29000000
 
-        currentColors[key_chats_name] = onSurface
+        currentColors[key_chats_name] = textThemePrimary
         currentColors[key_chats_nameBold] = onSurface
         currentColors[key_chats_message] = onSurfaceVariant
         currentColors[key_chats_date] = onSurfaceVariant
-        currentColors[key_chats_unreadCounter] = badgeRed
+        currentColors[key_chats_unreadCounter] = MobileThemeColors.unreadBadge
         currentColors[key_chats_unreadCounterText] = Color.WHITE
         currentColors[key_chats_onlineCircle] = onlineGreen
 
         currentColors[key_chat_inBubble] = surfaceVariant
         currentColors[key_chat_outBubble] = primary
-        currentColors[key_chat_inText] = onSurface
+        currentColors[key_chat_inText] = textThemeMessage
         currentColors[key_chat_outText] = onPrimary
         currentColors[key_chat_inTime] = onSurfaceVariant
         currentColors[key_chat_outTime] = onPrimary and 0x99FFFFFF.toInt()
         currentColors[key_chat_senderName] = primary
-        currentColors[key_chat_linkColor] = blurple
+        currentColors[key_chat_linkColor] = textLink
 
         currentColors[key_settings_name] = onSurface
         currentColors[key_settings_value] = onSurfaceVariant
@@ -217,7 +230,8 @@ class ThemeColors @Inject constructor() {
         currentColors[key_connectedColor] = connectedColor
         currentColors[key_connectingColor] = connectingColor
         currentColors[key_disconnectedColor] = disconnectedColor
-        currentColors[key_color_success] = 0xFF43B581.toInt()
+        // Desktop SUCCESS message buttons have a separate color from the generic success tint.
+        currentColors[key_color_success] = 0xFF16A34A.toInt()
 
         currentColors[key_dialogBackground] = surface
         currentColors[key_dialogTextBlack] = onSurface
@@ -260,12 +274,7 @@ class ThemeColors @Inject constructor() {
         currentColors[key_profile_tabText] = onSurfaceVariant
         currentColors[key_profile_tabSelector] = (primary and 0x00FFFFFF) or 0x29000000
 
-        currentColors[key_sheetItemBackground] = when (resolvedMode) {
-            ThemeMode.LIGHT -> 0xFFF2F3F6.toInt()
-            ThemeMode.DARK -> 0xFF2B2B33.toInt()
-            ThemeMode.ABYSS -> 0xFF14142A.toInt()
-            else -> 0xFF2B2B33.toInt()
-        }
+        currentColors[key_sheetItemBackground] = surface
         currentColors[key_dialogTextRed] = error
         currentColors[key_dialogIcon] = onSurfaceVariant
 
@@ -273,19 +282,19 @@ class ThemeColors @Inject constructor() {
     }
 
     private fun applyPaintColors() {
-        dialogNamePaint.color = onSurface
+        dialogNamePaint.color = textThemePrimary
         dialogNameBoldPaint.color = onSurface
         dialogMessagePaint.color = onSurfaceVariant
         dialogMessageBoldPaint.color = onSurface
         dialogTimePaint.color = onSurfaceVariant
-        dialogBadgePaint.color = badgeRed
+        dialogBadgePaint.color = MobileThemeColors.unreadBadge
         buzzBadgePaint.color = buzzRed
         dialogOnlinePaint.color = onlineGreen
-        dialogOnlineBorderPaint.color = surface
+        dialogOnlineBorderPaint.color = channelPanelBg
         dividerPaint.color = outlineVariant
         chatSenderPaint.color = primary
         val fs = LayoutHelper.sp(SharedConfig.fontSize.toFloat())
-        chatContentPaint.color = onSurface
+        chatContentPaint.color = textThemeMessage
         chatContentPaint.textSize = fs
         chatContentOutPaint.color = onPrimary
         chatContentOutPaint.textSize = fs
@@ -314,84 +323,39 @@ class ThemeColors @Inject constructor() {
         chatBuzzTextPaint.textSize = fs
     }
 
-    val background: Int get() = when (resolvedMode) {
-        ThemeMode.LIGHT -> 0xFFFFFBFE.toInt()
-        ThemeMode.DARK -> 0xFF1C1B1F.toInt()
-        ThemeMode.ABYSS -> 0xFF0A0A12.toInt()
-        else -> 0xFF1C1B1F.toInt()
-    }
+    val background: Int get() = desktop[Token.BG_THEME_DIRECT_MESSAGE]
 
-    val chatBackground: Int get() = when (resolvedMode) {
-        ThemeMode.LIGHT -> 0xFFFFFFFF.toInt()
-        ThemeMode.DARK -> 0xFF1C1D23.toInt()
-        ThemeMode.ABYSS -> 0xFF040421.toInt()
-        else -> 0xFF1C1D23.toInt()
-    }
+    val chatBackground: Int get() = desktop[Token.BG_SECONDARY]
 
-    val surface: Int get() = when (resolvedMode) {
-        ThemeMode.LIGHT -> 0xFFFFFBFE.toInt()
-        ThemeMode.DARK -> 0xFF1C1B1F.toInt()
-        ThemeMode.ABYSS -> 0xFF0D0D18.toInt()
-        else -> 0xFF1C1B1F.toInt()
-    }
+    val surface: Int get() = desktop[Token.BG_SECONDARY]
 
-    val surfaceVariant: Int get() = when (resolvedMode) {
-        ThemeMode.LIGHT -> 0xFFE7E0EC.toInt()
-        ThemeMode.DARK -> 0xFF49454F.toInt()
-        ThemeMode.ABYSS -> 0xFF1A1A2E.toInt()
-        else -> 0xFF49454F.toInt()
-    }
+    val surfaceVariant: Int get() = desktop[Token.BG_PRIMARY]
 
-    val secondaryLight: Int get() = when (resolvedMode) {
-        ThemeMode.LIGHT -> 0xFFFEFDFE.toInt()
-        ThemeMode.DARK -> 0xFF26272F.toInt()
-        ThemeMode.ABYSS -> 0xFF1E143A.toInt()
-        else -> 0xFF26272F.toInt()
-    }
+    val secondaryLight: Int get() = desktop[Token.BG_SURFACE]
 
-    val primary: Int get() = 0xFF5A62F4.toInt()
+    val primary: Int get() = desktop[Token.BUTTON_THEME_PRIMARY]
 
     val onPrimary: Int get() = Color.WHITE
 
     val primaryGradiant: Int get() = primaryContainer
 
-    val textStrong: Int get() = tabLabelActive
+    val textStrong: Int get() = desktop.semantic.textPrimary
 
-    val secondaryInputBackground: Int get() = channelPanelBg
+    val secondaryInputBackground: Int get() = desktop[Token.BG_INPUT_SECONDARY]
 
-    val createClanDiscordBlurple: Int get() = 0xFF5865F2.toInt()
+    val createClanDiscordBlurple: Int get() = primary
 
     val createClanCameraGray: Int get() = 0xFF676B73.toInt()
 
     val communityGuidelineLinkBlue: Int get() = textLink
 
-    val onSurface: Int get() = when (resolvedMode) {
-        ThemeMode.LIGHT -> 0xFF1C1B1F.toInt()
-        ThemeMode.DARK -> 0xFFE6E1E5.toInt()
-        ThemeMode.ABYSS -> 0xFFE6E1E5.toInt()
-        else -> 0xFFE6E1E5.toInt()
-    }
+    val onSurface: Int get() = desktop.semantic.textPrimary
 
-    val onSurfaceVariant: Int get() = when (resolvedMode) {
-        ThemeMode.LIGHT -> 0xFF49454F.toInt()
-        ThemeMode.DARK -> 0xFFCAC4D0.toInt()
-        ThemeMode.ABYSS -> 0xFFCAC4D0.toInt()
-        else -> 0xFFCAC4D0.toInt()
-    }
+    val onSurfaceVariant: Int get() = desktop.semantic.textSecondary
 
-    val outline: Int get() = when (resolvedMode) {
-        ThemeMode.LIGHT -> 0xFF79747E.toInt()
-        ThemeMode.DARK -> 0xFF938F99.toInt()
-        ThemeMode.ABYSS -> 0xFF2A2A40.toInt()
-        else -> 0xFF938F99.toInt()
-    }
+    val outline: Int get() = desktop[Token.BORDER_PRIMARY]
 
-    val outlineVariant: Int get() = when (resolvedMode) {
-        ThemeMode.LIGHT -> 0xFFCAC4D0.toInt()
-        ThemeMode.DARK -> 0xFF49454F.toInt()
-        ThemeMode.ABYSS -> 0xFF1A1A2E.toInt()
-        else -> 0xFF49454F.toInt()
-    }
+    val outlineVariant: Int get() = outline
 
     val dividerColor: Int get() = outlineVariant
 
@@ -399,57 +363,30 @@ class ThemeColors @Inject constructor() {
     val redStrong: Int get() = 0xFFC61E1B.toInt()
     val success: Int get() = 0xFF00D4AA.toInt()
 
-    val primaryContainer: Int get() = when (resolvedMode) {
-        ThemeMode.LIGHT -> 0xFFEADDFF.toInt()
-        ThemeMode.DARK -> 0xFF4F378B.toInt()
-        ThemeMode.ABYSS -> 0xFF2A2A50.toInt()
-        else -> 0xFF4F378B.toInt()
-    }
+    val primaryContainer: Int get() = desktop[Token.BG_ACTIVE_FRIEND_LIST]
 
-    val onPrimaryContainer: Int get() = when (resolvedMode) {
-        ThemeMode.LIGHT -> 0xFF21005D.toInt()
-        ThemeMode.DARK -> 0xFFEADDFF.toInt()
-        ThemeMode.ABYSS -> 0xFFEADDFF.toInt()
-        else -> 0xFFEADDFF.toInt()
-    }
+    val onPrimaryContainer: Int get() = onSurface
 
-    val connectedColor: Int get() = 0xFF43B581.toInt()
+    val connectedColor: Int get() = desktop.semantic.statusOnline
     val connectingColor: Int get() = 0xFFFAA61A.toInt()
     val disconnectedColor: Int get() = 0xFFF04747.toInt()
 
     val colorSuccess: Int get() = getColor(key_color_success)
 
-    val blurple: Int get() = 0xFF5A62F4.toInt()
+    val blurple: Int get() = primary
 
-    val textLink: Int get() = 0xFF3297FF.toInt()
-    val midnightBlue: Int get() = when (resolvedMode) {
-        ThemeMode.LIGHT -> 0xFFD1E0FF.toInt()
-        ThemeMode.DARK, ThemeMode.ABYSS -> 0xFF3B426E.toInt()
-        else -> 0xFF3B426E.toInt()
-    }
-    val mentionHighlightBg: Int get() = 0x14E8CA52.toInt()
-    val textRoleLink: Int get() = when (resolvedMode) {
-        ThemeMode.LIGHT -> 0xFF00B098.toInt()
-        ThemeMode.DARK, ThemeMode.ABYSS -> 0xFF009C67.toInt()
-        else -> 0xFF009C67.toInt()
-    }
-    val darkMossGreen: Int get() = when (resolvedMode) {
-        ThemeMode.LIGHT -> 0xFFE2F1E5.toInt()
-        ThemeMode.DARK, ThemeMode.ABYSS -> 0xFF3C4C43.toInt()
-        else -> 0xFF3C4C43.toInt()
-    }
+    val textLink: Int get() = desktop[Token.COLOR_MENTION_HOVER]
+    val midnightBlue: Int get() = desktop[Token.MENTION_PRIMARY]
+    val mentionHighlightBg: Int get() = desktop[Token.BG_HIGHLIGHT]
+    val textRoleLink: Int get() = desktop[Token.COLOR_MENTION_EVRYONE]
+    val darkMossGreen: Int get() = desktop[Token.BG_MENTION_EVRYONE]
 
-    val badgeRed: Int get() = 0xFFD30E0E.toInt()
-    val onlineGreen: Int get() = 0xFF43B581.toInt()
-    val voiceActiveGreen: Int get() = 0xFF16A34A.toInt()
+    val badgeRed: Int get() = desktop.semantic.mentionBadge
+    val onlineGreen: Int get() = DesktopThemePalette.onlinePresenceBadge
+    val voiceActiveGreen: Int get() = desktop.semantic.statusOnline
 
-    val reactionBgColor: Int get() = when (resolvedMode) {
-        ThemeMode.LIGHT -> 0x99E5E7EB.toInt()
-        ThemeMode.DARK -> 0x80373A54.toInt()
-        ThemeMode.ABYSS -> 0x80373A54.toInt()
-        else -> 0x80373A54.toInt()
-    }
-    val reactionBorderColor: Int get() = 0xFF2563EB.toInt()
+    val reactionBgColor: Int get() = (primary and 0x00FFFFFF) or 0x2E000000
+    val reactionBorderColor: Int get() = primary
 
     val qrOverlayDim: Int get() = 0x66000000
     val qrOverlayFrame: Int get() = Color.WHITE
@@ -459,144 +396,55 @@ class ThemeColors @Inject constructor() {
     val qrAvatarBackground: Int get() = Color.WHITE
 
     // Bottom tab icon primary (outer shape)
-    val tabIconPrimary: Int get() = when (resolvedMode) {
-        ThemeMode.LIGHT -> 0xFFCECECE.toInt()
-        ThemeMode.DARK -> 0xFFCECECE.toInt()
-        ThemeMode.ABYSS -> 0xFFCECECE.toInt()
-        else -> 0xFFCECECE.toInt()
-    }
+    val tabIconPrimary: Int get() = (desktop[Token.BG_ICON_THEME] and 0x00FFFFFF) or 0x99000000.toInt()
 
-    // Bottom tab icon detail (inner small shape) when inactive - darker than primary.
-    val tabIconDetail: Int get() = when (resolvedMode) {
-        ThemeMode.LIGHT -> 0xFF6B6B6B.toInt()
-        ThemeMode.DARK -> 0xFF6B6B6B.toInt()
-        ThemeMode.ABYSS -> 0xFF6B6B6B.toInt()
-        else -> 0xFF6B6B6B.toInt()
-    }
+    // Bottom tab icon detail uses the full theme icon color.
+    val tabIconDetail: Int get() = desktop[Token.BG_ICON_THEME]
 
-    val tabIconActivePrimary: Int get() = when (resolvedMode) {
-        ThemeMode.LIGHT -> 0xFF939BF6.toInt()
-        ThemeMode.DARK -> 0xFF939BF6.toInt()
-        ThemeMode.ABYSS -> 0xFF939BF6.toInt()
-        else -> 0xFF939BF6.toInt()
-    }
+    val tabIconActivePrimary: Int get() = desktop[Token.COLOR_TEXT_ACTIVE_BUTTON]
 
-    // Bottom tab icon detail (inner small shape) when active - darker than active primary.
-    val tabIconActiveDetail: Int get() = when (resolvedMode) {
-        ThemeMode.LIGHT -> 0xFF5F66C9.toInt()
-        ThemeMode.DARK -> 0xFF5F66C9.toInt()
-        ThemeMode.ABYSS -> 0xFF5F66C9.toInt()
-        else -> 0xFF5F66C9.toInt()
-    }
+    // Cutout matches the bottom bar surface.
+    val tabIconActiveDetail: Int get() = surface
 
-    // Tab label active color = textStrong
-    val tabLabelActive: Int get() = when (resolvedMode) {
-        ThemeMode.LIGHT -> 0xFF070709.toInt()    // light.textStrong
-        ThemeMode.DARK -> 0xFFDFE0E4.toInt()     // dark.textStrong
-        ThemeMode.ABYSS -> 0xFFF1EDFF.toInt()    // abyssDark.textStrong
-        else -> 0xFFDFE0E4.toInt()
-    }
+    // Active labels use the desktop navigation text token.
+    val tabLabelActive: Int get() = desktop[Token.TEXT_SECONDARY]
 
-    // Tab label inactive color = channelNormal
-    val tabLabelInactive: Int get() = when (resolvedMode) {
-        ThemeMode.LIGHT -> 0xFF6C7077.toInt()    // light.channelNormal
-        ThemeMode.DARK -> 0xFFAEAEAE.toInt()     // dark.channelNormal
-        ThemeMode.ABYSS -> 0xFFBDB4DC.toInt()    // abyssDark.channelNormal
-        else -> 0xFFAEAEAE.toInt()
-    }
+    // Inactive labels use secondary semantic text.
+    val tabLabelInactive: Int get() = desktop.semantic.textSecondary
 
-    val channelPanelBg: Int get() = when (resolvedMode) {
-        ThemeMode.LIGHT -> 0xFFFFFFFF.toInt()    // light.secondary
-        ThemeMode.DARK -> 0xFF1C1D23.toInt()     // dark.secondary
-        ThemeMode.ABYSS -> 0xFF040421.toInt()    // abyssDark.secondary
-        else -> 0xFF1C1D23.toInt()
-    }
+    val channelPanelBg: Int get() = desktop[Token.BG_THEME_DIRECT_MESSAGE]
 
-    val serverRailBg: Int get() = when (resolvedMode) {
-        ThemeMode.LIGHT -> 0xFFF4F4F8.toInt()    // light.primary
-        ThemeMode.DARK -> 0xFF121218.toInt()     // dark.primary
-        ThemeMode.ABYSS -> 0xFF060933.toInt()    // abyssDark.primary
-        else -> 0xFF121218.toInt()
-    }
+    val serverRailBg: Int get() = desktop[Token.BG_PRIMARY]
 
-    val profileSheetAvatarRingColor: Int get() = when (resolvedMode) {
-        ThemeMode.LIGHT -> 0xFFF4F4F8.toInt()
-        ThemeMode.DARK -> 0xFF121218.toInt()
-        ThemeMode.ABYSS -> 0xFF110B33.toInt()
-        else -> 0xFF121218.toInt()
-    }
+    val profileSheetAvatarRingColor: Int get() = surface
 
     val profileSheetBackdropFallback: Int get() = 0xFF808080.toInt()
 
-    val tertiary: Int get() = when (resolvedMode) {
-        ThemeMode.LIGHT -> 0xFFF2F3F6.toInt()
-        ThemeMode.DARK -> 0xFF383A43.toInt()
-        ThemeMode.ABYSS -> 0xFF141319.toInt()
-        else -> 0xFF383A43.toInt()
-    }
+    val tertiary: Int get() = desktop[Token.BG_PRIMARY]
 
-    val textDisabled: Int get() = when (resolvedMode) {
-        ThemeMode.LIGHT -> 0xFF9E9E9E.toInt()
-        ThemeMode.DARK -> 0xFF6B6B6B.toInt()
-        ThemeMode.ABYSS -> 0xFF5A5A6E.toInt()
-        else -> 0xFF6B6B6B.toInt()
-    }
+    val textDisabled: Int get() = desktop.semantic.textMuted
 
-    val charcoal: Int get() = when (resolvedMode) {
-        ThemeMode.LIGHT -> 0xFFF2F3F5.toInt()
-        ThemeMode.DARK -> 0xFF2B2B2E.toInt()
-        ThemeMode.ABYSS -> 0xFF3B3B48.toInt()
-        else -> 0xFF2B2B2E.toInt()
-    }
+    val charcoal: Int get() = surfaceVariant
 
-    val borderDim: Int get() = when (resolvedMode) {
-        ThemeMode.LIGHT -> 0xFFDFDFDF.toInt()
-        ThemeMode.DARK -> 0xFF2F2F37.toInt()
-        ThemeMode.ABYSS -> 0xFF16206A.toInt()
-        else -> 0xFF2F2F37.toInt()
-    }
+    val borderDim: Int get() = outline
 
-    val border: Int get() = when (resolvedMode) {
-        ThemeMode.LIGHT -> 0xFFEDEDF1.toInt()
-        ThemeMode.DARK -> 0xFF2A2D31.toInt()
-        ThemeMode.ABYSS -> 0xFF16206A.toInt()
-        else -> 0xFF2A2D31.toInt()
-    }
+    val border: Int get() = outline
 
-    val secondaryWeight: Int get() = when (resolvedMode) {
-        ThemeMode.LIGHT -> 0xFFF0F0F0.toInt()
-        ThemeMode.DARK -> 0xFF212122.toInt()
-        ThemeMode.ABYSS -> 0xFF0E0B20.toInt()
-        else -> 0xFF212122.toInt()
-    }
+    val secondaryWeight: Int get() = desktop[Token.BG_ACTIVE_FRIEND_LIST]
 
-    val colorText: Int get() = when (resolvedMode) {
-        ThemeMode.LIGHT -> 0xFF29292B.toInt()
-        ThemeMode.DARK -> 0xFFCCCCCC.toInt()
-        ThemeMode.ABYSS -> 0xFFD6D0EB.toInt()
-        else -> 0xFFCCCCCC.toInt()
-    }
+    val colorText: Int get() = desktop.semantic.textSecondary
 
-    val colorAvatarDefault: Int get() = when (resolvedMode) {
-        ThemeMode.LIGHT -> 0xFF8A97A5.toInt()
-        ThemeMode.DARK -> 0xFF334155.toInt()
-        ThemeMode.ABYSS -> 0xFF334155.toInt()
-        else -> 0xFF334155.toInt()
-    }
+    val colorAvatarDefault: Int get() = desktop[Token.BG_ICON_THEME]
 
     val buzzRed: Int get() = 0xFFEA2420.toInt()
 
-    val codeInlineBg: Int get() = tertiary
+    val codeInlineBg: Int get() = desktop[Token.BG_ACTIVE_MEMBER_CHANNEL]
 
-    val codeInlineText: Int get() = onSurface
+    val codeInlineText: Int get() = desktop[Token.TEXT_SECONDARY]
 
-    val codeFenceBg: Int get() = tertiary
+    val codeFenceBg: Int get() = desktop[Token.BG_MARKDOWN_CODE]
 
-    val codeFenceBorder: Int get() = when (resolvedMode) {
-        ThemeMode.LIGHT -> 0xFF000000.toInt()
-        ThemeMode.DARK, ThemeMode.ABYSS -> 0xFF000000.toInt()
-        else -> 0xFF000000.toInt()
-    }
+    val codeFenceBorder: Int get() = outline
 
     companion object {
         @Volatile

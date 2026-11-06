@@ -62,7 +62,7 @@ class AdvancedMenuView(
     private val functionGridAdapter = FunctionGridAdapter()
 
     init {
-        setBackgroundColor(theme.getColor(ThemeColors.key_sheetBackground))
+        setBackgroundColor(theme.background)
 
         val gridView = RecyclerView(context).apply {
             layoutManager = GridLayoutManager(context, ITEMS_PER_ROW)

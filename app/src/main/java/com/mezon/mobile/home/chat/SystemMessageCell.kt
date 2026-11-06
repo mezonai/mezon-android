@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.chat
 
+import com.mezon.mobile.core.theme.DesktopThemeToken
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -249,8 +250,9 @@ class SystemMessageCell(context: Context, private val theme: ThemeColors) : Line
     }
 
     private fun bindBody(msg: MessageEntity) {
+        val linkColor = theme.desktop[DesktopThemeToken.MENTION_COLOR]
         val mentionColors = MentionColors(
-            theme.textLink,
+            linkColor,
             theme.midnightBlue,
             theme.textRoleLink,
             theme.darkMossGreen
@@ -300,7 +302,7 @@ class SystemMessageCell(context: Context, private val theme: ThemeColors) : Line
                 textStr.isBlank() -> systemFallbackText(msg)
                 else -> parseContentToSpannable(
                     msg.content,
-                    theme.primary,
+                    linkColor,
                     plainMessageTextView,
                     mentionColors,
                     theme,

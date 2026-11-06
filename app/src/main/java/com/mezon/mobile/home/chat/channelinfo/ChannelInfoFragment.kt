@@ -25,6 +25,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import com.mezon.mobile.R
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
+import com.mezon.mobile.core.theme.MobileThemeColors
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.core.ViewPagerFixed
@@ -132,6 +133,7 @@ class ChannelInfoFragment : BaseFragment() {
     private lateinit var channelPermissionController: ChannelPermissionController
     private lateinit var clansController: ClansController
     private lateinit var voiceController: VoiceController
+    private lateinit var roleController: com.mezon.mobile.home.clans.RoleController
     private lateinit var permissionPolicy: PermissionPolicy
     private lateinit var shortProfileActions: UserShortProfileActions
     private var settingsActionGap: View? = null
@@ -244,7 +246,10 @@ class ChannelInfoFragment : BaseFragment() {
         observe(NotificationCenter.clanRolesDidLoad) { _, _, args ->
             if (isPaused) return@observe
             val changedClanId = args.firstOrNull() as? Long ?: return@observe
-            if (changedClanId == clanId) updateSettingsActionVisibility()
+            if (changedClanId == clanId) {
+                updateSettingsActionVisibility()
+                refreshMemberColors()
+            }
         }
 
         observe(NotificationCenter.channelGalleryDidLoad) { _, _, args ->
@@ -312,6 +317,7 @@ class ChannelInfoFragment : BaseFragment() {
         channelController = entryPoint.channelController()
         channelPermissionController = entryPoint.channelPermissionController()
         clansController = entryPoint.clansController()
+        roleController = entryPoint.roleController()
         voiceController = entryPoint.voiceController()
         permissionPolicy = entryPoint.permissionPolicy()
         channelFilesController = entryPoint.channelFilesController()
@@ -368,7 +374,10 @@ class ChannelInfoFragment : BaseFragment() {
         val tabTitles = buildTabTitles()
         if (tabTitles.size > 1) {
             val viewPager = ViewPagerFixed(context)
-            val tabsView = ViewPagerFixed.TabsView(context, viewPager)
+            val tabsView = ViewPagerFixed.TabsView(context, viewPager).apply {
+                setIndicatorColor(MobileThemeColors.accent)
+                setTextColors(MobileThemeColors.accent, themeColors.onSurface)
+            }
 
             viewPager.setAdapter(object : ViewPagerFixed.Adapter() {
                 override fun getItemCount() = tabTitles.size
@@ -642,7 +651,7 @@ class ChannelInfoFragment : BaseFragment() {
         val circle = FrameLayout(context).apply {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(themeColors.surfaceVariant)
+                setColor(themeColors.background)
             }
         }
         val iconView = ImageView(context).apply {
@@ -729,7 +738,12 @@ class ChannelInfoFragment : BaseFragment() {
             ))
         }
 
-        memberListAdapter = MemberListAdapter(themeColors, isDm, resolveMemberListOwnerId()) { userId ->
+        memberListAdapter = MemberListAdapter(themeColors, isDm, resolveMemberListOwnerId(), nameColor = { member ->
+            val roleColor = if (isDm) null else roleController.resolveHighestDisplayRole(
+                clanId, member.userId, resolveMemberListOwnerId()
+            )?.color?.takeIf { it != 0 }
+            roleColor ?: themeColors.onSurface
+        }) { userId ->
             !isDm && voiceController.isUserInVoice(userId)
         }
 
@@ -754,7 +768,7 @@ class ChannelInfoFragment : BaseFragment() {
             val pad = LayoutHelper.dp(12)
             setPadding(pad, pad, pad, pad)
             background = GradientDrawable().apply {
-                setColor(themeColors.surfaceVariant)
+                setColor(themeColors.background)
                 cornerRadius = LayoutHelper.dpf(12f)
             }
         }
@@ -763,7 +777,7 @@ class ChannelInfoFragment : BaseFragment() {
             val size = LayoutHelper.dp(32)
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(themeColors.blurple)
+                setColor(MobileThemeColors.accent)
             }
             layoutParams = LinearLayout.LayoutParams(size, size)
         }
@@ -1117,6 +1131,15 @@ class ChannelInfoFragment : BaseFragment() {
         memberListAdapter?.updateCreatorId(resolveMemberListOwnerId())
         val members = memberResolver.resolveChannelMembers(clanId, channelId, channelType)
         memberListAdapter?.setData(members)
+        refreshMemberColors()
+    }
+
+    private fun refreshMemberColors() {
+        if (isDm || clanId == 0L) return
+        // Rebuild only the existing local role-color cache; no member or permission mutations.
+        roleController.scheduleRefreshDisplayRoleCache(clanId, resolveMemberListOwnerId()) {
+            if (fragmentView != null) memberListAdapter?.notifyDataSetChanged()
+        }
     }
 
     private fun resolveMemberListOwnerId(): Long {

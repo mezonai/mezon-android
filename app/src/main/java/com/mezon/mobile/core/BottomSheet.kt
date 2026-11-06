@@ -173,6 +173,7 @@ open class BottomSheet(
 
     // Background / shadow
     protected var shadowDrawable: Drawable? = null
+    private var sheetBackgroundColorOverride: Int? = null
     protected var backgroundPaddingTop = 0
     protected var backgroundPaddingLeft = 0
     private var useBackgroundTopPadding = true
@@ -263,8 +264,18 @@ open class BottomSheet(
         }
     }
 
+    /** Background for the entire panel, including the area around the drag handle. */
+    protected open val sheetBackgroundColor: Int
+        get() = theme.getColor(ThemeColors.key_sheetBackground)
+
+    private val resolvedSheetBackgroundColor: Int
+        get() = sheetBackgroundColorOverride ?: sheetBackgroundColor
+
+    protected open val sheetHandleColor: Int
+        get() = theme.getColor(ThemeColors.key_sheetHandle)
+
     fun fixNavigationBar() {
-        fixNavigationBar(theme.getColor(ThemeColors.key_sheetBackground))
+        fixNavigationBar(resolvedSheetBackgroundColor)
     }
 
     fun fixNavigationBar(bgColor: Int) {
@@ -277,6 +288,7 @@ open class BottomSheet(
     }
 
     open fun setBackgroundColor(color: Int) {
+        sheetBackgroundColorOverride = color
         (shadowDrawable as? GradientDrawable)?.setColor(color)
     }
 
@@ -374,7 +386,7 @@ open class BottomSheet(
         backgroundPaddingLeft = 0
         backgroundPaddingTop = 0
         shadowDrawable = GradientDrawable().apply {
-            setColor(theme.getColor(ThemeColors.key_sheetBackground))
+            setColor(resolvedSheetBackgroundColor)
             cornerRadii = floatArrayOf(
                 LayoutHelper.dp(14).toFloat(), LayoutHelper.dp(14).toFloat(),
                 LayoutHelper.dp(14).toFloat(), LayoutHelper.dp(14).toFloat(),
@@ -432,7 +444,7 @@ open class BottomSheet(
         // Handle bar
         val handleView = View(context).apply {
             background = GradientDrawable().apply {
-                setColor(theme.getColor(ThemeColors.key_sheetHandle))
+                setColor(sheetHandleColor)
                 cornerRadius = LayoutHelper.dp(2).toFloat()
             }
         }
@@ -1381,7 +1393,11 @@ open class BottomSheet(
             if (drawNavigationBar && bottomInset != 0) {
                 val navBarHeight = if (drawNavigationBar) this@BottomSheet.bottomInset else 0
                 if (navBarColorKey >= 0) {
-                    backgroundPaint.color = theme.getColor(navBarColorKey)
+                    backgroundPaint.color = if (navBarColorKey == ThemeColors.key_sheetBackground) {
+                        resolvedSheetBackgroundColor
+                    } else {
+                        theme.getColor(navBarColorKey)
+                    }
                 } else if (navBarColor != 0) {
                     backgroundPaint.color = navBarColor
                 } else {

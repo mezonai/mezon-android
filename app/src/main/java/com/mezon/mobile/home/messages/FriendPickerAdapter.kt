@@ -20,6 +20,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mezon.api.Friend
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.core.theme.MobileThemeColors
 import com.mezon.mobile.ui.cells.AvatarView
 import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
@@ -260,14 +261,14 @@ class FriendPickerAdapter(
 
 private class HeaderRowView(context: Context, private val themeColors: ThemeColors) : TextView(context) {
     init {
-        setTextColor(themeColors.colorText)
+        setTextColor(themeColors.textDisabled)
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
         includeFontPadding = false
     }
 
     fun bind(title: String, uppercase: Boolean, separated: Boolean) {
         text = if (uppercase) title.uppercase(Locale.getDefault()) else title
-        setTextColor(themeColors.colorText)
+        setTextColor(themeColors.textDisabled)
         val topPadding = when {
             !uppercase -> PAD_TOP_SEARCH
             separated -> PAD_TOP_SEPARATED
@@ -295,6 +296,7 @@ private class FriendPickerCell(
     private val titleView: TextView
     private val subtitleView: TextView
     private val checkView: SquareCheckView
+    private val rowBackground = GradientDrawable()
     private val dividerPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var drawDivider = false
 
@@ -316,7 +318,7 @@ private class FriendPickerCell(
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(LayoutHelper.dp(10), LayoutHelper.dp(8), LayoutHelper.dp(10), LayoutHelper.dp(8))
-            background = GradientDrawable().apply { setColor(themeColors.secondaryInputBackground) }
+            background = rowBackground.apply { setColor(themeColors.background) }
         }
         addView(row, LayoutParams(LayoutParams.MATCH_PARENT, LayoutHelper.dp(56)))
 
@@ -347,7 +349,7 @@ private class FriendPickerCell(
 
         subtitleView = TextView(context).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-            setTextColor(themeColors.textStrong)
+            setTextColor(themeColors.textDisabled)
             includeFontPadding = false
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
@@ -367,6 +369,9 @@ private class FriendPickerCell(
         selectMode: Boolean,
         divider: Boolean
     ) {
+        rowBackground.setColor(themeColors.background)
+        titleView.setTextColor(themeColors.textStrong)
+        subtitleView.setTextColor(themeColors.textDisabled)
         val user = friend.user
         val displayName = user.displayName.ifBlank { user.username }
         avatarView.setUserId(user.id)
@@ -423,11 +428,11 @@ private class SquareCheckView(
         rect.set(pad, pad, width - pad, height - pad)
         val radius = LayoutHelper.dpf(5f)
         if (checked) {
-            bgPaint.color = themeColors.blurple
+            bgPaint.color = MobileThemeColors.newConversation
             bgPaint.alpha = if (disabled) 150 else 255
             canvas.drawRoundRect(rect, radius, radius, bgPaint)
         }
-        borderPaint.color = if (checked) themeColors.blurple else themeColors.outline
+        borderPaint.color = if (checked) MobileThemeColors.newConversation else themeColors.textDisabled
         borderPaint.alpha = if (disabled) 120 else 255
         canvas.drawRoundRect(rect, radius, radius, borderPaint)
         if (checked) {
