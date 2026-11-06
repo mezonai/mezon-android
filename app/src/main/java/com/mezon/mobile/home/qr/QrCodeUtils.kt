@@ -60,55 +60,6 @@ object QrCodeUtils {
         }
     }
 
-    fun decodeLiveCameraBitmap(bitmap: Bitmap): String? {
-        val width = bitmap.width
-        val height = bitmap.height
-        if (width <= 0 || height <= 0) return null
-
-        val pixels = IntArray(width * height)
-        bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
-
-        val reader = MultiFormatReader().apply {
-            setHints(
-                mapOf(
-                    DecodeHintType.POSSIBLE_FORMATS to listOf(BarcodeFormat.QR_CODE),
-                    DecodeHintType.TRY_HARDER to true,
-                    DecodeHintType.ALSO_INVERTED to true 
-                )
-            )
-        }
-
-        fun fastScan(cropFraction: Float, tryRotate: Boolean = false): String? {
-            val cropW = (width * cropFraction).toInt().coerceAtLeast(1)
-            val cropH = (height * cropFraction).toInt().coerceAtLeast(1)
-            val left = (width - cropW) / 2
-            val top = (height - cropH) / 2
-            
-            var source: com.google.zxing.LuminanceSource = RGBLuminanceSource(width, height, pixels).crop(left, top, cropW, cropH)
-            
-            try {
-                reader.decode(BinaryBitmap(HybridBinarizer(source))).text?.let { return it }
-            } catch (_: Exception) {
-                reader.reset()
-            }
-
-            if (tryRotate) {
-                source = source.rotateCounterClockwise()
-                try {
-                    reader.decode(BinaryBitmap(HybridBinarizer(source))).text?.let { return it }
-                } catch (_: Exception) {
-                    reader.reset()
-                }
-            }
-            return null
-        }
-
-        fastScan(0.7f, tryRotate = true)?.let { return it }
-        fastScan(1f, tryRotate = true)?.let { return it }
-
-        return null
-    }
-
     private fun decodeWithRotations(bitmap: Bitmap): String? {
         decodeFromArgbBitmap(bitmap)?.let { return it }
         for (rotation in intArrayOf(90, 180, 270)) {

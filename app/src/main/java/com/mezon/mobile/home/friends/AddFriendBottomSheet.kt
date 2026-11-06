@@ -71,7 +71,7 @@ class AddFriendBottomSheet(
             setPadding(LayoutHelper.dp(14), LayoutHelper.dp(12), LayoutHelper.dp(14), LayoutHelper.dp(12))
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(12f).toFloat()
-                setColor(themeColors.surfaceVariant)
+                setColor(themeColors.getColor(ThemeColors.key_sheetItemBackground))
             }
             isClickable = true
             isFocusable = true

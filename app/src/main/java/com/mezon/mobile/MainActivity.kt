@@ -1042,6 +1042,7 @@ class MainActivity : BasePermissionsActivity(),
             it.clearMemoryCache()
             it.clearDiskCache()
         }
+        com.mezon.mobile.util.VideoCache.clear(this)
         actionBarLayout.removeAllFragments()
         actionBarLayout.containerView.removeAllViews()
         actionBarLayout.containerViewBack.removeAllViews()
@@ -1081,6 +1082,7 @@ class MainActivity : BasePermissionsActivity(),
             it.clearMemoryCache()
             it.clearDiskCache()
         }
+        com.mezon.mobile.util.VideoCache.clear(this)
         if (removeAll) {
             actionBarLayout.removeAllFragments()
         }

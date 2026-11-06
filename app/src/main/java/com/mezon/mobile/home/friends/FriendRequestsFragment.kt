@@ -100,8 +100,13 @@ class FriendRequestsFragment : BaseFragment() {
             overScrollMode = View.OVER_SCROLL_NEVER
             isVerticalScrollBarEnabled = false
             adapter = this@FriendRequestsFragment.adapter
+            background = GradientDrawable().apply {
+                cornerRadius = LayoutHelper.dp(12f).toFloat()
+                setColor(themeColors.background)
+            }
+            clipToOutline = true
         }
-        listContainer.addView(recyclerView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
+        listContainer.addView(recyclerView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
         val emptyContainer = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -146,6 +151,7 @@ class FriendRequestsFragment : BaseFragment() {
     private fun updateTheme() {
         contentLayout.background = friendListBackground(themeColors)
         fragmentView?.setBackgroundColor(themeColors.surface)
+        (recyclerView.background as? GradientDrawable)?.setColor(themeColors.background)
         val selectedText = themeColors.onPrimary
         val unselectedText = themeColors.onSurface
         val selectedBg = themeColors.primary

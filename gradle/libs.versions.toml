@@ -25,6 +25,7 @@ firebaseBom = "33.1.0"
 googleServices = "4.4.2"
 cameraX = "1.4.1"
 zxing = "3.5.3"
+mlkitBarcodeScanning = "17.3.0"
 bouncyCastle = "1.78.1"
 photoView = "2.3.0"
 appcompat = "1.7.0"
@@ -70,6 +71,7 @@ androidx-camera-camera2 = { group = "androidx.camera", name = "camera-camera2", 
 androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "cameraX" }
 androidx-camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "cameraX" }
 zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxing" }
+mlkit-barcode-scanning = { group = "com.google.mlkit", name = "barcode-scanning", version.ref = "mlkitBarcodeScanning" }
 photoview = { group = "com.github.chrisbanes", name = "PhotoView", version.ref = "photoView" }
 androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
 sentry-android = { group = "io.sentry", name = "sentry-android", version.ref = "sentry" }

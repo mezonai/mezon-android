@@ -24,6 +24,7 @@ import android.widget.TextView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
@@ -48,6 +49,12 @@ import com.mezon.mobile.session.SessionExpiredException
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.home.wallet.SendTokenFragment
 import com.mezon.mobile.ui.cells.ToastOverlay
+import com.google.android.gms.tasks.Tasks
+import com.google.mlkit.vision.barcode.BarcodeScanner
+import com.google.mlkit.vision.barcode.BarcodeScannerOptions
+import com.google.mlkit.vision.barcode.BarcodeScanning
+import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.common.InputImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.io.ByteArrayInputStream
@@ -120,6 +127,11 @@ class QrScanFragment : BaseFragment() {
     }
 
     private val analyzerExecutor = Executors.newSingleThreadExecutor()
+    private val qrScanner: BarcodeScanner = BarcodeScanning.getClient(
+        BarcodeScannerOptions.Builder()
+            .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+            .build()
+    )
     private lateinit var deepLinkRouter: DeepLinkRouter
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
@@ -290,7 +302,7 @@ class QrScanFragment : BaseFragment() {
                 .setResolutionSelector(resolutionSelector)
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
-            analyzer.setAnalyzer(analyzerExecutor, QrAnalyzer { value ->
+            analyzer.setAnalyzer(analyzerExecutor, QrAnalyzer(qrScanner) { value ->
                 AndroidUtilities.runOnUIThread { onCameraQrDecoded(value) }
             })
 
@@ -352,7 +364,7 @@ class QrScanFragment : BaseFragment() {
                 val route = DeepLinkParser.parse(action.url)
                 val activity = getParentActivity() as? MainActivity
                 if (route != null && activity != null) {
-                    deepLinkRouter.dispatchRoute(activity, route, action.url)
+                    deepLinkRouter.dispatchRoute(activity, route, action.url) { resumeScanLater() }
                 } else {
                     handleUnsupportedQr(value)
                 }
@@ -363,7 +375,7 @@ class QrScanFragment : BaseFragment() {
                     handleUnsupportedQr(value)
                     return
                 }
-                presentFragment(InviteClanFragment.newInstance(inviteId))
+                presentFragment(InviteClanFragment.newInstance(inviteId), removeLast = true)
             }
             is QrAction.BotInstall -> {
                 presentFragment(InstallClanFragment.newInstance(action.appId, InstallKind.BOT, value))
@@ -542,7 +554,7 @@ class QrScanFragment : BaseFragment() {
             }
             val oriented = applyExifOrientation(bitmap, orientation)
             val toDecode = oriented ?: bitmap
-            val value = QrCodeUtils.decodeFromBitmap(toDecode)
+            val value = decodeQrBitmap(toDecode)
             if (oriented != null && oriented !== bitmap) bitmap.recycle()
             toDecode.recycle()
             if (!value.isNullOrBlank()) return value
@@ -571,10 +583,17 @@ class QrScanFragment : BaseFragment() {
             }
         }.getOrNull() ?: return null
         return try {
-            QrCodeUtils.decodeFromBitmap(bitmap)
+            decodeQrBitmap(bitmap)
         } finally {
             bitmap.recycle()
         }
+    }
+
+    private fun decodeQrBitmap(bitmap: Bitmap): String? {
+        val barcodes = runCatching {
+            Tasks.await(qrScanner.process(InputImage.fromBitmap(bitmap, 0)))
+        }.getOrNull()
+        return barcodes?.firstQrValue() ?: QrCodeUtils.decodeFromBitmap(bitmap)
     }
 
     private fun readExifOrientation(bytes: ByteArray): Int = runCatching {
@@ -661,43 +680,31 @@ class QrScanFragment : BaseFragment() {
     override fun onFragmentDestroy() {
         stopScanning()
         analyzerExecutor.shutdownNow()
+        qrScanner.close()
         super.onFragmentDestroy()
     }
 
     private class QrAnalyzer(
+        private val scanner: BarcodeScanner,
         private val onQr: (String) -> Unit
     ) : ImageAnalysis.Analyzer {
+        @androidx.annotation.OptIn(ExperimentalGetImage::class)
         override fun analyze(image: ImageProxy) {
-            try {
-                val bitmap = image.toBitmap()
-                val rotation = image.imageInfo.rotationDegrees
-                
-                val scale = 960f / maxOf(bitmap.width, bitmap.height)
-                
-                val finalBitmap = if (rotation != 0 || scale < 1f) {
-                    val matrix = android.graphics.Matrix().apply {
-                        if (rotation != 0) postRotate(rotation.toFloat())
-                        if (scale < 1f) postScale(scale, scale)
-                    }
-                    val transformed = android.graphics.Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
-                    bitmap.recycle() 
-                    transformed
-                } else {
-                    bitmap
-                }
-
-                try {
-                    val value = QrCodeUtils.decodeLiveCameraBitmap(finalBitmap)
-                    if (!value.isNullOrBlank()) onQr(value)
-                } finally {
-                    finalBitmap.recycle() 
-                }
-            } catch (e: Throwable) {
-                e.printStackTrace()
-            } finally {
-                image.close() 
+            val task = image.image?.let { mediaImage ->
+                runCatching {
+                    scanner.process(InputImage.fromMediaImage(mediaImage, image.imageInfo.rotationDegrees))
+                }.getOrNull()
             }
+            if (task == null) {
+                image.close()
+                return
+            }
+            task.addOnSuccessListener { barcodes -> barcodes.firstQrValue()?.let(onQr) }
+                .addOnCompleteListener { image.close() }
         }
     }
 
 }
+
+private fun List<Barcode>.firstQrValue(): String? =
+    firstNotNullOfOrNull { barcode -> barcode.rawValue?.takeIf { it.isNotBlank() } }

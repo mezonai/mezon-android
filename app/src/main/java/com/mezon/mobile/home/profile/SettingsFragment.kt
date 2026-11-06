@@ -166,6 +166,14 @@ class SettingsFragment : BaseFragment() {
                 { openAccountSettings() }
             ),
             MenuItem(
+                getString(R.string.setting_app_chat),
+                R.drawable.ic_chat_setting_icon,
+                null,
+                true,
+                false,
+                { presentFragment(ChatSettingFragment()) }
+            ),
+            MenuItem(
                 getString(R.string.friends_request_title),
                 R.drawable.ic_friend_rq_icon,
                 null,

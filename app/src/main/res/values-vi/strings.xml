@@ -861,6 +861,11 @@
     <string name="setting_app_language">Ngôn ngữ</string>
     <string name="setting_app_appearance">Giao diện</string>
     <string name="setting_app_notifications">Thông báo</string>
+    <string name="setting_app_chat">Trò chuyện</string>
+    <string name="setting_chat_only_friends_title">Không nhận tin nhắn từ người lạ</string>
+    <string name="setting_chat_only_friends_description">Khi bật, chỉ những người đã là bạn bè của bạn mới có thể bắt đầu cuộc trò chuyện với bạn.</string>
+    <string name="setting_chat_only_friends_update_failed">Không thể cập nhật cài đặt này. Vui lòng thử lại.</string>
+    <string name="dm_only_friends_denied">Chỉ bạn bè mới có thể gửi tin nhắn cho người dùng này.</string>
     <string name="setting_language_title">Ngôn ngữ</string>
     <string name="setting_language_description">Chọn ngôn ngữ.</string>
     <string name="setting_language_english">English</string>

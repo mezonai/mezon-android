@@ -14,6 +14,7 @@ import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.ChatController
 import com.mezon.mobile.home.DialogsController
+import com.mezon.mobile.home.DmOpenResult
 import com.mezon.mobile.home.call.CallController
 import com.mezon.mobile.home.call.CallFragment
 import com.mezon.mobile.home.call.CallManager
@@ -142,9 +143,10 @@ class QrProfileFragment : BaseFragment() {
         profileDialog?.setActionsEnabled(false)
         fragmentScope.launch(Dispatchers.Main.immediate) {
             try {
-                val dmChannelId = withContext(Dispatchers.IO) { dialogsController.getOrCreateDm(userId) }
-                if (dmChannelId == 0L) {
-                    showToast(getString(R.string.qr_dm_open_failed), ToastOverlay.ToastType.ERROR)
+                val result = withContext(Dispatchers.IO) { dialogsController.openOrCreateDm(userId) }
+                val dmChannelId = (result as? DmOpenResult.Opened)?.channelId
+                if (dmChannelId == null) {
+                    showToast(getString(dmOpenErrorRes(result)), ToastOverlay.ToastType.ERROR)
                     return@launch
                 }
                 val activity = getParentActivity() as? MainActivity ?: return@launch
@@ -156,6 +158,9 @@ class QrProfileFragment : BaseFragment() {
             }
         }
     }
+
+    private fun dmOpenErrorRes(result: DmOpenResult): Int =
+        if (result == DmOpenResult.OnlyFriends) R.string.dm_only_friends_denied else R.string.qr_dm_open_failed
 
     private fun hasUserId(): Boolean {
         if (userId != 0L) return true
@@ -239,9 +244,10 @@ class QrProfileFragment : BaseFragment() {
         profileDialog?.setActionsEnabled(false)
         fragmentScope.launch(Dispatchers.Main.immediate) {
             try {
-                val dmChannelId = withContext(Dispatchers.IO) { dialogsController.getOrCreateDm(userId) }
-                if (dmChannelId == 0L) {
-                    showToast(getString(R.string.qr_dm_open_failed), ToastOverlay.ToastType.ERROR)
+                val result = withContext(Dispatchers.IO) { dialogsController.openOrCreateDm(userId) }
+                val dmChannelId = (result as? DmOpenResult.Opened)?.channelId
+                if (dmChannelId == null) {
+                    showToast(getString(dmOpenErrorRes(result)), ToastOverlay.ToastType.ERROR)
                     return@launch
                 }
                 if (!canCallUser()) return@launch

@@ -35,6 +35,8 @@ import com.mezon.mobile.util.FileUtils
 import com.mezon.mobile.util.PresignFinishContent
 import com.mezon.mobile.util.AttachmentUploadProgressStore
 import com.mezon.mobile.util.FileIngestPlaylist
+import com.mezon.mobile.util.VideoFrameStore
+import com.mezon.mobile.util.VideoPrefetcher
 import com.mezon.mobile.util.avatarImgproxyUrl
 import com.mezon.mobile.util.createImgproxyUrl
 import com.mezon.mobile.util.isAnimatedImageUrl
@@ -442,6 +444,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         super.onAttachedToWindow()
         attachedToWindow = true
         scheduleIngestProbe(0L)
+        scheduleVideoPrefetch()
         photoImage.onAttachedToWindow()
         extraPhotoImages.forEach { it.onAttachedToWindow() }
         ogpImage.onAttachedToWindow()
@@ -474,6 +477,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         super.onDetachedFromWindow()
         cancelPresignExpireTick()
         cancelIngestProbe()
+        cancelVideoPrefetch()
         removeCallbacks(sendingDimTickRunnable)
         sendingDimTickScheduled = false
         attachedToWindow = false
@@ -604,6 +608,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         avatarCancellable?.cancel()
         avatarCancellable = null
         currentAvatarUrl = null
+        cancelVideoPrefetch()
         for (i in videoThumbJobs.indices) {
             videoThumbJobs[i]?.cancel()
             videoThumbJobs[i] = null
@@ -928,6 +933,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     private fun clearPhotoReceivers() {
         if (mediaGridCount == 0 && !photoImage.hasImage()) return
+        cancelVideoPrefetch()
         photoImage.recycle()
         extraPhotoImages.forEach { it.recycle() }
         mediaGridCount = 0
@@ -1069,6 +1075,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private val slotIngestPlayable = ArrayList<Boolean>()
     private val mediaSlotUrls = ArrayList<String>()
     private val ingestProbeRunnable = Runnable { probeIngestPlaylists() }
+    private val videoPrefetchRunnable = Runnable { prefetchVisibleVideos() }
     private var ingestProbeJob: Job? = null
 
     private fun ensureSlotCapacity(count: Int) {
@@ -1106,6 +1113,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val snapshot = displaySnapshot ?: msg.displayAttachmentSnapshot().also { displaySnapshot = it }
         val allMedia = snapshot.media
         val filter = snapshot.filter
+        cancelVideoPrefetch()
         mediaGridCount = allMedia.size
         ensureSlotCapacity(mediaGridCount)
         for (i in 0 until slotIsVideo.size) slotIsVideo[i] = false
@@ -1182,6 +1190,37 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             mediaReceiver(i).recycle()
         }
         mediaGridTotalH = photoHeight
+        scheduleVideoPrefetch()
+    }
+
+    private fun isPrefetchableVideoSlot(index: Int): Boolean =
+        slotIsVideo.getOrNull(index) == true &&
+            slotUploadPending.getOrNull(index) != true &&
+            slotPresignPending.getOrNull(index) != true &&
+            slotUploadFailed.getOrNull(index) != true &&
+            slotIngestWaiting.getOrNull(index) != true &&
+            slotIngestPlayable.getOrNull(index) != true &&
+            mediaSlotUrls.getOrNull(index)?.startsWith("http") == true
+
+    private fun scheduleVideoPrefetch() {
+        removeCallbacks(videoPrefetchRunnable)
+        if (!attachedToWindow || (0 until mediaGridCount).none(::isPrefetchableVideoSlot)) return
+        postDelayed(videoPrefetchRunnable, VIDEO_PREFETCH_DWELL_MS)
+    }
+
+    private fun cancelVideoPrefetch() {
+        removeCallbacks(videoPrefetchRunnable)
+        for (i in 0 until mediaGridCount) {
+            if (slotIsVideo.getOrNull(i) != true) continue
+            mediaSlotUrls.getOrNull(i)?.takeIf { it.isNotEmpty() }?.let(VideoPrefetcher::withdraw)
+        }
+    }
+
+    private fun prefetchVisibleVideos() {
+        if (!attachedToWindow || !visibleOnScreen) return
+        for (i in 0 until mediaGridCount) {
+            if (isPrefetchableVideoSlot(i)) VideoPrefetcher.prefetch(context, mediaSlotUrls[i])
+        }
     }
 
     private val spinnerArcRect = RectF()
@@ -1222,6 +1261,12 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             return
         }
         videoThumbJobs[slotIndex] = VIDEO_THUMB_SCOPE.launch {
+            val storedKey = "$key|${pw}x$ph"
+            VideoFrameStore.load(context, storedKey)?.let { stored ->
+                loader.cacheBitmap(key, pw, ph, stored)
+                withContext(Dispatchers.Main) { showFrame(stored) }
+                return@launch
+            }
             VIDEO_THUMB_SEMAPHORE.withPermit {
                 val retriever = android.media.MediaMetadataRetriever()
                 try {
@@ -1231,6 +1276,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                         android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC
                     ) ?: return@withPermit
                     val thumb = scaleVideoThumbFrame(frame, pw, ph)
+                    VideoFrameStore.save(context, storedKey, thumb)
                     loader.cacheBitmap(key, pw, ph, thumb)
                     withContext(Dispatchers.Main) { showFrame(thumb) }
                 } catch (e: CancellationException) {
@@ -3403,6 +3449,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         if (visibleOnScreen == visible) return
         visibleOnScreen = visible
         if (visible) invalidate()
+        if (visible) scheduleVideoPrefetch() else cancelVideoPrefetch()
 
         if (drawPhotoImage && photoHeight > 0) {
             val visibleH = if (visible) (photoHeight - clipTop - clipBottom) else 0f
@@ -5373,6 +5420,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         private val anonymousAvatarBitmaps = HashMap<Int, Bitmap>(2)
 
         private const val VIDEO_THUMB_TIMEOUT_MS = 8_000L
+        private const val VIDEO_PREFETCH_DWELL_MS = 1_000L
         private val VIDEO_THUMB_SCOPE = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         private val VIDEO_THUMB_SEMAPHORE = kotlinx.coroutines.sync.Semaphore(2)
         private val AUDIO_DURATION_UI_SCOPE = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
