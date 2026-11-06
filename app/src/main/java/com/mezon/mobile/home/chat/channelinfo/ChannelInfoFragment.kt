@@ -153,10 +153,15 @@ class ChannelInfoFragment : BaseFragment() {
     private var canvasTab: CanvasTabHelper? = null
 
     private val isDm get() = channelType == CHANNEL_TYPE_DM || channelType == CHANNEL_TYPE_GROUP
+    private val hasMembersTab get() = channelType != CHANNEL_TYPE_DM
     private val isSelfDm: Boolean
-        get() = channelType == CHANNEL_TYPE_DM && run {
+        get() {
+            if (channelType != CHANNEL_TYPE_DM) return false
+            val myId = userController.userId
             val participants = dialogsController.getParticipants(channelId)
-            participants.size <= 1 || participants.all { it.userId == userController.userId }
+            if (participants.isNotEmpty()) return participants.all { it.userId == myId }
+            val otherUserId = dialogsController.getDialog(channelId)?.otherUserId ?: 0L
+            return otherUserId != 0L && otherUserId == myId
         }
 
     override fun onFragmentCreate(): Boolean {
@@ -355,7 +360,7 @@ class ChannelInfoFragment : BaseFragment() {
         actionBar = chatActionBar
         root.addView(chatActionBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 56))
 
-        if (isDm) {
+        if (channelType == CHANNEL_TYPE_GROUP) {
             root.addView(buildDmHeader(context), LayoutHelper.createLinear(
                 LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT
             ))
@@ -672,7 +677,7 @@ class ChannelInfoFragment : BaseFragment() {
 
     private fun buildTabTitles(): List<String> {
         return when {
-            isSelfDm -> listOf("Media", "Files", "Pins")
+            !hasMembersTab -> listOf("Media", "Files", "Pins")
             isDm -> listOf("Members", "Media", "Files", "Pins")
             else -> listOf("Members", "Media", "Files", "Pins", "Canvas")
         }
@@ -680,14 +685,14 @@ class ChannelInfoFragment : BaseFragment() {
 
     private fun resolveTabIndex(tabPosition: Int): Int {
         return when {
-            isSelfDm -> tabPosition + 1
+            !hasMembersTab -> tabPosition + 1
             else -> tabPosition
         }
     }
 
     private fun viewPagerPositionForTab(actualIndex: Int): Int {
         if (actualIndex != TAB_INDEX_PINS) return -1
-        return if (isSelfDm) 2 else 3
+        return if (hasMembersTab) 3 else 2
     }
 
     private fun buildTabContent(context: Context, actualIndex: Int): View {

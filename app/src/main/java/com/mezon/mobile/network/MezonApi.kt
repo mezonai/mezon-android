@@ -1043,6 +1043,19 @@ class MezonApi @Inject constructor(
         return ChannelDescription.parseFrom(bytes)
     }
 
+    suspend fun getDmSetting(apiUrl: String, token: String): com.mezon.mezon.api.DMSetting {
+        val bytes = rpc(apiUrl, token, "GetDMSetting", ByteArray(0))
+        return com.mezon.mezon.api.DMSetting.parseFrom(bytes)
+    }
+
+    suspend fun updateDmSetting(apiUrl: String, token: String, onlyFriendsDm: Boolean): com.mezon.mezon.api.DMSetting {
+        val request = com.mezon.mezon.api.UpdateDMSettingRequest.newBuilder()
+            .setOnlyFriendsDm(onlyFriendsDm)
+            .build()
+        val bytes = rpc(apiUrl, token, "UpdateDMSetting", request.toByteArray())
+        return com.mezon.mezon.api.DMSetting.parseFrom(bytes)
+    }
+
     suspend fun updateChannelDesc(
         apiUrl: String,
         token: String,

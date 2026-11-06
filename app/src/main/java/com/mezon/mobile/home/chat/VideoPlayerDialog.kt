@@ -55,6 +55,8 @@ import com.mezon.mobile.ui.cells.PopupMenu
 import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.util.avatarImgproxyUrl
 import com.mezon.mobile.util.FileIngestPlaylist
+import com.mezon.mobile.util.VideoCache
+import com.mezon.mobile.util.VideoPrefetcher
 import dagger.hilt.android.EntryPointAccessors
 import java.util.Locale
 import kotlinx.coroutines.Job
@@ -431,6 +433,7 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
     }
 
     fun play(item: VideoItem) {
+        VideoPrefetcher.onPlaybackStarted(item.url)
         currentItem = item
         updateHeader()
         playbackPositionMs = 0L
@@ -469,6 +472,7 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
         senderInfoJob = null
         ingestResolveJob?.cancel()
         ingestResolveJob = null
+        VideoPrefetcher.onPlaybackStopped()
         InAppOverlayHost.unregister(this)
         resumePlaybackOnForeground = false
         stoppedForLifecycle = false
@@ -482,7 +486,11 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
     private fun initializePlayer(startPositionMs: Long, playWhenReady: Boolean) {
         releasePlayer()
         val ingestPlaylist = ingestPlaylistUrl
-        val dataSourceFactory = CdnSigningDataSource.Factory(DefaultDataSource.Factory(context))
+        val dataSourceFactory = if (ingestPlaylist != null) {
+            CdnSigningDataSource.Factory(DefaultDataSource.Factory(context))
+        } else {
+            VideoCache.dataSourceFactory(context)
+        }
         player = ExoPlayer.Builder(context)
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
             .setSeekBackIncrementMs(VIDEO_SEEK_INCREMENT_MS)

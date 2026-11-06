@@ -966,6 +966,11 @@
     <string name="setting_app_language">Language</string>
     <string name="setting_app_appearance">Appearance</string>
     <string name="setting_app_notifications">Notifications</string>
+    <string name="setting_app_chat">Chat</string>
+    <string name="setting_chat_only_friends_title">Don\'t receive messages from strangers</string>
+    <string name="setting_chat_only_friends_description">When on, only people who are your friends can start a conversation with you.</string>
+    <string name="setting_chat_only_friends_update_failed">Could not update this setting. Please try again.</string>
+    <string name="dm_only_friends_denied">This user only accepts messages from friends.</string>
     <string name="setting_language_title">Language</string>
     <string name="setting_language_description">Select your preferred language.</string>
     <string name="setting_language_english">English</string>

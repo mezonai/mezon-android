@@ -227,7 +227,13 @@ object MezonApiNameRegistry {
         "SearchMentionUsers",
         "GenerateCDNSignature",
         "GetStreamPlayback",
-        "LinkCDNFile"
+        "LinkCDNFile",
+        "SfuBreakoutRoom",
+        "SfuBreakoutMerge",
+        "SetOverrideEveryoneChannel",
+        "GetOverrideEveryoneChannel",
+        "GetDMSetting",
+        "UpdateDMSetting"
     )
 
     private val nameToIndex: Map<String, Int> = orderedNames

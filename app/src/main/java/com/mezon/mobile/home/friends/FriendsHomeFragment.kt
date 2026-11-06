@@ -31,6 +31,7 @@ import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.RecyclerListView
+import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.ChatController
 import com.mezon.mobile.home.DialogsController
@@ -122,7 +123,7 @@ class FriendsHomeFragment : BaseFragment() {
             minimumHeight = LayoutHelper.dp(40)
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(12f).toFloat()
-                setColor(themeColors.surfaceVariant)
+                setColor(themeColors.getColor(ThemeColors.key_sheetItemBackground))
             }
             setPadding(LayoutHelper.dp(12), LayoutHelper.dp(10), LayoutHelper.dp(12), LayoutHelper.dp(10))
         }
@@ -250,7 +251,7 @@ class FriendsHomeFragment : BaseFragment() {
             gravity = Gravity.CENTER_VERTICAL
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(12f).toFloat()
-                setColor(themeColors.surfaceVariant)
+                setColor(themeColors.getColor(ThemeColors.key_sheetItemBackground))
             }
             setPadding(LayoutHelper.dp(12), LayoutHelper.dp(12), LayoutHelper.dp(12), LayoutHelper.dp(12))
             isClickable = true
@@ -299,7 +300,7 @@ class FriendsHomeFragment : BaseFragment() {
     private fun applyTheme() {
         requestRow.background = GradientDrawable().apply {
             cornerRadius = LayoutHelper.dp(12f).toFloat()
-            setColor(themeColors.surfaceVariant)
+            setColor(themeColors.getColor(ThemeColors.key_sheetItemBackground))
         }
         emptyText.setTextColor(themeColors.onSurfaceVariant)
         requestCountText.setTextColor(themeColors.onSurfaceVariant)
