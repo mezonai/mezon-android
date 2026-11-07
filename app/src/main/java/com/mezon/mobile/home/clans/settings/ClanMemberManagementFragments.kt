@@ -175,7 +175,6 @@ class ClanMemberManageFragment : BaseFragment() {
                 rows.add(ClanSettingsUiHelpers.buildMezonTextMenuRow(
                     requireContext(), themeColors, role.title, Runnable {}
                 ).apply {
-                    background = null
                     isClickable = false
                 })
             }
@@ -190,9 +189,7 @@ class ClanMemberManageFragment : BaseFragment() {
                 }
             },
             textColor = themeColors.desktop[DesktopThemeToken.BG_BUTTON_PRIMARY],
-        ).apply {
-            background = null
-        })
+        ))
         return ClanSettingsUiHelpers.buildMezonSection(
             requireContext(), themeColors, getString(R.string.clan_member_roles), rows,
             cardColor = memberCardColor,
@@ -261,18 +258,14 @@ class ClanMemberManageFragment : BaseFragment() {
                 requireContext(), themeColors, MezonIcon.transferOwnershipIcon,
                 getString(R.string.clan_member_transfer_ownership), destructiveRed, destructiveRed,
                 Runnable { presentFragment(ClanTransferOwnershipFragment.newInstance(clanId, member.userId)) }
-            ).apply {
-                background = null
-            })
+            ))
         }
         if (!isSelf && member.userId != clanOwnerId && (permission.isClanOwner || permission.hasAdminPermission)) {
             rows.add(ClanSettingsUiHelpers.buildMezonMenuRow(
                 requireContext(), themeColors, MezonIcon.removeFriend,
                 getString(R.string.clan_member_kick), destructiveRed, destructiveRed,
                 Runnable { presentFragment(ClanKickMemberFragment.newInstance(clanId, member.userId)) }
-            ).apply {
-                background = null
-            })
+            ))
         }
         if (rows.isEmpty()) return null
         return ClanSettingsUiHelpers.buildMezonSection(

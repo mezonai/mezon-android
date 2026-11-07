@@ -14,7 +14,6 @@ import com.mezon.mobile.R
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.network.LinkInvitePreview
-import com.mezon.mobile.ui.theme.ThemeMode
 import com.mezon.mobile.util.iconImgproxyUrl
 import com.mezon.mobile.util.parseInviteLinkMessageId
 import kotlinx.coroutines.CoroutineScope
@@ -300,12 +299,8 @@ class LinkInviteBlock(
         return Pair(rowH, joinBlockH)
     }
 
-    private fun invalidPlaceholderBackground(): Int {
-        return when (theme.resolvedMode) {
-            ThemeMode.LIGHT, ThemeMode.SUNRISE, ThemeMode.CISHER -> 0xFFF0F0F0.toInt()
-            else -> theme.secondaryLight
-        }
-    }
+    private fun invalidPlaceholderBackground(): Int =
+        if (theme.resolvedMode.isLight) 0xFFF0F0F0.toInt() else theme.secondaryLight
 
     private fun letterSpacingEmFromRnHalf(paint: TextPaint): Float {
         return LayoutHelper.dpf(0.5f) / paint.textSize.coerceAtLeast(1e-3f)

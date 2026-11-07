@@ -182,13 +182,18 @@ class ChannelInfoFragment : BaseFragment() {
         }
 
         observe(NotificationCenter.clanMembersDidLoad) { _, _, args ->
-            if (isPaused) return@observe
+            if (isPaused || isDm || args.firstOrNull() != clanId) return@observe
             reloadMembers()
+            roleController.refreshDisplayRolesIfNeeded(clanId)
         }
 
         observe(NotificationCenter.channelMembersDidLoad) { _, _, args ->
             if (isPaused) return@observe
-            reloadMembers()
+            val changedChannelId = args.firstOrNull() as? Long ?: return@observe
+            val parentId = if (isDm) 0L else channelController.findChannelById(channelId)?.parentId ?: 0L
+            if (changedChannelId == channelId || (parentId != 0L && changedChannelId == parentId)) {
+                reloadMembers()
+            }
         }
 
         observe(NotificationCenter.voiceChannelMembersChanged) { _, _, _ ->
@@ -253,8 +258,11 @@ class ChannelInfoFragment : BaseFragment() {
             val changedClanId = args.firstOrNull() as? Long ?: return@observe
             if (changedClanId == clanId) {
                 updateSettingsActionVisibility()
-                refreshMemberColors()
+                if (!isDm) roleController.refreshDisplayRolesIfNeeded(clanId)
             }
+        }
+        observe(NotificationCenter.clanDisplayRolesDidChange) { _, _, args ->
+            if (!isDm && args.firstOrNull() == clanId) memberListAdapter?.refreshNameColors()
         }
 
         observe(NotificationCenter.channelGalleryDidLoad) { _, _, args ->
@@ -744,9 +752,8 @@ class ChannelInfoFragment : BaseFragment() {
         }
 
         memberListAdapter = MemberListAdapter(themeColors, isDm, resolveMemberListOwnerId(), nameColor = { member ->
-            val roleColor = if (isDm) null else roleController.resolveHighestDisplayRole(
-                clanId, member.userId, resolveMemberListOwnerId()
-            )?.color?.takeIf { it != 0 }
+            val roleColor = if (isDm) null else roleController.resolveHighestDisplayRole(clanId, member.userId)
+                ?.color?.takeIf { it != 0 }
             roleColor ?: themeColors.onSurface
         }) { userId ->
             !isDm && voiceController.isUserInVoice(userId)
@@ -763,6 +770,7 @@ class ChannelInfoFragment : BaseFragment() {
         container.addView(membersRecyclerView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
 
         reloadMembers()
+        if (!isDm) roleController.refreshDisplayRolesIfNeeded(clanId)
         return container
     }
 
@@ -1062,6 +1070,7 @@ class ChannelInfoFragment : BaseFragment() {
         } else {
             refreshClanHeader()
             reloadMembers()
+            roleController.refreshDisplayRolesIfNeeded(clanId)
             fragmentScope.launch(Dispatchers.Main.immediate) {
                 channelController.refreshChannelNotificationState(clanId, channelId)
                 if (!isPaused) {
@@ -1136,15 +1145,6 @@ class ChannelInfoFragment : BaseFragment() {
         memberListAdapter?.updateCreatorId(resolveMemberListOwnerId())
         val members = memberResolver.resolveChannelMembers(clanId, channelId, channelType)
         memberListAdapter?.setData(members)
-        refreshMemberColors()
-    }
-
-    private fun refreshMemberColors() {
-        if (isDm || clanId == 0L) return
-        // Rebuild only the existing local role-color cache; no member or permission mutations.
-        roleController.scheduleRefreshDisplayRoleCache(clanId, resolveMemberListOwnerId()) {
-            if (fragmentView != null) memberListAdapter?.notifyDataSetChanged()
-        }
     }
 
     private fun resolveMemberListOwnerId(): Long {

@@ -100,7 +100,7 @@ class GlobalSearchAdapter(
                 view.setJoinClickListener(
                     if (item.showJoinUi) onChannelJoinClick else null
                 )
-                view.update(0, item)
+                view.update(0, item, showDivider = items.hasNextChannel(position))
             }
             is MessageSearchCell -> if (item is SearchMessageDocument) {
                 view.update(0, item, resolveMessageSenderName(item))
@@ -218,6 +218,9 @@ private fun sectionStableId(sec: Int): Long = -(2000L + sec)
 
 private const val MEMBERS_HEADER_STABLE_ID = -3000L
 
+private fun List<Any>.hasNextChannel(position: Int): Boolean =
+    getOrNull(position + 1) is ChannelSearchDisplay
+
 private class SearchDiffCallback(
     private val oldList: List<Any>,
     private val newList: List<Any>
@@ -244,6 +247,8 @@ private class SearchDiffCallback(
     override fun areContentsTheSame(oldPos: Int, newPos: Int): Boolean {
         val oldItem = oldList[oldPos]
         val newItem = newList[newPos]
-        return oldItem == newItem
+        if (oldItem != newItem) return false
+        return oldItem !is ChannelSearchDisplay ||
+            oldList.hasNextChannel(oldPos) == newList.hasNextChannel(newPos)
     }
 }

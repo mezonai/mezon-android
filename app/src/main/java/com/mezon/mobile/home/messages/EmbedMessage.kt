@@ -755,10 +755,10 @@ class EmbedMessageRenderer(
     private fun applyPaints() {
         val t = theme()
         TITLE_PAINT.color = t.onSurface
-        DESC_PAINT.color = t.onSurfaceVariant
+        DESC_PAINT.color = t.onSurface
         FIELD_NAME_PAINT.color = t.onSurface
-        FIELD_VALUE_PAINT.color = t.onSurfaceVariant
-        FOOTER_PAINT.color = t.onSurfaceVariant
+        FIELD_VALUE_PAINT.color = t.onSurface
+        FOOTER_PAINT.color = t.onSurface
         AUTHOR_PAINT.color = t.onSurface
     }
 
@@ -980,7 +980,7 @@ class EmbedMessageRenderer(
 
         nextCardHitRect().set(left, cardTop, left + cardW, cardTop + embedH)
 
-        BG_PAINT.color = theme().secondaryLight
+        BG_PAINT.color = theme().mobile.secondaryLight
         tmpRect.set(left, cardTop, left + cardW, cardTop + embedH)
         canvas.drawRoundRect(tmpRect, RADIUS, RADIUS, BG_PAINT)
 
@@ -1141,7 +1141,7 @@ class EmbedMessageRenderer(
     private fun drawActionRows(canvas: Canvas, left: Float, top: Float): Float {
         val t = theme()
         for (b in laidOutButtons) {
-            val bg = buttonBackgroundColor(t, b.style)
+            val bg = buttonBackgroundColor(b.style)
             BUTTON_BG_PAINT.color = bg
             val l = left + b.relX
             val tt = top + b.relY
@@ -1235,12 +1235,11 @@ class EmbedMessageRenderer(
     private fun radioOptionCacheKey(o: EmbedRadioOptionSpec, colW: Int): Long =
         (o.hashCode().toLong() and 0xFFFFFFFFL) shl 32 or (colW.toLong() and 0xFFFFFFFFL)
 
-    private fun buttonBackgroundColor(theme: ThemeColors, style: EmbedButtonStyle): Int = when (style) {
-        EmbedButtonStyle.PRIMARY -> theme.primary
-        EmbedButtonStyle.SECONDARY -> theme.surfaceVariant
-        EmbedButtonStyle.SUCCESS -> theme.colorSuccess
-        EmbedButtonStyle.DANGER -> theme.error
-        EmbedButtonStyle.LINK -> theme.surfaceVariant
+    private fun buttonBackgroundColor(style: EmbedButtonStyle): Int = when (style) {
+        EmbedButtonStyle.PRIMARY -> 0xFF5865F2.toInt()
+        EmbedButtonStyle.SECONDARY, EmbedButtonStyle.LINK -> 0xFF4F545C.toInt()
+        EmbedButtonStyle.SUCCESS -> 0xFF2D7D46.toInt()
+        EmbedButtonStyle.DANGER -> 0xFFDA373C.toInt()
     }
 
     companion object {

@@ -290,10 +290,13 @@ class ShareContactFragment : BaseFragment() {
     private fun normalize(value: String): String =
         SearchController.removeDiacritics(value.trim().lowercase(Locale.getDefault()))
 
-    private fun rnTextDisabled(): Int = when (themeColors.resolvedMode) {
-        ThemeMode.LIGHT, ThemeMode.SUNRISE, ThemeMode.CISHER -> 0xFF606065.toInt()
-        ThemeMode.ABYSS -> 0xFFBDB4DC.toInt()
-        else -> 0xFF7B7B83.toInt()
+    private fun rnTextDisabled(): Int {
+        val mode = themeColors.resolvedMode
+        return when {
+            mode == ThemeMode.ABYSS -> 0xFFBDB4DC.toInt()
+            mode.isLight -> 0xFF606065.toInt()
+            else -> 0xFF7B7B83.toInt()
+        }
     }
 
     private fun roundedBg(color: Int, radiusDp: Float): GradientDrawable =

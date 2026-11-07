@@ -131,13 +131,13 @@ object ClanSettingsUiHelpers {
         iconTint: Int? = null,
         onPress: Runnable,
         keepOriginalIconColors: Boolean = false,
-        rowBackgroundColor: Int = theme.border,
+        rowBackgroundColor: Int? = null,
     ): LinearLayout {
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(LayoutHelper.dp(14f), LayoutHelper.dp(13f), LayoutHelper.dp(14f), LayoutHelper.dp(13f))
-            setBackgroundColor(rowBackgroundColor)
+            rowBackgroundColor?.let { setBackgroundColor(it) }
         }
         val tint = iconTint ?: theme.textStrong
         val iconIv = ImageView(context).apply {
@@ -172,13 +172,13 @@ object ClanSettingsUiHelpers {
         title: String,
         onPress: Runnable,
         textColor: Int = theme.colorText,
-        rowBackgroundColor: Int = theme.border,
+        rowBackgroundColor: Int? = null,
     ): LinearLayout {
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(LayoutHelper.dp(14f), LayoutHelper.dp(13f), LayoutHelper.dp(14f), LayoutHelper.dp(13f))
-            setBackgroundColor(rowBackgroundColor)
+            rowBackgroundColor?.let { setBackgroundColor(it) }
         }
         row.addView(
             TextView(context).apply {

@@ -383,8 +383,6 @@ open class ChatFragment : BaseFragment() {
     private var lastWelcomePeerUsername = ""
     private var lastWelcomeChannelName = ""
     private var clanId = 0L
-    private var chatCachedCreatorId: Long? = null
-    private var displayRoleCacheRefreshJob: Job? = null
     private var pendingDisplayRoleUiRefresh = false
     private var channelType = 0
     private var routeChannelPrivate = false
@@ -590,7 +588,6 @@ open class ChatFragment : BaseFragment() {
         rootMessageId = arguments?.getLong(ARG_ROOT_MESSAGE_ID) ?: 0L
         channelName = arguments?.getString(ARG_CHANNEL_NAME) ?: ""
         clanId = arguments?.getLong(ARG_CLAN_ID) ?: 0L
-        chatCachedCreatorId = null
         channelType = arguments?.getInt(ARG_CHANNEL_TYPE) ?: 0
         routeChannelPrivate = arguments?.getBoolean(ARG_CHANNEL_PRIVATE) ?: false
         routeChannelAgeRestricted = arguments?.getBoolean(ARG_CHANNEL_AGE_RESTRICTED) ?: false
@@ -661,8 +658,14 @@ open class ChatFragment : BaseFragment() {
         observe(NotificationCenter.clanRolesDidLoad) { _, _, args ->
             val changedClanId = args.getOrNull(0) as? Long ?: return@observe
             if (changedClanId == clanId || changedClanId == clansController.selectedClanId.value) refreshPermissionGates()
-            if (changedClanId == clanId) {
-                refreshChatDisplayRoleCache(refreshUi = !isPaused)
+            if (changedClanId == clanId) roleController.refreshDisplayRolesIfNeeded(clanId)
+        }
+        observe(NotificationCenter.clanDisplayRolesDidChange) { _, _, args ->
+            if (args.firstOrNull() != clanId) return@observe
+            if (isPaused || fragmentView == null) {
+                pendingDisplayRoleUiRefresh = true
+            } else {
+                refreshChatSenderRoleRows()
             }
         }
         observe(NotificationCenter.clanMembersDidLoad) { _, _, args ->
@@ -1536,7 +1539,7 @@ open class ChatFragment : BaseFragment() {
             val loadedClanId = args.firstOrNull() as? Long ?: return@observe
             if (loadedClanId == clanId) {
                 if (!isPaused) checkSuggestionTrigger()
-                refreshChatDisplayRoleCache(refreshUi = !isPaused)
+                roleController.refreshDisplayRolesIfNeeded(clanId)
             }
         }
 
@@ -1671,6 +1674,9 @@ open class ChatFragment : BaseFragment() {
 
     override fun createView(context: Context): View {
         sizeNotifierRoot = object : SizeNotifierFrameLayout(context, parentLayout) {
+            override fun getPopupTopInset(): Int =
+                actionBar?.takeIf { it.visibility != View.GONE }?.getActionBarFullHeight() ?: 0
+
             private val touchBounds = Rect()
             private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
             private var dismissKeyboardOnTap = false
@@ -1703,7 +1709,6 @@ open class ChatFragment : BaseFragment() {
                         dismissKeyboardOnTap = false
                     }
                 }
-                // Observe the touch without consuming message clicks, long presses or swipes.
                 return super.dispatchTouchEvent(event)
             }
 
@@ -1713,7 +1718,6 @@ open class ChatFragment : BaseFragment() {
             }
         }.apply {
             isFocusableInTouchMode = true
-            // Keep receiving the release event when tapping empty conversation space.
             isClickable = true
         }
         sizeNotifierRoot.applyThemeSurface(themeColors.chatBackground, themeColors.desktop.chatGradient, anchorToWindow = true)
@@ -1725,7 +1729,6 @@ open class ChatFragment : BaseFragment() {
         }
 
         val chatActionBar = ActionBarView(context, themeColors, transparentBackground = true).apply {
-            // Keep the header over the same gradient as the conversation.
             setAddToContainer(false)
             occupyStatusBar = true
             setBackClickListener {
@@ -2668,7 +2671,7 @@ open class ChatFragment : BaseFragment() {
             requestTopicBadgeHydrate(0L)
         }
         refreshWelcomeFromDialog()
-        refreshChatDisplayRoleCache()
+        roleController.refreshDisplayRolesIfNeeded(clanId)
         prefetchQuickMenus()
         adapter.pollBridge = object : ChatPollBridge {
             override fun getLocalState(messageId: Long): PollLocalState {
@@ -2764,6 +2767,7 @@ open class ChatFragment : BaseFragment() {
             rootView, useInsetsAnimator = true
         ) {
             override fun heightAnimationEnabled(): Boolean {
+                if (emojiSearchExpanded) return false
                 val layout = parentLayout
                 if (layout == null) return false
                 if (android.os.SystemClock.elapsedRealtime() - lastResumeTime < 250) return false
@@ -2775,7 +2779,6 @@ open class ChatFragment : BaseFragment() {
             }
             override fun onPanTranslationUpdate(y: Float, progress: Float, keyboardVisible: Boolean) {
                 actionBar?.translationY = y
-                // The composer follows the root's IME animation; only the header stays fixed.
             }
         }
 
@@ -3303,14 +3306,15 @@ open class ChatFragment : BaseFragment() {
                 }
 
                 override fun onDragY(dy: Float, dragFromExpanded: Boolean) {
-                    val panelHeight = SharedConfig.getEmojiPanelHeight()
+                    val maxPanelHeight = sizeNotifierRoot.getMaxPopupHeight()
+                    val panelHeight = SharedConfig.getEmojiPanelHeight().coerceAtMost(maxPanelHeight)
                     if (dragFromExpanded) {
                         if (dy > 0) {
                             emojiSearchExpanded = false
                             sizeNotifierRoot.isSearchExpanded = false
                             emojiView?.clearSearchFocus()
                             AndroidUtilities.hideKeyboard(emojiView)
-                            val targetHeight = (sizeNotifierRoot.height - dy).toInt().coerceAtLeast(panelHeight)
+                            val targetHeight = (maxPanelHeight - dy).toInt().coerceIn(panelHeight, maxPanelHeight)
                             emojiView?.layoutParams = FrameLayout.LayoutParams(
                                 FrameLayout.LayoutParams.MATCH_PARENT, targetHeight, Gravity.BOTTOM
                             )
@@ -3321,7 +3325,7 @@ open class ChatFragment : BaseFragment() {
                     }
 
                     if (dy < 0) {
-                        val targetHeight = (panelHeight - dy).toInt().coerceAtMost(sizeNotifierRoot.height)
+                        val targetHeight = (panelHeight - dy).toInt().coerceAtMost(maxPanelHeight)
                         if (emojiView?.layoutParams?.height != targetHeight) {
                             emojiView?.layoutParams = FrameLayout.LayoutParams(
                                 FrameLayout.LayoutParams.MATCH_PARENT, targetHeight, Gravity.BOTTOM
@@ -3334,9 +3338,10 @@ open class ChatFragment : BaseFragment() {
 
                 override fun onAnimateExpand(expand: Boolean) {
                     if (emojiSearchExpanded) return
-                    val panelHeight = SharedConfig.getEmojiPanelHeight()
-                    val startHeight = emojiView?.layoutParams?.height ?: panelHeight
-                    val targetHeight = if (expand) sizeNotifierRoot.height else panelHeight
+                    val maxPanelHeight = sizeNotifierRoot.getMaxPopupHeight()
+                    val panelHeight = SharedConfig.getEmojiPanelHeight().coerceAtMost(maxPanelHeight)
+                    val startHeight = (emojiView?.layoutParams?.height ?: panelHeight).coerceIn(0, maxPanelHeight)
+                    val targetHeight = if (expand) maxPanelHeight else panelHeight
                     
                     emojiExpandAnimator?.cancel()
                     val anim = android.animation.ValueAnimator.ofInt(startHeight, targetHeight)
@@ -3394,8 +3399,6 @@ open class ChatFragment : BaseFragment() {
         notificationCenter.onAnimationFinish(transitionAnimationIndex)
         if (::recyclerView.isInitialized) cancelPendingScroll()
         cancelPendingLoading()
-        displayRoleCacheRefreshJob?.cancel()
-        displayRoleCacheRefreshJob = null
         topicBadgeHydrateJob?.cancel()
         topicBadgeHydrateJob = null
         pendingDisplayRoleUiRefresh = false
@@ -4300,18 +4303,8 @@ open class ChatFragment : BaseFragment() {
         }
     }
 
-    private fun chatClanCreatorId(): Long {
-        if (clanId == 0L) return 0L
-        val cached = chatCachedCreatorId
-        if (cached != null) return cached
-        val id = clansController.clans.value.firstOrNull { it.clanId == clanId }?.creatorId ?: 0L
-        chatCachedCreatorId = id
-        return id
-    }
-
     private fun chatDisplayRoleResolver(): (Long) -> UserDisplayRole? = { userId ->
-        if (clanId == 0L) null
-        else roleController.resolveHighestDisplayRole(clanId, userId, chatClanCreatorId())
+        roleController.resolveHighestDisplayRole(clanId, userId)
     }
 
     private fun resolveSelfRoleIds(): List<Long> {
@@ -4322,24 +4315,6 @@ open class ChatFragment : BaseFragment() {
             .firstOrNull { it.userId == selfId }
             ?.roleIds
             .orEmpty()
-    }
-
-    private fun refreshChatDisplayRoleCache(refreshUi: Boolean = true) {
-        if (clanId == 0L) return
-        displayRoleCacheRefreshJob?.cancel()
-        roleController.invalidateDisplayRoleCache(clanId)
-        val creatorId = chatClanCreatorId()
-        displayRoleCacheRefreshJob = appScope.launch(ioDispatcher) {
-            roleController.refreshDisplayRoleCache(clanId, creatorId)
-            withContext(mainDispatcher) {
-                displayRoleCacheRefreshJob = null
-                if (refreshUi) {
-                    refreshChatSenderRoleRows()
-                } else {
-                    pendingDisplayRoleUiRefresh = true
-                }
-            }
-        }
     }
 
     private fun refreshChatSenderRoleRows() {
@@ -7097,7 +7072,7 @@ open class ChatFragment : BaseFragment() {
     private fun setupSwipeInterceptor() {
         recyclerView.setOnInterceptTouchListener(RecyclerListView.OnInterceptTouchListener { e ->
             processTouchEventForSwipe(e)
-            false // Don't consume — let RecyclerView handle normally
+            false 
         })
     }
 

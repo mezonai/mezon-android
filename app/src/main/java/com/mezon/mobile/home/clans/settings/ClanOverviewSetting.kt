@@ -514,7 +514,6 @@ class ClanOverviewSettingFragment : BaseFragment() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(LayoutHelper.dp(14f), LayoutHelper.dp(13f), LayoutHelper.dp(14f), LayoutHelper.dp(13f))
-            setBackgroundColor(themeColors.border)
             isClickable = true
             setOnClickListener { openChannelPicker() }
             val titles = LinearLayout(context).apply {
@@ -547,7 +546,6 @@ class ClanOverviewSettingFragment : BaseFragment() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(LayoutHelper.dp(14f), LayoutHelper.dp(13f), LayoutHelper.dp(14f), LayoutHelper.dp(13f))
-            setBackgroundColor(themeColors.border)
             isClickable = true
             setOnClickListener { openNotifPicker() }
             val col = LinearLayout(context).apply {

@@ -50,6 +50,10 @@ class MemberListAdapter(
         notifyItemRangeChanged(0, rows.size)
     }
 
+    fun refreshNameColors() {
+        if (rows.size > 1) notifyItemRangeChanged(1, rows.size - 1, PAYLOAD_NAME_COLOR)
+    }
+
     fun updateCreatorId(id: Long) {
         if (creatorId == id) return
         creatorId = id
@@ -157,6 +161,15 @@ class MemberListAdapter(
         }
     }
 
+    override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int, payloads: MutableList<Any>) {
+        val member = rows[position] as? ClanMember
+        if (member != null && payloads.isNotEmpty() && payloads.all { it === PAYLOAD_NAME_COLOR }) {
+            (holder.itemView as MemberCell).updateNameColor(nameColor(member))
+        } else {
+            super.onBindViewHolder(holder, position, payloads)
+        }
+    }
+
     fun getMember(position: Int): ClanMember? = rows.getOrNull(position) as? ClanMember
 
     override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
@@ -194,5 +207,6 @@ class MemberListAdapter(
         const val VIEW_TYPE_HEADER = 0
         const val VIEW_TYPE_MEMBER = 1
         private const val DIFF_THRESHOLD = 50
+        private val PAYLOAD_NAME_COLOR = Any()
     }
 }

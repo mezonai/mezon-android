@@ -47,6 +47,13 @@ class MemberCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         nameColor = color
     }
 
+    fun updateNameColor(color: Int) {
+        if (nameColor == color) return
+        setNameColor(color)
+        update(UPDATE_MASK_NAME)
+        invalidate()
+    }
+
     fun setCreatorId(id: Long) {
         creatorId = id
     }

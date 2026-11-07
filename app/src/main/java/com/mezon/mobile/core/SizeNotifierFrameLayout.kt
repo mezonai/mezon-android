@@ -79,12 +79,18 @@ open class SizeNotifierFrameLayout @JvmOverloads constructor(
         paused = false
     }
 
+    protected open fun getPopupTopInset(): Int = 0
+
+    fun getMaxPopupHeight(): Int = (height - getPopupTopInset()).coerceAtLeast(0)
+
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val totalWidth = MeasureSpec.getSize(widthMeasureSpec)
         val totalHeight = MeasureSpec.getSize(heightMeasureSpec)
         measureKeyboardHeight()
         val keyboardVisible = keyboardHeight > LayoutHelper.dp(20f)
-        val emojiPad = if (!keyboardVisible && emojiHeight > 0) emojiHeight else 0
+        val popupTop = getPopupTopInset().coerceIn(0, totalHeight)
+        val maxPopupHeight = totalHeight - popupTop
+        val emojiPad = if (!keyboardVisible) emojiHeight.coerceIn(0, maxPopupHeight) else 0
 
         for (i in 0 until childCount) {
             val child = getChildAt(i)
@@ -92,13 +98,13 @@ open class SizeNotifierFrameLayout @JvmOverloads constructor(
             val lp = child.layoutParams as LayoutParams
 
             if (isPopupView(child)) {
-                val popupH = if (isSearchExpanded) totalHeight else lp.height.coerceAtLeast(0)
+                val popupH = if (isSearchExpanded) maxPopupHeight else lp.height.coerceIn(0, maxPopupHeight)
                 child.measure(
                     MeasureSpec.makeMeasureSpec(totalWidth, MeasureSpec.EXACTLY),
                     MeasureSpec.makeMeasureSpec(popupH, MeasureSpec.EXACTLY)
                 )
             } else {
-                val contentH = if (isSearchExpanded) 0 else (totalHeight - emojiPad).coerceAtLeast(0)
+                val contentH = if (isSearchExpanded) popupTop else totalHeight - emojiPad
                 child.measure(
                     getChildMeasureSpec(widthMeasureSpec, lp.leftMargin + lp.rightMargin, lp.width),
                     MeasureSpec.makeMeasureSpec(contentH, MeasureSpec.EXACTLY)
@@ -117,18 +123,20 @@ open class SizeNotifierFrameLayout @JvmOverloads constructor(
         super.onLayout(changed, l, t, r, b)
 
         val parentHeight = b - t
+        val popupTop = getPopupTopInset().coerceIn(0, parentHeight)
 
         if (isSearchExpanded) {
             for (i in 0 until childCount) {
                 val child = getChildAt(i)
                 if (child.visibility == View.GONE) continue
                 if (isPopupView(child)) {
-                    child.layout(child.left, 0, child.right, parentHeight)
+                    child.layout(child.left, popupTop, child.right, parentHeight)
                 }
             }
         } else if (emojiHeight > 0) {
             val keyboardVisible = keyboardHeight > LayoutHelper.dp(20f)
-            val contentBottom = if (keyboardVisible) parentHeight else parentHeight - emojiHeight
+            val popupHeight = emojiHeight.coerceIn(0, parentHeight - popupTop)
+            val contentBottom = if (keyboardVisible) parentHeight else parentHeight - popupHeight
 
             for (i in 0 until childCount) {
                 val child = getChildAt(i)

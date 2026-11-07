@@ -816,7 +816,6 @@ class ProfileFragment : BaseFragment() {
             onError = {
                 if (bannerAvatarUrl == url && bannerView === target) {
                     bannerLoad = null
-                    bannerAvatarUrl = null
                 }
             }
         )
