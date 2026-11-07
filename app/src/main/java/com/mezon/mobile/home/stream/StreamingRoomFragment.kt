@@ -161,6 +161,7 @@ class StreamingRoomFragment : BaseFragment() {
         minimizeButton = headerButton(context, MezonIcon.chevronDownSmallIcon, 18) { minimizeToOverlay() }
         header.addView(minimizeButton, LinearLayout.LayoutParams(LayoutHelper.dp(44), LayoutHelper.dp(44)))
         title = label(context, channelLabel, 16f).apply {
+            setTextColor(Color.WHITE)
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             maxLines = 2
             ellipsize = TextUtils.TruncateAt.END
@@ -177,11 +178,12 @@ class StreamingRoomFragment : BaseFragment() {
         }
         header.addView(live, LinearLayout.LayoutParams(LayoutHelper.dp(34), LayoutHelper.dp(18)))
         viewerCount = label(context, "", 12f).apply {
+            setTextColor(Color.WHITE)
             gravity = Gravity.CENTER_VERTICAL
             includeFontPadding = false
             setPadding(LayoutHelper.dp(12), 0, LayoutHelper.dp(4), 0)
             val eye = MezonIcon.eyeIcon.getDrawable(context).mutate().apply {
-                setTint(themeColors.onSurfaceVariant)
+                setTint(Color.WHITE)
                 setBounds(0, 0, LayoutHelper.dp(14), LayoutHelper.dp(12))
             }
             setCompoundDrawablesRelative(eye, null, null, null)
@@ -387,19 +389,12 @@ class StreamingRoomFragment : BaseFragment() {
         playback.setBackgroundColor(Color.BLACK)
         header.setBackgroundColor(STREAM_CHROME_COLOR)
         updateBottomChromeBackground()
-        title.setTextColor(themeColors.textStrong)
-        viewerCount.setTextColor(themeColors.textStrong)
-        viewerCount.compoundDrawablesRelative.forEach { it?.setTint(themeColors.onSurfaceVariant) }
         spinner.indeterminateTintList = android.content.res.ColorStateList.valueOf(themeColors.primary)
         overflow.setTextColor(themeColors.textStrong)
         overflow.background = rounded(themeColors.tertiary, 20, themeColors.serverRailBg)
         avatars.values.forEach { it.wrapper.background = rounded(themeColors.serverRailBg, 20) }
         for (control in listOf(qualityButton, chatButton)) {
             control.background = controlBackground()
-            (control.getChildAt(0) as ImageView).setColorFilter(themeColors.textStrong)
-        }
-        for (control in listOf(minimizeButton, fullscreenButton)) {
-            control.background = null
             (control.getChildAt(0) as ImageView).setColorFilter(themeColors.textStrong)
         }
         refreshAudioOutputUi()
@@ -509,7 +504,10 @@ class StreamingRoomFragment : BaseFragment() {
     private fun headerButton(context: Context, icon: MezonIcon, iconSize: Int, action: () -> Unit) =
         button(context, icon, action).apply {
             background = null
-            getChildAt(0).layoutParams = FrameLayout.LayoutParams(LayoutHelper.dp(iconSize), LayoutHelper.dp(iconSize), Gravity.CENTER)
+            (getChildAt(0) as ImageView).apply {
+                setColorFilter(Color.WHITE)
+                layoutParams = FrameLayout.LayoutParams(LayoutHelper.dp(iconSize), LayoutHelper.dp(iconSize), Gravity.CENTER)
+            }
             applyVoiceButtonPressFeedback()
         }
 

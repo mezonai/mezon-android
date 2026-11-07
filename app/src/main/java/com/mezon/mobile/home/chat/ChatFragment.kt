@@ -1419,7 +1419,12 @@ open class ChatFragment : BaseFragment() {
             inputField.setTextColor(themeColors.textThemeMessage)
             inputField.setHintTextColor(themeColors.textDisabled)
             inputField.background = composerFieldBackground()
-            (attachButton.background as? android.graphics.drawable.GradientDrawable)?.setColor(themeColors.tertiary)
+            val composerButtonColor = themeColors.secondaryLight
+            (attachButton.background as? android.graphics.drawable.GradientDrawable)?.setColor(composerButtonColor)
+            (advancedFunctionButton.background as? android.graphics.drawable.GradientDrawable)?.setColor(composerButtonColor)
+            if (!voiceIsRecording) {
+                (micButton.background as? android.graphics.drawable.GradientDrawable)?.setColor(composerButtonColor)
+            }
             attachButton.setColorFilter(themeColors.onSurface)
             advancedFunctionButton.setColorFilter(themeColors.onSurface)
             emojiButton.setColorFilter(themeColors.textDisabled)
@@ -2207,7 +2212,7 @@ open class ChatFragment : BaseFragment() {
             setPadding(btnPad, btnPad, btnPad, btnPad)
             background = android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.OVAL
-                setColor(themeColors.tertiary)
+                setColor(themeColors.secondaryLight)
             }
             setOnClickListener { showAttachmentPicker() }
         }
@@ -2221,7 +2226,7 @@ open class ChatFragment : BaseFragment() {
             setPadding(btnPad, btnPad, btnPad, btnPad)
             background = android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.OVAL
-                setColor(themeColors.tertiary)
+                setColor(themeColors.secondaryLight)
             }
             setOnClickListener { showAdvancedFunctionMenu() }
         }
@@ -2327,7 +2332,7 @@ open class ChatFragment : BaseFragment() {
             setPadding(btnPad, btnPad, btnPad, btnPad)
             background = android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.OVAL
-                setColor(themeColors.tertiary)
+                setColor(themeColors.secondaryLight)
             }
             setOnTouchListener { v, event -> handleMicTouchEvent(v, event) }
         }
@@ -6653,7 +6658,7 @@ open class ChatFragment : BaseFragment() {
             d.colorFilter = PorterDuffColorFilter(android.graphics.Color.WHITE, PorterDuff.Mode.SRC_IN)
             micButton.setImageDrawable(d)
         } else {
-            bg.setColor(themeColors.tertiary)
+            bg.setColor(themeColors.secondaryLight)
             val d = MezonIcon.microphoneIcon.getDrawable(micButton.context)
             d.colorFilter = PorterDuffColorFilter(
                 themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary),
