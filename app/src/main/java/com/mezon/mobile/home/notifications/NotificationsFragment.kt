@@ -246,7 +246,7 @@ class NotificationsFragment : BaseFragment() {
 
         adapter = NotificationAdapter(theme = themeColors)
         topicAdapter = TopicNotificationAdapter(themeColors)
-        recyclerView.adapter = adapter
+        recyclerView.adapter = if (currentCategory == NOTIF_TAB_TOPICS_UI) topicAdapter else adapter
         recyclerView.setOnItemClickListener(RecyclerListView.OnItemClickListener { view, _ ->
             if (currentCategory == NOTIF_TAB_TOPICS_UI) {
                 if (view is TopicNotificationCell) {
