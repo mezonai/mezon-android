@@ -2051,7 +2051,7 @@ class MezonSfuSession @Inject constructor(
             peerIdByMid.remove(mid)
             userIdByMid.remove(mid)
             roleByMid.remove(mid)
-            (remoteTracks.byMid[mid] as? VideoTrack)?.let { VideoTrackLastFrameStore.observe(it)?.clear() }
+            (remoteTracks.byMid[mid] as? VideoTrack)?.let { VideoTrackLastFrameStore.reset(it) }
         }
         remote.remove(remoteParticipantId(base.toString()))
     }
@@ -2145,7 +2145,7 @@ class MezonSfuSession @Inject constructor(
         peerIdByMid.remove(mid)
         userIdByMid.remove(mid)
         roleByMid.remove(mid)
-        (remoteTracks.byMid[mid] as? VideoTrack)?.let { VideoTrackLastFrameStore.observe(it)?.clear() }
+        (remoteTracks.byMid[mid] as? VideoTrack)?.let { VideoTrackLastFrameStore.reset(it) }
         clearRemoteKind("sfu-peer-$peerId", kind)
     }
 
@@ -2849,7 +2849,8 @@ class MezonSfuSession @Inject constructor(
         val now = SystemClock.elapsedRealtime()
         for ((key, queued) in queuedVideoKeyframes.toMap()) {
             val request = screenKeyframeRequests[queued.publisherId.toString()]
-            if (videoPriority(queued.track) == null || videoOwner(queued.track) != (queued.kind to queued.publisherId) ||
+            val firstScreenRequest = queued.kind == "screen" && request?.track === queued.track && request.attempts == 0
+            if ((videoPriority(queued.track) == null && !firstScreenRequest) || videoOwner(queued.track) != (queued.kind to queued.publisherId) ||
                 maxOf(queued.lastFrameMs, VideoTrackLastFrameStore.lastFrameReceivedAt(queued.track) ?: 0) >= queued.frameSinceMs ||
                 (queued.kind == "screen" && request?.track === queued.track && !request.satisfied && request.attempts > SCREEN_KEYFRAME_RETRY_DELAYS_MS.size)) {
                 queuedVideoKeyframes.remove(key)?.detach()
@@ -2897,15 +2898,15 @@ class MezonSfuSession @Inject constructor(
             if (request == null || request.track !== track || request.activeSinceMs != activeSince) {
                 request?.detach()
                 val created = ScreenKeyframeRequest(track, activeSince, now)
-                if (videoPriority(track) != null && !created.attach()) continue
+                if (!created.attach()) continue
                 created.lastFrameMs = maxOf(created.lastFrameMs, VideoTrackLastFrameStore.lastFrameReceivedAt(track) ?: 0)
                 screenKeyframeRequests[peerId] = created
                 request = created
             }
-            if (videoPriority(track) == null) request.detach()
-            else if (!request.satisfied) request.attach()
+            if (!request.satisfied) request.attach()
             if (request.lastFrameMs >= request.activeSinceMs) request.satisfied = true
-            if (videoPriority(track) != null && !request.satisfied && request.attempts <= SCREEN_KEYFRAME_RETRY_DELAYS_MS.size) {
+            val wanted = videoPriority(track) != null || request.attempts == 0
+            if (wanted && !request.satisfied && request.attempts <= SCREEN_KEYFRAME_RETRY_DELAYS_MS.size) {
                 val lastRequest = lastVideoKeyframeRequests["screen|$publisherId"] ?: -KEYFRAME_MIN_INTERVAL_MS
                 val recoveryGrace = videoRecoveryChecks["screen|$publisherId"]?.checkAtMs ?: 0
                 val dueMs = maxOf(if (request.attempts == 0) {

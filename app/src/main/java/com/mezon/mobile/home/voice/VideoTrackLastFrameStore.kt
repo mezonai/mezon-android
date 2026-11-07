@@ -21,6 +21,11 @@ class VideoTrackFrameKeeper : VideoSink {
     val lastFrameReceivedMs: Long?
         get() = synchronized(lock) { receivedAtMs.takeIf { it > 0 } }
 
+    val frameAspect: Float?
+        get() = synchronized(lock) {
+            frame?.takeIf { it.rotatedHeight > 0 }?.let { it.rotatedWidth.toFloat() / it.rotatedHeight }
+        }
+
     override fun onFrame(frame: VideoFrame) {
         val now = SystemClock.elapsedRealtime()
         synchronized(lock) {
@@ -48,7 +53,6 @@ class VideoTrackFrameKeeper : VideoSink {
     }
 
     fun replay(sink: VideoSink) {
-        // The WebRTC thread can replace/release the cache while the UI replays it.
         val current = synchronized(lock) { frame?.also { it.retain() } } ?: return
         try {
             sink.onFrame(current)
@@ -57,15 +61,19 @@ class VideoTrackFrameKeeper : VideoSink {
         }
     }
 
-    fun clear() {
+    fun reset() {
         val previous = synchronized(lock) {
-            closed = true
             receivedAtMs = 0
             val old = frame
             frame = null
             old
         }
         previous?.release()
+    }
+
+    fun clear() {
+        synchronized(lock) { closed = true }
+        reset()
     }
 }
 
@@ -96,6 +104,18 @@ object VideoTrackLastFrameStore {
     fun lastFrameReceivedAt(track: VideoTrack): Long? {
         val id = runCatching { track.id() }.getOrNull() ?: return null
         return keepers[id]?.takeIf { it.track === track }?.lastFrameReceivedMs
+    }
+
+    @Synchronized
+    fun lastFrameAspect(track: VideoTrack): Float? {
+        val id = runCatching { track.id() }.getOrNull() ?: return null
+        return keepers[id]?.takeIf { it.track === track }?.frameAspect
+    }
+
+    @Synchronized
+    fun reset(track: VideoTrack) {
+        val id = runCatching { track.id() }.getOrNull() ?: return
+        keepers[id]?.takeIf { it.track === track }?.reset()
     }
 
     fun replayLastFrame(track: VideoTrack, sink: VideoSink) {

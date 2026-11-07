@@ -187,6 +187,7 @@ class VoiceRoomFragment : BaseFragment() {
     private var isRaiseHandActive = false
     private var lastSwitchCameraElapsedMs = 0L
     private var focusedShareKey: String? = null
+    private var focusedShareKeyBeforePip: String? = null
     private var focusedShareControlsVisible = true
     private var wasMicPermissionRequestedBefore = false
     private var wasCameraPermissionRequestedBefore = false
@@ -201,6 +202,7 @@ class VoiceRoomFragment : BaseFragment() {
     fun enterPipMode() {
         breakoutUi?.pause()
         cancelParticipantDiff()
+        if (!isInPipMode) focusedShareKeyBeforePip = focusedShareKey
         isInPipMode = true
         if (::focusedShareView.isInitialized) focusedShareView.setPipMode(true)
         if (::headerView.isInitialized) headerView.visibility = View.GONE
@@ -219,6 +221,8 @@ class VoiceRoomFragment : BaseFragment() {
         cancelParticipantDiff()
         isInPipMode = false
         if (::focusedShareView.isInitialized) focusedShareView.setPipMode(false)
+        if (focusedShareKeyBeforePip == null) clearFocusedShare()
+        focusedShareKeyBeforePip = null
         if (::headerView.isInitialized) {
             val focusedVisible = ::focusedShareView.isInitialized && focusedShareView.visibility == View.VISIBLE
             headerView.visibility = if (focusedVisible) View.GONE else View.VISIBLE
@@ -614,6 +618,7 @@ class VoiceRoomFragment : BaseFragment() {
             onVideoVisibilityChanged = { track, visible ->
                 sfuSession.setVideoTrackVisible(track, visible, "focused", focused = true)
             }
+            onContentAspectChanged = { notifyPipAspectChanged() }
             onEmojiClick = { reactionHandler.showEmojiReactionPicker() }
             setEmojiEnabled(!isExternalMeeting)
             onMinimizeClick = {
@@ -1684,6 +1689,7 @@ class VoiceRoomFragment : BaseFragment() {
         if (::controlBar.isInitialized) controlBar.setPttCompact(true)
         updateFocusedShareControlsVisibility()
         applyVoiceLayoutForMode()
+        notifyPipAspectChanged()
     }
 
     private fun updateFocusedShareControlsVisibility() {
@@ -1707,6 +1713,7 @@ class VoiceRoomFragment : BaseFragment() {
         if (::controlBar.isInitialized) controlBar.setPttCompact(false)
         updateFocusedShareControlsVisibility()
         applyVoiceLayoutForMode()
+        notifyPipAspectChanged()
     }
 
     private fun dismissFocusedShareIfStale() {
@@ -1734,6 +1741,16 @@ class VoiceRoomFragment : BaseFragment() {
 
     private fun resolvePipShareParticipant(): ParticipantInfo? {
         return participants.firstOrNull { it.isScreenShare && it.videoTrack != null && it.deviceId != LOCAL_DEVICE_ID }
+    }
+
+    fun pipAspectRatio(): Float? {
+        if (!::focusedShareView.isInitialized) return null
+        val share = resolvePipShareParticipant() ?: return null
+        return focusedShareView.aspectRatioFor(share)
+    }
+
+    private fun notifyPipAspectChanged() {
+        if (isInPipMode) getMainActivity()?.updatePipAspectRatio()
     }
 
     private fun openParticipantModerationSheet(participant: ParticipantInfo) {
