@@ -107,7 +107,8 @@ class DesktopThemePalette private constructor(
     val previewGradient: ThemeGradient?,
     val conversationGradient: ThemeGradient?,
     val chatGradient: ThemeGradient?,
-    val composerGradient: ThemeGradient?
+    val composerGradient: ThemeGradient?,
+    val primaryFillGradient: ThemeGradient?
 ) {
     operator fun get(token: DesktopThemeToken): Int = colors[token.ordinal]
 
@@ -239,7 +240,8 @@ class DesktopThemePalette private constructor(
             previewGradient = null,
             conversationGradient = null,
             chatGradient = null,
-            composerGradient = null
+            composerGradient = null,
+            primaryFillGradient = null
         )
 
         private val light = DesktopThemePalette(
@@ -343,7 +345,8 @@ class DesktopThemePalette private constructor(
             previewGradient = null,
             conversationGradient = null,
             chatGradient = null,
-            composerGradient = null
+            composerGradient = null,
+            primaryFillGradient = null
         )
 
         private val sunrise = DesktopThemePalette(
@@ -447,7 +450,8 @@ class DesktopThemePalette private constructor(
             previewGradient = ThemeGradient(135.0f, intArrayOf(0xFFE0C3FC.toInt(), 0xFFFBC2EB.toInt(), 0xFFFFF1EB.toInt()), floatArrayOf(0.0f, 0.5f, 1.0f), false),
             conversationGradient = ThemeGradient(154.19f, intArrayOf(0xFFE2C6D6.toInt(), 0xFFEDDED0.toInt(), 0xFFE4DFC5.toInt()), floatArrayOf(0.0862f, 0.4807f, 0.7604f), true),
             chatGradient = ThemeGradient(154.19f, intArrayOf(0xFFF1E3EA.toInt(), 0xFFF6EEE8.toInt(), 0xFFF2EFE2.toInt()), floatArrayOf(0.0862f, 0.4807f, 0.7604f), true),
-            composerGradient = null
+            composerGradient = null,
+            primaryFillGradient = null
         )
 
         private val redDark = DesktopThemePalette(
@@ -551,7 +555,8 @@ class DesktopThemePalette private constructor(
             previewGradient = ThemeGradient(135.0f, intArrayOf(0xFF3B0A0A.toInt(), 0xFF7F1D1D.toInt(), 0xFFE11D48.toInt()), floatArrayOf(0.0f, 0.5f, 1.0f), false),
             conversationGradient = ThemeGradient(64.92f, intArrayOf(0xFF301116.toInt(), 0xFF0D0609.toInt()), floatArrayOf(0.1617f, 0.72f), true),
             chatGradient = ThemeGradient(154.19f, intArrayOf(0xFF3E161D.toInt(), 0xFF10070C.toInt()), floatArrayOf(0.1617f, 0.72f), false),
-            composerGradient = null
+            composerGradient = null,
+            primaryFillGradient = ThemeGradient(64.92f, intArrayOf(0xFF290E13.toInt(), 0xFF0B0508.toInt()), floatArrayOf(0.1617f, 0.72f), false)
         )
 
         private val purpleHaze = DesktopThemePalette(
@@ -655,7 +660,8 @@ class DesktopThemePalette private constructor(
             previewGradient = ThemeGradient(135.0f, intArrayOf(0xFFA78BFA.toInt(), 0xFFF472B6.toInt(), 0xFF60A5FA.toInt()), floatArrayOf(0.0f, 0.5f, 1.0f), false),
             conversationGradient = ThemeGradient(128.92f, intArrayOf(0xFF032D30.toInt(), 0xFF130338.toInt(), 0xFF29022A.toInt(), 0xFF261540.toInt(), 0xFF082338.toInt()), floatArrayOf(0.0394f, 0.261f, 0.3982f, 0.5689f, 0.7645f), false),
             chatGradient = ThemeGradient(154.19f, intArrayOf(0xFF0F2425.toInt(), 0xFF0F022D.toInt(), 0xFF2F0E30.toInt(), 0xFF1F1033.toInt(), 0xFF0C1F2F.toInt()), floatArrayOf(0.08f, 0.32f, 0.54f, 0.78f, 1.0f), true),
-            composerGradient = null
+            composerGradient = null,
+            primaryFillGradient = null
         )
 
         private val abyssDark = DesktopThemePalette(
@@ -759,7 +765,8 @@ class DesktopThemePalette private constructor(
             previewGradient = ThemeGradient(135.0f, intArrayOf(0xFF0F172A.toInt(), 0xFF1E3A8A.toInt(), 0xFF6D28D9.toInt()), floatArrayOf(0.0f, 0.5f, 1.0f), false),
             conversationGradient = ThemeGradient(48.17f, intArrayOf(0xFF11132B.toInt(), 0xFF040812.toInt()), floatArrayOf(0.1121f, 0.6192f), false),
             chatGradient = ThemeGradient(154.19f, intArrayOf(0xFF22285A.toInt(), 0xFF091025.toInt()), floatArrayOf(0.1121f, 0.6192f), false),
-            composerGradient = ThemeGradient(154.19f, intArrayOf(0xFF262B5C.toInt(), 0xFF0C1C37.toInt()), floatArrayOf(0.1121f, 0.6192f), false)
+            composerGradient = ThemeGradient(154.19f, intArrayOf(0xFF262B5C.toInt(), 0xFF0C1C37.toInt()), floatArrayOf(0.1121f, 0.6192f), false),
+            primaryFillGradient = ThemeGradient(48.17f, intArrayOf(0xFF141734.toInt(), 0xFF050915.toInt()), floatArrayOf(0.1121f, 0.6192f), false)
         )
 
         private val sunset = DesktopThemePalette(
@@ -863,7 +870,8 @@ class DesktopThemePalette private constructor(
             previewGradient = ThemeGradient(141.68f, intArrayOf(0xFF160C2A.toInt(), 0xFF422617.toInt()), floatArrayOf(0.2757f, 0.7125f), false),
             conversationGradient = ThemeGradient(141.68f, intArrayOf(0xFF120A23.toInt(), 0xFF372013.toInt()), floatArrayOf(0.2757f, 0.7125f), false),
             chatGradient = ThemeGradient(141.68f, intArrayOf(0xFF0E081C.toInt(), 0xFF2C190F.toInt()), floatArrayOf(0.2757f, 0.7125f), false),
-            composerGradient = ThemeGradient(141.68f, intArrayOf(0xFF1F123A.toInt(), 0xFF4D2C1A.toInt()), floatArrayOf(0.0557f, 0.7125f), false)
+            composerGradient = ThemeGradient(141.68f, intArrayOf(0xFF1F123A.toInt(), 0xFF4D2C1A.toInt()), floatArrayOf(0.0557f, 0.7125f), false),
+            primaryFillGradient = ThemeGradient(141.68f, intArrayOf(0xFF160C2A.toInt(), 0xFF422617.toInt()), floatArrayOf(0.2757f, 0.7125f), false)
         )
 
         private val cisher = DesktopThemePalette(
@@ -967,7 +975,8 @@ class DesktopThemePalette private constructor(
             previewGradient = ThemeGradient(180.0f, intArrayOf(0xFFFBE4B9.toInt(), 0xFFF9D4C5.toInt()), floatArrayOf(0.311f, 0.6709f), false),
             conversationGradient = ThemeGradient(180.0f, intArrayOf(0xFFFBE8C3.toInt(), 0xFFFADACD.toInt()), floatArrayOf(0.311f, 0.6709f), false),
             chatGradient = ThemeGradient(180.0f, intArrayOf(0xFFFDF4E1.toInt(), 0xFFFCEDE6.toInt()), floatArrayOf(0.311f, 0.6709f), false),
-            composerGradient = null
+            composerGradient = null,
+            primaryFillGradient = ThemeGradient(180.0f, intArrayOf(0xFFFBE4B9.toInt(), 0xFFF9D4C5.toInt()), floatArrayOf(0.311f, 0.6709f), false)
         )
 
         private val berrynade = DesktopThemePalette(
@@ -1071,7 +1080,8 @@ class DesktopThemePalette private constructor(
             previewGradient = ThemeGradient(161.03f, intArrayOf(0xFF340820.toInt(), 0xFF3A200A.toInt(), 0xFF45320B.toInt()), floatArrayOf(0.1879f, 0.4976f, 0.8072f), false),
             conversationGradient = ThemeGradient(161.03f, intArrayOf(0xFF2C061B.toInt(), 0xFF301B08.toInt(), 0xFF3A2909.toInt()), floatArrayOf(0.1879f, 0.4976f, 0.8072f), false),
             chatGradient = ThemeGradient(161.03f, intArrayOf(0xFF230516.toInt(), 0xFF271506.toInt(), 0xFF2E2107.toInt()), floatArrayOf(0.1879f, 0.4976f, 0.8072f), false),
-            composerGradient = null
+            composerGradient = null,
+            primaryFillGradient = ThemeGradient(161.03f, intArrayOf(0xFF340820.toInt(), 0xFF3A200A.toInt(), 0xFF45320B.toInt()), floatArrayOf(0.1879f, 0.4976f, 0.8072f), false)
         )
 
         fun forTheme(mode: ThemeMode): DesktopThemePalette = when (mode) {

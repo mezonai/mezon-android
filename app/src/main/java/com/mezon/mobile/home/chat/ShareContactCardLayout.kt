@@ -14,6 +14,7 @@ import com.mezon.mobile.R
 import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.core.theme.DesktopThemeToken as Token
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.util.ShareContactData
 import com.mezon.mobile.util.avatarImgproxyUrl
@@ -62,6 +63,9 @@ class ShareContactCardLayout(private val context: Context) {
         private set
 
     private var cardBgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val actionBgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private var headerBackground: Drawable? = null
+    private var footerBackground: Drawable? = null
     private var dividerPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val actionTopDividerPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val onlineDotPaint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -81,10 +85,10 @@ class ShareContactCardLayout(private val context: Context) {
 
         DISPLAY_PAINT.typeface = Typeface.DEFAULT_BOLD
         DISPLAY_PAINT.textSize = LayoutHelper.sp(14f)
-        DISPLAY_PAINT.color = theme.textStrong
+        DISPLAY_PAINT.color = theme.desktop[Token.TEXT_SECONDARY]
 
         USERNAME_PAINT.textSize = LayoutHelper.sp(12f)
-        USERNAME_PAINT.color = theme.tabLabelInactive
+        USERNAME_PAINT.color = theme.textThemePrimary
 
         ACTION_PAINT.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
         ACTION_PAINT.isFakeBoldText = false
@@ -104,12 +108,15 @@ class ShareContactCardLayout(private val context: Context) {
         avatarDrawable.setUserId(data.userId)
         loadAvatar(data.avatarUrl)
 
-        CARD_BORDER_PAINT.color = theme.borderDim
-        cardBgPaint.color = theme.channelPanelBg
-        dividerPaint.color = theme.border
-        actionTopDividerPaint.color = theme.borderDim
+        CARD_BORDER_PAINT.color = theme.outline
+        cardBgPaint.color = theme.desktop[Token.BG_PRIMARY]
+        headerBackground = theme.desktop.primaryFillGradient?.previewDrawable(0f)
+        footerBackground = theme.desktop.primaryFillGradient?.previewDrawable(0f)
+        actionBgPaint.color = theme.desktop[Token.BG_SECONDARY_BUTTON_HOVER]
+        dividerPaint.color = theme.outline
+        actionTopDividerPaint.color = theme.outline
         onlineDotPaint.color = theme.onlineGreen
-        actionTint = theme.tabLabelInactive
+        actionTint = theme.textThemePrimary
 
         val textStackH = (displayLayout?.height ?: 0) + USERNAME_GAP + (usernameLayout?.height ?: 0)
         val headerContentH = maxOf(AVATAR_SIZE, textStackH)
@@ -117,10 +124,10 @@ class ShareContactCardLayout(private val context: Context) {
         textBlockTop = HEADER_PAD_V + (headerContentH - textStackH) / 2f
 
         callIcon = MezonIcon.phoneCallIcon.getDrawable(context).mutate().apply {
-            setColorFilter(actionTint, android.graphics.PorterDuff.Mode.SRC_IN)
+            setColorFilter(theme.colorText, android.graphics.PorterDuff.Mode.SRC_IN)
         }
         messageIcon = MezonIcon.chatIcon.getDrawable(context).mutate().apply {
-            setColorFilter(actionTint, android.graphics.PorterDuff.Mode.SRC_IN)
+            setColorFilter(theme.colorText, android.graphics.PorterDuff.Mode.SRC_IN)
         }
 
         val callLabel = context.getString(R.string.user_profile_voice_call)
@@ -158,6 +165,15 @@ class ShareContactCardLayout(private val context: Context) {
         canvas.clipPath(clipPath)
         canvas.drawRoundRect(cardRect, CARD_RADIUS, CARD_RADIUS, cardBgPaint)
         val actionTop = headerHeight.toFloat()
+        headerBackground?.let {
+            it.setBounds(0, 0, cardWidth, headerHeight)
+            it.draw(canvas)
+        }
+        footerBackground?.let {
+            it.setBounds(0, headerHeight, cardWidth, blockHeight)
+            it.draw(canvas)
+        }
+        canvas.drawRect(0f, actionTop, cardWidth.toFloat(), blockHeight.toFloat(), actionBgPaint)
         canvas.drawLine(0f, actionTop, cardWidth.toFloat(), actionTop, actionTopDividerPaint)
         canvas.drawLine(cardWidth / 2f, actionTop, cardWidth / 2f, blockHeight.toFloat(), dividerPaint)
 
