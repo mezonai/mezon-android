@@ -30,6 +30,9 @@ class AddFriendBottomSheet(
     private val notificationCenter: NotificationCenter
 ) : BottomSheet(context) {
 
+    override val sheetBackgroundColor: Int
+        get() = themeColors.background
+
     private val themeColors = ThemeColors.instance
 
     private lateinit var recyclerView: RecyclerListView
@@ -59,7 +62,6 @@ class AddFriendBottomSheet(
 
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(themeColors.background)
             setPadding(LayoutHelper.dp(16), LayoutHelper.dp(4), LayoutHelper.dp(16), LayoutHelper.dp(12))
         }
 

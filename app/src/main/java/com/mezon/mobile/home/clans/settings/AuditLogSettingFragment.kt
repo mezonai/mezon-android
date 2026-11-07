@@ -116,7 +116,7 @@ class AuditLogSettingFragment : BaseFragment() {
         }
         observe(NotificationCenter.themeChanged) { _, _, _ ->
             if (fragmentView != null) {
-                fragmentView?.setBackgroundColor(themeColors.background)
+                fragmentView?.setBackgroundColor(themeColors.surface)
                 adapter.notifyDataSetChanged()
             }
         }
@@ -136,7 +136,7 @@ class AuditLogSettingFragment : BaseFragment() {
     override fun createView(context: Context): View {
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(themeColors.background)
+            setBackgroundColor(themeColors.surface)
         }
 
         actionBar = ActionBarView(context, themeColors).apply {
@@ -168,7 +168,7 @@ class AuditLogSettingFragment : BaseFragment() {
             setPadding(LayoutHelper.dp(12f), LayoutHelper.dp(10f), LayoutHelper.dp(12f), LayoutHelper.dp(10f))
             background = android.graphics.drawable.GradientDrawable().apply {
                 cornerRadius = CreateClanRnUiTokens.clanSettingsMenuCornerPx()
-                setColor(themeColors.surfaceVariant)
+                setColor(themeColors.background)
             }
             isClickable = true
             isFocusable = true

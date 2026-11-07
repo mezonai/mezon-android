@@ -36,6 +36,9 @@ class InstallPickerSheet(
     private val onPicked: (InstallPickerItem) -> Unit,
 ) : BottomSheet(context, needFocusable = true) {
 
+    override val sheetBackgroundColor: Int
+        get() = themeColors.background
+
     data class InstallPickerItem(
         val id: String,
         val label: String,
@@ -131,7 +134,6 @@ class InstallPickerSheet(
 
         val container = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(themeColors.background)
             addView(searchBar, LinearLayout.LayoutParams(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
             addView(listFrame, LinearLayout.LayoutParams(LayoutHelper.MATCH_PARENT, 0, 1f))
         }

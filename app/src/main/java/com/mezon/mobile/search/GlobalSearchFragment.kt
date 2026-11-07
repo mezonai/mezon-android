@@ -19,6 +19,7 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.PopupWindow
 import android.widget.TextView
+import androidx.core.graphics.ColorUtils
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -49,6 +50,7 @@ import com.mezon.mobile.ui.cells.ChannelSearchCell
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.ProfileSearchCell
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.core.theme.MobileThemeColors
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.ui.cells.SearchCell
@@ -107,6 +109,7 @@ class GlobalSearchFragment : BaseFragment() {
     private lateinit var clansController: ClansController
     private lateinit var shortProfileActions: UserShortProfileActions
 
+    private lateinit var backButton: ImageView
     private lateinit var searchCell: SearchCell
     private lateinit var tabHeader: SearchTabHeader
     private lateinit var recyclerView: RecyclerListView
@@ -193,6 +196,13 @@ class GlobalSearchFragment : BaseFragment() {
             ?.takeIf { it in visibleTabs }
             ?: visibleTabs.first()
         searchText = savedState?.query.orEmpty()
+
+        observe(NotificationCenter.themeChanged) { _, _, _ ->
+            if (fragmentView == null) return@observe
+            applySearchTheme()
+            adapter.notifyDataSetChanged()
+            channelPickerAdapter?.notifyDataSetChanged()
+        }
 
         observe(NotificationCenter.searchMembersDidLoad) { _, _, _ ->
             if (fragmentView == null || isPaused) return@observe
@@ -286,7 +296,7 @@ class GlobalSearchFragment : BaseFragment() {
     override fun createView(context: Context): View {
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(themeColors.background)
+            setBackgroundColor(themeColors.surface)
             setPadding(0, AndroidUtilities.statusBarHeight, 0, 0)
         }
 
@@ -296,7 +306,7 @@ class GlobalSearchFragment : BaseFragment() {
             setPadding(LayoutHelper.dp(4f), HEADER_PAD_V, HEADER_PAD_H, HEADER_PAD_V)
         }
 
-        val backButton = ImageView(context).apply {
+        backButton = ImageView(context).apply {
             setImageResource(R.drawable.ic_arrow_back)
             scaleType = ImageView.ScaleType.CENTER
             colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
@@ -323,6 +333,7 @@ class GlobalSearchFragment : BaseFragment() {
         })
 
         searchCell = SearchCell(context, themeColors).apply {
+            setPromptColor(themeColors.textDisabled)
             setPlaceholder(context.getString(R.string.common_search))
             editText.setText(searchText)
             editText.setSelection(searchText.length)
@@ -366,7 +377,6 @@ class GlobalSearchFragment : BaseFragment() {
             }
             val rippleColor = android.content.res.ColorStateList.valueOf(themeColors.onSurface and 0x1A_FFFFFF)
             background = android.graphics.drawable.RippleDrawable(rippleColor, ovalBg, rippleMask)
-            alpha = 0.7f
             setPadding(FILTER_BUTTON_PADDING, FILTER_BUTTON_PADDING, FILTER_BUTTON_PADDING, FILTER_BUTTON_PADDING)
             isClickable = true
             isFocusable = true
@@ -423,7 +433,7 @@ class GlobalSearchFragment : BaseFragment() {
 
         emptyView = TextView(context).apply {
             text = getString(R.string.common_no_results_found)
-            setTextColor(themeColors.onSurfaceVariant)
+            setTextColor(themeColors.textDisabled)
             textSize = 15f
             gravity = Gravity.CENTER
             visibility = View.GONE
@@ -530,6 +540,7 @@ class GlobalSearchFragment : BaseFragment() {
         }
 
         fragmentView = root
+        applySearchTheme()
         return root
     }
 
@@ -562,6 +573,22 @@ class GlobalSearchFragment : BaseFragment() {
             channelPickerAdapter?.filter(pickerQuery, pickerDisplayLimit)
         }
         handler.postDelayed(pickerFilterRunnable!!, DEBOUNCE_MS)
+    }
+
+    private fun applySearchTheme() {
+        fragmentView?.setBackgroundColor(themeColors.surface)
+        backButton.setColorFilter(themeColors.onSurface)
+        searchCell.applyTheme(
+            promptColor = themeColors.textDisabled,
+            accentColor = MobileThemeColors.searchAccent
+        )
+        tabHeader.applyTheme()
+        filterButton?.setColorFilter(themeColors.onSurface)
+        (filterButton?.background as? android.graphics.drawable.RippleDrawable)?.apply {
+            setColor(android.content.res.ColorStateList.valueOf(themeColors.onSurface and 0x1A_FFFFFF))
+            (getDrawable(0) as GradientDrawable).setColor(themeColors.surfaceVariant)
+        }
+        emptyView.setTextColor(themeColors.textDisabled)
     }
 
     private fun updateCurrentTab() {
@@ -775,8 +802,8 @@ class GlobalSearchFragment : BaseFragment() {
             orientation = LinearLayout.VERTICAL
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dpf(10f)
-                setColor(themeColors.surface)
-                setStroke(LayoutHelper.dp(1f), themeColors.borderDim)
+                setColor(themeColors.background)
+                setStroke(LayoutHelper.dp(1f), ColorUtils.setAlphaComponent(themeColors.border, 77))
             }
             clipToOutline = true
             outlineProvider = ViewOutlineProvider.BACKGROUND
@@ -807,7 +834,7 @@ class GlobalSearchFragment : BaseFragment() {
                 selectUserFilter(MessageUserFilter.FROM)
             }
         ))
-        container.addView(createFilterDivider(context, horizontalInset = 10f))
+        container.addView(createFilterDivider(context, horizontalInset = 10f, borderAlpha = 51))
         container.addView(createFilterOptionRow(
             context = context,
             label = context.getString(R.string.search_filter_mentions_label),
@@ -867,7 +894,7 @@ class GlobalSearchFragment : BaseFragment() {
                 })
                 addView(TextView(context).apply {
                     text = description
-                    setTextColor(themeColors.onSurfaceVariant)
+                    setTextColor(themeColors.textDisabled)
                     textSize = 13f
                     includeFontPadding = false
                 }, LinearLayout.LayoutParams(
@@ -877,7 +904,7 @@ class GlobalSearchFragment : BaseFragment() {
             }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
 
             addView(ImageView(context).apply {
-                setImageDrawable(icon.getDrawable(context, themeColors.onSurfaceVariant))
+                setImageDrawable(icon.getDrawable(context, themeColors.textDisabled))
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
             }, LinearLayout.LayoutParams(LayoutHelper.dp(20f), LayoutHelper.dp(20f)))
         }.also {
@@ -888,9 +915,9 @@ class GlobalSearchFragment : BaseFragment() {
         }
     }
 
-    private fun createFilterDivider(context: Context, horizontalInset: Float = 0f): View {
+    private fun createFilterDivider(context: Context, horizontalInset: Float = 0f, borderAlpha: Int = 77): View {
         return View(context).apply {
-            setBackgroundColor(themeColors.borderDim)
+            setBackgroundColor(ColorUtils.setAlphaComponent(themeColors.border, borderAlpha))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LayoutHelper.dp(1f)

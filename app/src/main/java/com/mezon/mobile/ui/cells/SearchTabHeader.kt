@@ -9,6 +9,8 @@ import android.view.Gravity
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.graphics.ColorUtils
+import com.mezon.mobile.core.theme.MobileThemeColors
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 
@@ -18,14 +20,20 @@ class SearchTabHeader(context: Context, private val theme: ThemeColors) : Linear
     private var selectedTab = 0
     private val tabViews = ArrayList<TabItemView>()
     private val bottomBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0x305A5B5C
         strokeWidth = LayoutHelper.dpf(1f)
     }
 
     init {
         orientation = HORIZONTAL
-        setBackgroundColor(theme.background)
         setWillNotDraw(false)
+        applyTheme()
+    }
+
+    fun applyTheme() {
+        setBackgroundColor(theme.surface)
+        bottomBorderPaint.color = ColorUtils.setAlphaComponent(theme.border, 77)
+        selectTab(selectedTab)
+        invalidate()
     }
 
     fun setTabs(labels: List<String>) {
@@ -96,7 +104,7 @@ class SearchTabHeader(context: Context, private val theme: ThemeColors) : Linear
             addView(labelView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
 
             indicatorView = View(context).apply {
-                setBackgroundColor(theme.blurple)
+                setBackgroundColor(MobileThemeColors.searchAccent)
                 visibility = GONE
             }
             addView(indicatorView, LayoutParams(LayoutParams.MATCH_PARENT, INDICATOR_HEIGHT))
@@ -114,11 +122,11 @@ class SearchTabHeader(context: Context, private val theme: ThemeColors) : Linear
 
         fun setActive(active: Boolean) {
             if (active) {
-                labelView.setTextColor(theme.blurple)
+                labelView.setTextColor(MobileThemeColors.searchAccent)
                 labelView.setTypeface(labelView.typeface, Typeface.BOLD)
                 indicatorView.visibility = VISIBLE
             } else {
-                labelView.setTextColor(theme.onSurface)
+                labelView.setTextColor(theme.textDisabled)
                 labelView.setTypeface(labelView.typeface, Typeface.NORMAL)
                 indicatorView.visibility = GONE
             }

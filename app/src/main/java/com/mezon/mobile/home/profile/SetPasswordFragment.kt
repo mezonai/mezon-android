@@ -20,6 +20,8 @@ class SetPasswordFragment : BaseFragment() {
 
     private lateinit var accountController: AccountController
 
+    private lateinit var contentLayout: LinearLayout
+    private lateinit var descriptionText: TextView
     private lateinit var emailCell: InputCell
     private lateinit var currentPasswordCell: InputCell
     private lateinit var currentPasswordSection: LinearLayout
@@ -35,11 +37,12 @@ class SetPasswordFragment : BaseFragment() {
     override fun createView(context: Context): View {
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(themeColors.background)
+            setBackgroundColor(themeColors.surface)
             val pad = LayoutHelper.dp(16)
             setPadding(pad, pad, pad, pad)
         }
 
+        contentLayout = content
         emailCell = InputCell(context, themeColors).apply {
             setLabel(getString(R.string.set_password_email_label))
             setHint("")
@@ -66,12 +69,12 @@ class SetPasswordFragment : BaseFragment() {
         }
         content.addView(newPasswordCell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, 0, 0f, 0f, 0f, 4f))
 
-        val descText = TextView(context).apply {
+        descriptionText = TextView(context).apply {
             text = getString(R.string.set_password_description)
             textSize = 12f
-            setTextColor(themeColors.onSurfaceVariant)
+            setTextColor(themeColors.onSurface)
         }
-        content.addView(descText, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, 0, 0f, 0f, 0f, 16f))
+        content.addView(descriptionText, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, 0, 0f, 0f, 0f, 16f))
 
         confirmPasswordCell = InputCell(context, themeColors).apply {
             setLabel(getString(R.string.set_password_confirm_label))
@@ -104,6 +107,7 @@ class SetPasswordFragment : BaseFragment() {
         emailCell.setText(info.email)
         currentPasswordSection.visibility = if (info.passwordSetted) View.VISIBLE else View.GONE
 
+        applyFormColors()
         wireValidation()
         saveButton.setOnClickListener { handleSave() }
         if (info.email.isEmpty()) accountController.loadAccount()
@@ -121,10 +125,30 @@ class SetPasswordFragment : BaseFragment() {
             currentPasswordSection.visibility = if (updated.passwordSetted) View.VISIBLE else View.GONE
         }
         observe(NotificationCenter.themeChanged) { _, _, _ ->
-            fragmentView?.setBackgroundColor(themeColors.background)
+            if (fragmentView != null) applyFormColors()
         }
 
         return true
+    }
+
+    private fun applyFormColors() {
+        contentLayout.setBackgroundColor(themeColors.surface)
+        fragmentView?.setBackgroundColor(themeColors.surface)
+        descriptionText.setTextColor(themeColors.onSurface)
+        for (cell in listOf(emailCell, currentPasswordCell, newPasswordCell, confirmPasswordCell)) {
+            cell.setCaptionColor(themeColors.onSurface)
+            cell.setLightInputAppearance(
+                fill = themeColors.background,
+                stroke = themeColors.mobile.borderDim,
+                text = themeColors.onSurface,
+                hint = (themeColors.onSurface and 0x00FFFFFF) or 0x80000000.toInt(),
+                clearIcon = themeColors.onSurface,
+                preserveError = true,
+            )
+        }
+        emailCell.setInputAlpha(1f)
+        emailCell.editText.alpha = 0.7f
+        saveButton.invalidate()
     }
 
     private fun wireValidation() {

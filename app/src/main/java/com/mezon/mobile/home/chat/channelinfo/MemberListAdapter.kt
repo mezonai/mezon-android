@@ -20,6 +20,7 @@ class MemberListAdapter(
     private val theme: ThemeColors,
     private val isDm: Boolean,
     creatorId: Long,
+    private val nameColor: (ClanMember) -> Int = { theme.onSurface },
     private val isUserInVoice: (Long) -> Boolean = { false }
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
@@ -47,6 +48,10 @@ class MemberListAdapter(
 
     fun refreshVoicePresence() {
         notifyItemRangeChanged(0, rows.size)
+    }
+
+    fun refreshNameColors() {
+        if (rows.size > 1) notifyItemRangeChanged(1, rows.size - 1, PAYLOAD_NAME_COLOR)
     }
 
     fun updateCreatorId(id: Long) {
@@ -116,7 +121,7 @@ class MemberListAdapter(
         return when (viewType) {
             VIEW_TYPE_HEADER -> {
                 val tv = TextView(parent.context).apply {
-                    setTextColor(theme.onSurfaceVariant)
+                    setTextColor(theme.textDisabled)
                     textSize = 13f
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                     val pad = LayoutHelper.dp(16)
@@ -142,13 +147,26 @@ class MemberListAdapter(
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         when (val item = rows[position]) {
-            is SectionHeader -> (holder.itemView as TextView).text = item.title
+            is SectionHeader -> (holder.itemView as TextView).apply {
+                text = item.title
+                setTextColor(theme.textDisabled)
+            }
             is ClanMember -> {
                 val cell = holder.itemView as MemberCell
+                cell.setNameColor(nameColor(item))
                 cell.setCreatorId(creatorId)
                 cell.setInVoice(isUserInVoice(item.userId))
                 cell.update(0, item)
             }
+        }
+    }
+
+    override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int, payloads: MutableList<Any>) {
+        val member = rows[position] as? ClanMember
+        if (member != null && payloads.isNotEmpty() && payloads.all { it === PAYLOAD_NAME_COLOR }) {
+            (holder.itemView as MemberCell).updateNameColor(nameColor(member))
+        } else {
+            super.onBindViewHolder(holder, position, payloads)
         }
     }
 
@@ -189,5 +207,6 @@ class MemberListAdapter(
         const val VIEW_TYPE_HEADER = 0
         const val VIEW_TYPE_MEMBER = 1
         private const val DIFF_THRESHOLD = 50
+        private val PAYLOAD_NAME_COLOR = Any()
     }
 }

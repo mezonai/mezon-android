@@ -84,16 +84,17 @@ class ChannelMuteBottomSheet(
                         onDurationSelected(value, SET_MUTE_ACTIVE_UNMUTE)
                     }
                 },
+                textColor = theme.textStrong,
+                rowBackgroundColor = theme.background,
             )
         }
 
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(theme.background)
             setPadding(LayoutHelper.dp(20), 0, LayoutHelper.dp(20), LayoutHelper.dp(20))
             addView(header, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
             addView(
-                ClanSettingsUiHelpers.buildMezonSection(context, theme, null, durationRows),
+                ClanSettingsUiHelpers.buildMezonSection(context, theme, null, durationRows, cardColor = theme.background, separatorColor = theme.border),
                 LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT)
             )
         }

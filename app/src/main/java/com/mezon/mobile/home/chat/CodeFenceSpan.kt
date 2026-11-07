@@ -23,7 +23,6 @@ class CodeFenceSpan(
     private val bgPath = Path()
     private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val radius = LayoutHelper.dp(4).toFloat()
-    private val lineGapBridge = LayoutHelper.dpf(2f)
     private val containerInsetH = LayoutHelper.dp(4)
     private val innerTextPadH = LayoutHelper.dp(12)
     private val innerTextPadV = LayoutHelper.dp(6)
@@ -107,10 +106,8 @@ class CodeFenceSpan(
         bgPaint.color = bgColor
         val isFirst = spanFirstLine >= 0 && lineNumber == spanFirstLine
         val isLast = spanLastLine >= 0 && lineNumber == spanLastLine
-        var t = top.toFloat()
-        var b = bottom.toFloat()
-        if (!isFirst) t -= lineGapBridge
-        if (!isLast) b += lineGapBridge
+        val t = top.toFloat()
+        val b = bottom.toFloat()
         val inset = containerInsetH.toFloat()
         val l = left + inset
         val r = right - inset

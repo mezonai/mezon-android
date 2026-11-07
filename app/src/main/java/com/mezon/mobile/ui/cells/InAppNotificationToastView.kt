@@ -7,7 +7,6 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
-import com.mezon.mobile.ui.theme.ThemeMode
 
 class InAppNotificationToastView(
     context: Context,
@@ -34,7 +33,7 @@ class InAppNotificationToastView(
         }
         titleView = TextView(context).apply {
             setTextColor(
-                if (theme.resolvedMode == ThemeMode.LIGHT) theme.onSurface else 0xFFFFFFFF.toInt()
+                if (theme.resolvedMode.isLight) theme.onSurface else 0xFFFFFFFF.toInt()
             )
             textSize = 15f
             setTypeface(typeface, android.graphics.Typeface.BOLD)

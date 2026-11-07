@@ -1,5 +1,7 @@
 package com.mezon.mobile.home.messages
 
+import com.mezon.mobile.core.theme.applyThemeSurface
+import com.mezon.mobile.core.theme.MobileThemeColors
 import android.content.Context
 import android.graphics.Color
 import android.graphics.PorterDuff
@@ -95,16 +97,15 @@ class MessagesFragment : BaseFragment() {
 
         observe(NotificationCenter.themeChanged) { _, _, _ ->
             if (fragmentView == null) return@observe
-            fragmentView?.setBackgroundColor(themeColors.background)
+            fragmentView?.applyThemeSurface(themeColors.background, themeColors.desktop.conversationGradient, anchorToWindow = true)
             headerTitle.setTextColor(themeColors.onSurface)
-            (headerTitle.parent as? View)?.setBackgroundColor(themeColors.surface)
             emptyView.setTextColor(themeColors.onSurfaceVariant)
             adapter.notifyDataSetChanged()
             if (::headerStripAdapter.isInitialized) headerStripAdapter.notifyDataSetChanged()
             if (::addMessageFab.isInitialized) {
                 addMessageFab.background = android.graphics.drawable.GradientDrawable().apply {
                     shape = android.graphics.drawable.GradientDrawable.OVAL
-                    setColor(themeColors.blurple)
+                    setColor(MobileThemeColors.newConversation)
                 }
                 addMessageIcon.setImageDrawable(MezonIcon.messagePlusIcon.getDrawable(fragmentView!!.context).apply {
                     colorFilter = PorterDuffColorFilter(Color.WHITE, PorterDuff.Mode.SRC_IN)
@@ -154,7 +155,7 @@ class MessagesFragment : BaseFragment() {
     override fun createView(context: Context): View {
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(themeColors.background)
+            applyThemeSurface(themeColors.background, themeColors.desktop.conversationGradient, anchorToWindow = true)
         }
 
         root.addView(buildHeader(context), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
@@ -265,7 +266,7 @@ class MessagesFragment : BaseFragment() {
         addMessageFab = FrameLayout(context).apply {
             background = android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.OVAL
-                setColor(themeColors.blurple)
+                setColor(MobileThemeColors.newConversation)
             }
             isClickable = true
             isFocusable = true
@@ -302,7 +303,6 @@ class MessagesFragment : BaseFragment() {
     private fun buildHeader(context: Context): View {
         val header = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(themeColors.surface)
             setPadding(0, LayoutHelper.dp(8), 0, LayoutHelper.dp(4))
         }
 
@@ -427,7 +427,7 @@ class MessagesFragment : BaseFragment() {
         val iconWrap = FrameLayout(context)
         iconWrap.addView(icon, LayoutHelper.createFrame(14, 14, Gravity.CENTER))
 
-        addFriendBadgeText = createFriendRequestBadgeView(context, themeColors)
+        addFriendBadgeText = createFriendRequestBadgeView(context)
         buttonContent.addView(iconWrap, LinearLayout.LayoutParams(
             LayoutHelper.dp(18), LayoutHelper.dp(18)
         ).apply {
@@ -458,9 +458,9 @@ class MessagesFragment : BaseFragment() {
         if (!::addFriendBadgeText.isInitialized) return
         val pending = friendController.pendingReceivedCount.value
         if (pending > 0) {
-            addFriendBadgeText.updateFriendRequestBadge(pending, themeColors)
+            addFriendBadgeText.updateFriendRequestBadge(pending)
         } else {
-            addFriendBadgeText.updateFriendRequestBadge(0, themeColors)
+            addFriendBadgeText.updateFriendRequestBadge(0)
         }
     }
 

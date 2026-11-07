@@ -29,6 +29,7 @@ import androidx.core.graphics.ColorUtils
 import com.mezon.mobile.R
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
+import com.mezon.mobile.core.theme.MobileThemeColors
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.di.FragmentEntryPoint
@@ -41,6 +42,9 @@ import com.mezon.mobile.home.wallet.SendTokenFragment
 import com.mezon.mobile.network.ConnectionState
 import com.mezon.mobile.network.EndpointFailover
 import com.mezon.mobile.network.RealtimeServerChoice
+import com.mezon.mobile.home.chat.MezonImageLoader
+import com.mezon.mobile.util.ColorUtilities
+import com.mezon.mobile.util.avatarImgproxyUrl
 import com.mezon.mobile.ui.cells.AvatarView
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.ToastOverlay
@@ -101,6 +105,10 @@ class ProfileFragment : BaseFragment() {
 
     var onLogout: (() -> Unit)? = null
 
+    private lateinit var bannerView: View
+    private var bannerAvatarUrl: String? = null
+    private var bannerColor: Int? = null
+    private var bannerLoad: MezonImageLoader.Cancellable? = null
     private lateinit var avatarView: AvatarView
     private lateinit var displayNameText: TextView
     private lateinit var usernameText: TextView
@@ -110,7 +118,7 @@ class ProfileFragment : BaseFragment() {
     private lateinit var memberSinceContainer: LinearLayout
     private lateinit var memberSinceText: TextView
     private lateinit var statusBubble: LinearLayout
-    private lateinit var plusIconView: View
+    private lateinit var plusIconView: ImageView
     private lateinit var badgeStatusText: TextView
     private lateinit var walletSection: LinearLayout
     private lateinit var friendsAvatarsContainer: LinearLayout
@@ -200,10 +208,14 @@ class ProfileFragment : BaseFragment() {
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
         ))
 
-        val topBg = View(context).apply {
-            setBackgroundColor(Color.parseColor("#121212")) 
+        bannerLoad?.cancel()
+        bannerLoad = null
+        bannerAvatarUrl = null
+        bannerColor = null
+        bannerView = View(context).apply {
+            setBackgroundColor(themeColors.surface)
         }
-        headerContainer.addView(topBg, FrameLayout.LayoutParams(
+        headerContainer.addView(bannerView, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, LayoutHelper.dp(160)
         ))
 
@@ -284,7 +296,7 @@ class ProfileFragment : BaseFragment() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             background = object : Drawable() {
-                private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = themeColors.getColor(ThemeColors.key_sheetItemBackground) }
+                private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
                 private val path = Path()
                 private var lastWidth = 0f
                 private var lastHeight = 0f
@@ -294,19 +306,23 @@ class ProfileFragment : BaseFragment() {
                     if (w != lastWidth || h != lastHeight) {
                         lastWidth = w
                         lastHeight = h
-                        val tailHeight = LayoutHelper.dp(6f).toFloat()
+                        val tailHeight = LayoutHelper.dpf(8f)
                         val rectBottom = h - tailHeight
-                        val r = rectBottom / 2f
+                        val r = minOf(LayoutHelper.dpf(14f), rectBottom / 2f)
                         path.reset()
-                        path.moveTo(0f, r)
-                        path.arcTo(0f, 0f, 2 * r, 2 * r, 180f, 90f, false)
+                        path.moveTo(r, 0f)
                         path.lineTo(w - r, 0f)
-                        path.arcTo(w - 2 * r, 0f, w, rectBottom, 270f, 180f, false)
-                        path.lineTo(r, rectBottom)
-                        path.quadTo(0f, rectBottom, 0f, h)
+                        path.arcTo(w - 2 * r, 0f, w, 2 * r, 270f, 90f, false)
+                        path.lineTo(w, rectBottom - r)
+                        path.arcTo(w - 2 * r, rectBottom - 2 * r, w, rectBottom, 0f, 90f, false)
+                        path.lineTo(LayoutHelper.dpf(12f), rectBottom)
+                        path.lineTo(LayoutHelper.dpf(2f), h)
+                        path.lineTo(0f, rectBottom)
                         path.lineTo(0f, r)
+                        path.arcTo(0f, 0f, 2 * r, 2 * r, 180f, 90f, false)
                         path.close()
                     }
+                    paint.color = themeColors.background
                     canvas.drawPath(path, paint)
                 }
                 override fun setAlpha(alpha: Int) { paint.alpha = alpha }
@@ -314,15 +330,21 @@ class ProfileFragment : BaseFragment() {
                 @Deprecated("Deprecated")
                 override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
             }
-            setPadding(LayoutHelper.dp(8), LayoutHelper.dp(8), LayoutHelper.dp(16), LayoutHelper.dp(14))
+            minimumHeight = LayoutHelper.dp(52)
+            setPadding(LayoutHelper.dp(12), LayoutHelper.dp(10), LayoutHelper.dp(12), LayoutHelper.dp(18))
             setOnClickListener {
                 presentFragment(EditStatusFragment())
             }
         }
         
         plusIconView = ImageView(context).apply {
-            setImageResource(R.drawable.ic_plus_icon)
+            setImageDrawable(MezonIcon.plusLargeIcon.getDrawable(context, Color.WHITE))
             scaleType = ImageView.ScaleType.FIT_CENTER
+            setPadding(LayoutHelper.dp(6), LayoutHelper.dp(6), LayoutHelper.dp(6), LayoutHelper.dp(6))
+            background = GradientDrawable().apply {
+                cornerRadius = LayoutHelper.dpf(2f)
+                setColor(MobileThemeColors.accent)
+            }
         }
         statusBubble.addView(plusIconView, LinearLayout.LayoutParams(
             LayoutHelper.dp(24), LayoutHelper.dp(24)
@@ -330,7 +352,7 @@ class ProfileFragment : BaseFragment() {
 
         badgeStatusText = TextView(context).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-            setTextColor(themeColors.onSurfaceVariant)
+            setTextColor(themeColors.onSurface)
             maxLines = 2 
             ellipsize = TextUtils.TruncateAt.END
         }
@@ -340,7 +362,7 @@ class ProfileFragment : BaseFragment() {
 
         avatarStatusRow.addView(statusBubble, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { leftMargin = LayoutHelper.dp(12); gravity = Gravity.CENTER_VERTICAL; bottomMargin = LayoutHelper.dp(28) })
+        ).apply { leftMargin = LayoutHelper.dp(12); gravity = Gravity.CENTER_VERTICAL; bottomMargin = LayoutHelper.dp(2) })
 
         val nameIconsRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -397,7 +419,7 @@ class ProfileFragment : BaseFragment() {
 
         usernameText = TextView(context).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-            setTextColor(themeColors.onSurfaceVariant)
+            setTextColor(themeColors.onSurface)
             maxLines = 1
         }
         infoCol.addView(usernameText, LinearLayout.LayoutParams(
@@ -468,7 +490,7 @@ class ProfileFragment : BaseFragment() {
 
         aboutMeValueText = TextView(context).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-            setTextColor(themeColors.onSurfaceVariant)
+            setTextColor(themeColors.onSurface)
             setPadding(0, LayoutHelper.dp(4), 0, 0)
         }
         aboutMeContainer.addView(aboutMeValueText)
@@ -490,7 +512,7 @@ class ProfileFragment : BaseFragment() {
 
         memberSinceText = TextView(context).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-            setTextColor(themeColors.onSurfaceVariant)
+            setTextColor(themeColors.onSurface)
             setPadding(0, LayoutHelper.dp(4), 0, 0)
         }
         memberSinceContainer.addView(memberSinceText)
@@ -559,7 +581,7 @@ class ProfileFragment : BaseFragment() {
             )
         }
 
-        friendsRequestBadgeText = createFriendRequestBadgeView(context, themeColors)
+        friendsRequestBadgeText = createFriendRequestBadgeView(context)
         friendsCard.addView(
             friendsRequestBadgeText,
             LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LayoutHelper.dp(18)).apply {
@@ -646,7 +668,7 @@ class ProfileFragment : BaseFragment() {
         }
         row.addView(iconView, LinearLayout.LayoutParams(LayoutHelper.dp(24), LayoutHelper.dp(24)))
         val label = TextView(context).apply {
-            this.text = text; setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f); setTextColor(themeColors.onSurfaceVariant)
+            this.text = text; setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f); setTextColor(themeColors.onSurface)
             setPadding(LayoutHelper.dp(16), LayoutHelper.dp(8), 0, LayoutHelper.dp(8))
         }
         row.addView(label, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
@@ -656,7 +678,7 @@ class ProfileFragment : BaseFragment() {
 
     private fun createEditProfileButton(context: Context): FrameLayout {
         val container = FrameLayout(context).apply {
-            val bg = GradientDrawable().apply { cornerRadius = LayoutHelper.dp(50f).toFloat(); setColor(Color.parseColor("#4F46E5")) }
+            val bg = GradientDrawable().apply { cornerRadius = LayoutHelper.dp(50f).toFloat(); setColor(MobileThemeColors.accent) }
             background = bg; isClickable = true; isFocusable = true; setOnClickListener { navigateToProfileSetting() }
         }
         val inner = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
@@ -682,8 +704,9 @@ class ProfileFragment : BaseFragment() {
         val name = info.displayName.ifEmpty { info.username.ifEmpty { userController.displayName.ifEmpty { userController.username } } }
         val user = info.username.ifEmpty { userController.username }
 
-        if (info.avatarUrl.isNotEmpty()) avatarView.setImageUrl(info.avatarUrl)
-        else if (userController.avatarUrl.isNotEmpty()) avatarView.setImageUrl(userController.avatarUrl)
+        val avatarUrl = info.avatarUrl.ifEmpty { userController.avatarUrl }.trim()
+        avatarView.setImageUrl(avatarUrl)
+        updateAvatarBanner(avatarUrl)
 
         displayNameText.text = name
         usernameText.text = user.removePrefix("@")
@@ -760,12 +783,57 @@ class ProfileFragment : BaseFragment() {
             }
         }
         if (::friendsRequestBadgeText.isInitialized) {
-            friendsRequestBadgeText.updateFriendRequestBadge(friendController.pendingReceivedCount.value, themeColors)
+            friendsRequestBadgeText.updateFriendRequestBadge(friendController.pendingReceivedCount.value)
         }
+    }
+
+    private fun updateAvatarBanner(url: String) {
+        bannerView.setBackgroundColor(bannerColor ?: themeColors.surface)
+        if (url == bannerAvatarUrl) return
+        bannerLoad?.cancel()
+        bannerLoad = null
+        bannerAvatarUrl = url
+        bannerColor = null
+        bannerView.setBackgroundColor(themeColors.surface)
+        if (url.isEmpty()) return
+
+        val target = bannerView
+        val size = LayoutHelper.dp(PROFILE_AVATAR_SIZE_DP)
+        bannerLoad = MezonImageLoader.getInstance(requireContext()).load(
+            avatarImgproxyUrl(url, size), size, size,
+            onSuccess = { bitmap ->
+                fragmentScope.launch(Dispatchers.Default) {
+                    val color = ColorUtilities.getDominantColor(bitmap)
+                    withContext(Dispatchers.Main) {
+                        if (bannerAvatarUrl == url && bannerView === target && !isFinished) {
+                            bannerColor = color
+                            bannerLoad = null
+                            target.setBackgroundColor(color)
+                        }
+                    }
+                }
+            },
+            onError = {
+                if (bannerAvatarUrl == url && bannerView === target) {
+                    bannerLoad = null
+                }
+            }
+        )
+    }
+
+    override fun onFragmentDestroy() {
+        bannerLoad?.cancel()
+        bannerLoad = null
+        bannerAvatarUrl = null
+        super.onFragmentDestroy()
     }
 
     private fun applyTheme() {
         fragmentView?.setBackgroundColor(themeColors.background)
+        if (::statusBubble.isInitialized) {
+            statusBubble.invalidate()
+            badgeStatusText.setTextColor(themeColors.onSurface)
+        }
         if (::settingGeneralIconView.isInitialized) {
             settingGeneralIconView.colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
         }

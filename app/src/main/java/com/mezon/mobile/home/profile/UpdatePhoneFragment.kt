@@ -92,9 +92,7 @@ class UpdatePhoneFragment : BaseFragment() {
 
     private lateinit var loadingView: View
 
-    private lateinit var screenRoot: LinearLayout
-
-    private lateinit var contentLayout: LinearLayout
+    private lateinit var screenRoot: View
 
     private val countryFieldBg = GradientDrawable()
 
@@ -116,11 +114,9 @@ class UpdatePhoneFragment : BaseFragment() {
 
     override fun createView(context: Context): View {
 
-        contentLayout = LinearLayout(context).apply {
+        val contentLayout = LinearLayout(context).apply {
 
             orientation = LinearLayout.VERTICAL
-
-            setBackgroundColor(themeColors.background)
 
             val pad = LayoutHelper.dp(16)
 
@@ -212,7 +208,9 @@ class UpdatePhoneFragment : BaseFragment() {
 
         val rootFrame = FrameLayout(context)
 
-        screenRoot = wrapWithActionBar(getString(R.string.update_phone_title), contentLayout) as LinearLayout
+        screenRoot = wrapWithActionBar(getString(R.string.update_phone_title), contentLayout).apply {
+            setBackgroundColor(themeColors.surface)
+        }
 
         rootFrame.addView(screenRoot, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
@@ -288,11 +286,7 @@ class UpdatePhoneFragment : BaseFragment() {
 
     private fun applyPhoneScreenTheme() {
 
-        fragmentView?.setBackgroundColor(themeColors.background)
-
-        if (::screenRoot.isInitialized) screenRoot.setBackgroundColor(themeColors.background)
-
-        if (::contentLayout.isInitialized) contentLayout.setBackgroundColor(themeColors.background)
+        if (::screenRoot.isInitialized) screenRoot.setBackgroundColor(themeColors.surface)
 
         if (::phoneCell.isInitialized) phoneCell.refreshThemeColors()
 

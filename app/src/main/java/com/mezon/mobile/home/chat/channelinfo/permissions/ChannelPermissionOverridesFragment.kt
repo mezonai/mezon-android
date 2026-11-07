@@ -110,6 +110,14 @@ class ChannelPermissionOverridesFragment : BaseFragment() {
                 }
             }
         }
+        observe(NotificationCenter.themeChanged) { _, _, _ ->
+            if (fragmentView != null) {
+                fragmentView?.setBackgroundColor(themeColors.background)
+                actionBar?.let { ClanRolesUiTheme.applyPrimaryFlowActionBar(it, themeColors) }
+                configureActionBarTitle()
+                rebuildContent()
+            }
+        }
         return true
     }
 
@@ -241,7 +249,7 @@ class ChannelPermissionOverridesFragment : BaseFragment() {
             orientation = LinearLayout.VERTICAL
             setPadding(LayoutHelper.dp(12f), LayoutHelper.dp(12f), LayoutHelper.dp(12f), LayoutHelper.dp(12f))
             background = GradientDrawable().apply {
-                setColor(themeColors.channelPanelBg)
+                setColor(themeColors.surface)
                 cornerRadius = LayoutHelper.dpf(14f)
             }
         }
@@ -284,7 +292,7 @@ class ChannelPermissionOverridesFragment : BaseFragment() {
         val selected = currentStates[permissionId] == status
         val button = FrameLayout(context).apply {
             background = GradientDrawable().apply {
-                setColor(if (selected) color else themeColors.tertiary)
+                setColor(if (selected) color else themeColors.background)
                 cornerRadius = LayoutHelper.dpf(8f)
             }
             isClickable = true
@@ -297,7 +305,7 @@ class ChannelPermissionOverridesFragment : BaseFragment() {
         button.addView(
             ImageView(context).apply {
                 setImageDrawable(icon.getDrawable(context).apply {
-                    colorFilter = PorterDuffColorFilter(if (selected) 0xFFFFFFFF.toInt() else color, PorterDuff.Mode.SRC_IN)
+                    colorFilter = PorterDuffColorFilter(if (selected) 0xFFFFFFFF.toInt() else if (status == CHANNEL_PERMISSION_STATUS_NONE) themeColors.colorText else color, PorterDuff.Mode.SRC_IN)
                 })
             },
             LayoutHelper.createFrame(18, 18, Gravity.CENTER)

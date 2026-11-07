@@ -69,7 +69,7 @@ class CallControlBar(
 
         val btnBorder = themeColors.textDisabled
         val tertiary = themeColors.tertiary
-        val defaultTint = themeColors.tabLabelActive
+        val defaultTint = themeColors.onSurface
 
         speakerBtn = VoiceStyleCircleButton(context, MezonIcon.voiceLowIcon, tertiary, btnBorder, defaultTint).apply {
             setOnClickListener { delegate?.onSpeakerClicked() }
@@ -100,17 +100,22 @@ class CallControlBar(
     }
 
     private fun applySpeakerUi() {
+        speakerBtn.updateBgColor(controlFill(isSpeakerActive))
         if (isSpeakerActive) {
             speakerBtn.updateIcon(MezonIcon.voiceWaveDoubleIcon)
-            speakerBtn.updateIconTint(themeColors.tabIconActivePrimary)
+            speakerBtn.updateIconTint(themeColors.surface)
         } else {
             speakerBtn.updateIcon(MezonIcon.voiceWaveIcon)
-            speakerBtn.updateIconTint(themeColors.tabLabelActive)
+            speakerBtn.updateIconTint(themeColors.onSurface)
         }
     }
 
     private fun applyMicUi() {
         micBtn.updateIcon(if (isMicActive) MezonIcon.microphoneIcon else MezonIcon.microphoneSlashIcon)
-        micBtn.updateIconTint(themeColors.tabLabelActive)
+        micBtn.updateBgColor(controlFill(isMicActive))
+        micBtn.updateIconTint(if (isMicActive) themeColors.surface else themeColors.onSurface)
     }
+
+    private fun controlFill(active: Boolean): Int = if (active) themeColors.onSurface
+        else (themeColors.mobile.secondaryWeight and 0x00FFFFFF) or 0x8C000000.toInt()
 }

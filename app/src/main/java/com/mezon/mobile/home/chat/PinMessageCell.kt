@@ -18,7 +18,6 @@ import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.PinMessageData
 import com.mezon.mobile.home.chat.poll.isPollContentJson
 import com.mezon.mobile.ui.cells.MezonIcon
-import com.mezon.mobile.ui.theme.ThemeMode
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -111,19 +110,9 @@ class PinMessageCell(context: Context, private val theme: ThemeColors) : FrameLa
         d?.colorFilter = PorterDuffColorFilter(textColor(), PorterDuff.Mode.SRC_IN)
     }
 
-    private fun cellBgColor(): Int = when (theme.resolvedMode) {
-        ThemeMode.LIGHT -> 0xFFFFFFFF.toInt()
-        ThemeMode.DARK -> 0xFF1C1D23.toInt()
-        ThemeMode.ABYSS -> 0xFF040421.toInt()
-        else -> 0xFF1C1D23.toInt()
-    }
+    private fun cellBgColor(): Int = theme.background
 
-    private fun textColor(): Int = when (theme.resolvedMode) {
-        ThemeMode.LIGHT -> 0xFF29292B.toInt()
-        ThemeMode.DARK -> 0xFFCCCCCC.toInt()
-        ThemeMode.ABYSS -> 0xFFD6D0EB.toInt()
-        else -> 0xFFCCCCCC.toInt()
-    }
+    private fun textColor(): Int = theme.onSurface
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         super.onMeasure(widthMeasureSpec, heightMeasureSpec)
@@ -185,12 +174,7 @@ private class PinHeaderView(context: Context, private val theme: ThemeColors) : 
             .build()
     }
 
-    private fun nameColor(): Int = when (theme.resolvedMode) {
-        ThemeMode.LIGHT -> 0xFF070709.toInt()
-        ThemeMode.DARK -> 0xFFDFE0E4.toInt()
-        ThemeMode.ABYSS -> 0xFFF1EDFF.toInt()
-        else -> 0xFFDFE0E4.toInt()
-    }
+    private fun nameColor(): Int = theme.textStrong
 
     private fun loadAvatar(url: String) {
         if (url == currentAvatarUrl && avatarDrawable.hasPhoto()) return

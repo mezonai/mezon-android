@@ -53,7 +53,7 @@ class ChannelFileDocumentRowView(
     private fun updateBackground() {
         background = GradientDrawable().apply {
             cornerRadius = LayoutHelper.dpf(8f)
-            setColor(theme.surfaceVariant)
+            setColor(theme.background)
         }
     }
 
@@ -70,7 +70,7 @@ class ChannelFileDocumentRowView(
         }
         iconView.setImageDrawable(icon)
         nameView.text = item.filename
-        nameView.setTextColor(theme.blurple)
+        nameView.setTextColor(com.mezon.mobile.core.theme.MobileThemeColors.accent)
         nameView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14f)
         nameView.maxLines = 1
         nameView.ellipsize = TextUtils.TruncateAt.END

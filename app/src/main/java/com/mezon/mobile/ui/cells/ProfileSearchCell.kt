@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.RectF
 import android.text.StaticLayout
+import android.text.TextPaint
 import android.text.TextUtils
 import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.BaseCell
@@ -28,6 +29,8 @@ class ProfileSearchCell(context: Context, private val theme: ThemeColors) : Base
     private var attachedToWindow = false
     private val tmpRect = RectF()
 
+    private val namePaint = TextPaint()
+    private val statusPaint = TextPaint()
     private var nameLayout: StaticLayout? = null
     private var statusLayout: StaticLayout? = null
 
@@ -61,6 +64,7 @@ class ProfileSearchCell(context: Context, private val theme: ThemeColors) : Base
     fun update(mask: Int, newMember: SearchMember? = null) {
         val m = newMember ?: member ?: return
         if (newMember != null) member = newMember
+        setBackgroundColor(theme.background)
         bindAvatar(m)
         buildLayouts()
         invalidate()
@@ -80,8 +84,12 @@ class ProfileSearchCell(context: Context, private val theme: ThemeColors) : Base
 
         if (textWidth <= 0) return
 
+        namePaint.set(theme.dialogNamePaint)
+        namePaint.color = theme.onSurface
+        statusPaint.set(theme.dialogMessagePaint)
+        statusPaint.color = theme.textDisabled
         val name = m.displayName.ifEmpty { m.username }
-        nameLayout = StaticLayout.Builder.obtain(name, 0, name.length, theme.dialogNamePaint, textWidth)
+        nameLayout = StaticLayout.Builder.obtain(name, 0, name.length, namePaint, textWidth)
             .setMaxLines(1)
             .setEllipsize(TextUtils.TruncateAt.END)
             .build()
@@ -92,7 +100,7 @@ class ProfileSearchCell(context: Context, private val theme: ThemeColors) : Base
             ""
         }
         if (status.isNotEmpty()) {
-            statusLayout = StaticLayout.Builder.obtain(status, 0, status.length, theme.dialogMessagePaint, textWidth)
+            statusLayout = StaticLayout.Builder.obtain(status, 0, status.length, statusPaint, textWidth)
                 .setMaxLines(1)
                 .setEllipsize(TextUtils.TruncateAt.END)
                 .build()

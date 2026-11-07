@@ -38,6 +38,7 @@ class ChannelSearchCell(context: Context, private val theme: ThemeColors) : Base
     private val clanLinePaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
     private val joinTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
     private var showJoin = false
+    private var showDivider = true
     private var joinClickListener: ((ChannelSearchDisplay) -> Unit)? = null
     var isJoinTouch = false
         private set
@@ -130,8 +131,9 @@ class ChannelSearchCell(context: Context, private val theme: ThemeColors) : Base
         super.invalidate()
     }
 
-    fun update(mask: Int, newDisplay: ChannelSearchDisplay? = null) {
+    fun update(mask: Int, newDisplay: ChannelSearchDisplay? = null, showDivider: Boolean = true) {
         val d = newDisplay ?: display ?: return
+        this.showDivider = showDivider
         if (newDisplay != null) {
             display = newDisplay
             val ch = d.channel
@@ -141,13 +143,14 @@ class ChannelSearchCell(context: Context, private val theme: ThemeColors) : Base
             joinButton.isPressed = false
             joinButton.visibility = if (showJoin && joinClickListener != null) VISIBLE else GONE
         }
+        setBackgroundColor(theme.background)
         joinTextPaint.textSize = theme.dialogNamePaint.textSize
         joinTextPaint.color = theme.primary
         (joinButton.background as RippleDrawable).setColor(
             ColorStateList.valueOf((theme.primary and 0x00FFFFFF) or 0x26000000)
         )
         clanLinePaint.textSize = theme.dialogNamePaint.textSize
-        clanLinePaint.color = theme.dialogNamePaint.color
+        clanLinePaint.color = theme.textDisabled
         requestLayout()
         invalidate()
     }
@@ -242,8 +245,10 @@ class ChannelSearchCell(context: Context, private val theme: ThemeColors) : Base
             }
         }
 
-        val dividerLeft = textLeft
-        canvas.drawLine(dividerLeft, (h - 1).toFloat(), w.toFloat(), (h - 1).toFloat(), theme.dividerPaint)
+        if (showDivider) {
+            val dividerY = (h - 1).toFloat()
+            canvas.drawLine(textLeft, dividerY, w.toFloat(), dividerY, theme.dividerPaint)
+        }
     }
 
     companion object {

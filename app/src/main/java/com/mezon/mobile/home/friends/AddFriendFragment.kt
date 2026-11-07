@@ -17,7 +17,6 @@ import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.RecyclerListView
-import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.chat.UserProfileBottomSheet
 import com.mezon.mobile.ui.cells.MezonIcon
@@ -26,6 +25,8 @@ class AddFriendFragment : BaseFragment() {
 
     private lateinit var friendController: FriendController
 
+    private lateinit var contentLayout: LinearLayout
+    private lateinit var addByUsernameRow: LinearLayout
     private lateinit var recyclerView: RecyclerListView
     private lateinit var emptyTitle: TextView
     private lateinit var emptyDescription: TextView
@@ -45,6 +46,7 @@ class AddFriendFragment : BaseFragment() {
         }
         observe(NotificationCenter.themeChanged) { _, _, _ ->
             if (fragmentView != null) {
+                applyBackgroundColors()
                 adapter.notifyDataSetChanged()
             }
         }
@@ -55,17 +57,18 @@ class AddFriendFragment : BaseFragment() {
     override fun createView(context: Context): View {
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(themeColors.background)
+            background = friendListBackground(themeColors)
             setPadding(LayoutHelper.dp(16), LayoutHelper.dp(12), LayoutHelper.dp(16), LayoutHelper.dp(12))
         }
 
-        val addByUsernameRow = LinearLayout(context).apply {
+        contentLayout = content
+        addByUsernameRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(LayoutHelper.dp(14), LayoutHelper.dp(12), LayoutHelper.dp(14), LayoutHelper.dp(12))
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(12f).toFloat()
-                setColor(themeColors.getColor(ThemeColors.key_sheetItemBackground))
+                setColor(themeColors.background)
             }
             isClickable = true
             isFocusable = true
@@ -149,7 +152,15 @@ class AddFriendFragment : BaseFragment() {
 
         recyclerView.setEmptyView(emptyContainer)
         reloadData()
-        return wrapWithActionBar(getString(R.string.friends_add_screen_title), content)
+        return wrapWithActionBar(getString(R.string.friends_add_screen_title), content).apply {
+            setBackgroundColor(themeColors.surface)
+        }
+    }
+
+    private fun applyBackgroundColors() {
+        contentLayout.background = friendListBackground(themeColors)
+        fragmentView?.setBackgroundColor(themeColors.surface)
+        (addByUsernameRow.background as? GradientDrawable)?.setColor(themeColors.background)
     }
 
     private fun reloadData() {

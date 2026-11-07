@@ -284,7 +284,7 @@ abstract class BaseFragment {
 
     open fun isLightStatusBar(): Boolean {
         if (hasForceLightStatusBar() && !::themeColors.isInitialized) return false
-        if (hasForceLightStatusBar() && themeColors.resolvedMode == com.mezon.mobile.ui.theme.ThemeMode.LIGHT) return true
+        if (hasForceLightStatusBar() && themeColors.resolvedMode.isLight) return true
         if (!::themeColors.isInitialized) return false
         val barColor = getStatusBarColor()
         return isColorLight(barColor)
@@ -532,9 +532,14 @@ abstract class BaseFragment {
 
     private var actionBarThemeDelegate: NotificationCenter.NotificationCenterDelegate? = null
 
-    protected fun wrapWithActionBar(title: String, content: View): View {
+    protected fun wrapWithActionBar(
+        title: String,
+        content: View,
+        barBackgroundColor: (() -> Int)? = null
+    ): View {
         val bar = ActionBarView(content.context, themeColors).apply {
             setTitle(title)
+            barBackgroundColor?.let { setBackgroundColor(it()) }
             setBackClickListener { finishFragment() }
         }
         actionBar = bar
@@ -543,6 +548,7 @@ abstract class BaseFragment {
         val delegate = object : NotificationCenter.NotificationCenterDelegate {
             override fun didReceivedNotification(id: Int, account: Int, vararg args: Any?) {
                 bar.applyTheme()
+                barBackgroundColor?.let { bar.setBackgroundColor(it()) }
             }
         }
         actionBarThemeDelegate = delegate

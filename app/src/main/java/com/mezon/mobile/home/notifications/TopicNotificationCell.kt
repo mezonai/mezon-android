@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.notifications
 
+import android.text.TextPaint
 import android.content.Context
 import android.graphics.Canvas
 import android.text.StaticLayout
@@ -161,7 +162,7 @@ class TopicNotificationCell(
         if (contentWidth <= 0) return
 
         val timeText = convertTimestampToTimeAgo(context, item.createTimeSeconds)
-        val timePaint = theme.dialogTimePaint
+        val timePaint = TextPaint(theme.dialogTimePaint).apply { color = theme.textDisabled }
         timeLayout = StaticLayout.Builder
             .obtain(timeText, 0, timeText.length, timePaint, contentWidth)
             .setMaxLines(1)
@@ -180,7 +181,7 @@ class TopicNotificationCell(
         val repliedPrefix = context.getString(R.string.notif_original_message)
         val repliedText = "$repliedPrefix ${localizedRootMessagePreview(item.rootMessagePreview)}"
         repliedToLayout = StaticLayout.Builder
-            .obtain(repliedText, 0, repliedText.length, theme.dialogMessagePaint, contentWidth)
+            .obtain(repliedText, 0, repliedText.length, TextPaint(theme.dialogMessagePaint).apply { color = theme.onSurface }, contentWidth)
             .setMaxLines(2)
             .setEllipsize(TextUtils.TruncateAt.END)
             .build()

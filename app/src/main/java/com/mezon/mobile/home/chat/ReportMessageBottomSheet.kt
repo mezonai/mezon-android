@@ -1,5 +1,7 @@
 package com.mezon.mobile.home.chat
 
+import com.mezon.mobile.core.theme.MobileThemeColors
+import com.mezon.mobile.core.theme.DesktopThemeToken
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.GradientDrawable
@@ -21,7 +23,6 @@ import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.ui.cells.MezonIcon
-import com.mezon.mobile.ui.theme.ThemeMode
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -39,34 +40,14 @@ class ReportMessageBottomSheet(
 
     private val theme: ThemeColors = ThemeColors.instance
 
-    private val rnRedStrong = 0xFFC61E1B.toInt()
+    override val sheetBackgroundColor: Int
+        get() = theme.desktop[DesktopThemeToken.THEME_SETTING_PRIMARY]
 
-    private val primaryColor: Int
-        get() = when (theme.resolvedMode) {
-            ThemeMode.LIGHT -> 0xFFF4F4F8.toInt()
-            ThemeMode.DARK -> 0xFF121218.toInt()
-            ThemeMode.ABYSS -> 0xFF110B33.toInt()
-            else -> 0xFF121218.toInt()
-        }
+    override val sheetHandleColor: Int
+        get() = theme.textDisabled
 
-    private val secondaryColor: Int
-        get() = when (theme.resolvedMode) {
-            ThemeMode.LIGHT -> 0xFFFFFFFF.toInt()
-            ThemeMode.DARK -> 0xFF1C1D23.toInt()
-            ThemeMode.ABYSS -> 0xFF19153C.toInt()
-            else -> 0xFF1C1D23.toInt()
-        }
-
-    private val textStrongColor: Int
-        get() = when (theme.resolvedMode) {
-            ThemeMode.LIGHT -> 0xFF070709.toInt()
-            ThemeMode.DARK -> 0xFFDFE0E4.toInt()
-            ThemeMode.ABYSS -> 0xFFDFE0E4.toInt()
-            else -> 0xFFDFE0E4.toInt()
-        }
-
-    private val titleOnPrimary: Int
-        get() = if (theme.resolvedMode == ThemeMode.LIGHT) textStrongColor else 0xFFFFFFFF.toInt()
+    private val secondaryColor: Int get() = theme.desktop[DesktopThemeToken.THEME_SETTING_NAV]
+    private val textStrongColor: Int get() = theme.textStrong
 
     private enum class AbuseType(val wire: String, val labelRes: Int) {
         SPAM("SPAM", R.string.report_message_spam),
@@ -98,13 +79,13 @@ class ReportMessageBottomSheet(
         val scroll = ScrollView(context).apply {
             isVerticalScrollBarEnabled = false
             overScrollMode = View.OVER_SCROLL_NEVER
-            setBackgroundColor(primaryColor)
+            setBackgroundColor(sheetBackgroundColor)
         }
 
         val outer = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(LayoutHelper.dp(18), LayoutHelper.dp(18), LayoutHelper.dp(18), LayoutHelper.dp(30))
-            setBackgroundColor(primaryColor)
+            setBackgroundColor(sheetBackgroundColor)
         }
 
         val step1 = buildStep1()
@@ -197,8 +178,8 @@ class ReportMessageBottomSheet(
 
             val cancel = fullWidthButton(
                 text = context.getString(R.string.report_message_cancel),
-                backgroundColor = theme.blurple,
-                textColor = 0xFFFFFFFF.toInt()
+                backgroundColor = theme.background,
+                textColor = theme.textStrong
             ) {
                 if (!isSubmitting) dismiss()
             }
@@ -267,7 +248,7 @@ class ReportMessageBottomSheet(
             )
 
             addView(
-                labelMedium(context.getString(R.string.report_message_category_label)),
+                categoryLabel(context.getString(R.string.report_message_category_label)),
                 LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
@@ -290,7 +271,7 @@ class ReportMessageBottomSheet(
 
             val submit = fullWidthButton(
                 text = context.getString(R.string.report_message_submit),
-                backgroundColor = rnRedStrong,
+                backgroundColor = MobileThemeColors.accent,
                 textColor = 0xFFFFFFFF.toInt()
             ) {
                 handleSubmit()
@@ -323,10 +304,14 @@ class ReportMessageBottomSheet(
         return LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
+            background = GradientDrawable().apply {
+                setColor(secondaryColor)
+                cornerRadius = LayoutHelper.dpf(8f)
+            }
             val dot = View(context).apply {
                 val bg = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL
-                    setColor(theme.getColor(ThemeColors.key_avatar_backgroundViolet))
+                    setColor(MobileThemeColors.accent)
                 }
                 background = bg
             }
@@ -338,7 +323,7 @@ class ReportMessageBottomSheet(
             )
             val label = TextView(context).apply {
                 setTextSize(TypedValue.COMPLEX_UNIT_DIP, 15f)
-                setTextColor(titleOnPrimary)
+                setTextColor(textStrongColor)
             }
             categoryTitleText = label
             addView(
@@ -357,14 +342,14 @@ class ReportMessageBottomSheet(
         this.text = text
         setTextSize(TypedValue.COMPLEX_UNIT_DIP, 18f)
         setTypeface(null, android.graphics.Typeface.BOLD)
-        setTextColor(titleOnPrimary)
+        setTextColor(textStrongColor)
         gravity = Gravity.CENTER_HORIZONTAL
     }
 
     private fun subtitleView(text: String) = TextView(context).apply {
         this.text = text
         setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14f)
-        setTextColor(textStrongColor)
+        setTextColor(theme.textDisabled)
         gravity = Gravity.CENTER_HORIZONTAL
         setPadding(LayoutHelper.dp(14), 0, LayoutHelper.dp(14), 0)
     }
@@ -376,11 +361,11 @@ class ReportMessageBottomSheet(
         setTextColor(textStrongColor)
     }
 
-    private fun labelMedium(text: String) = TextView(context).apply {
+    private fun categoryLabel(text: String) = TextView(context).apply {
         this.text = text
         setTextSize(TypedValue.COMPLEX_UNIT_DIP, 15f)
         setTypeface(null, android.graphics.Typeface.BOLD)
-        setTextColor(textStrongColor)
+        setTextColor(theme.textDisabled)
     }
 
     private fun buildOptionRow(type: AbuseType): View {
@@ -399,8 +384,8 @@ class ReportMessageBottomSheet(
                 crossfadeToStep2()
             }
         }
-        val rowText = if (theme.resolvedMode == ThemeMode.LIGHT) textStrongColor else 0xFFFFFFFF.toInt()
-        val chevTint = if (theme.resolvedMode == ThemeMode.LIGHT) 0xFF29292B.toInt() else 0xFFCCCCCC.toInt()
+        val rowText = textStrongColor
+        val chevTint = theme.textDisabled
         val title = TextView(context).apply {
             text = context.getString(type.labelRes)
             setTextSize(TypedValue.COMPLEX_UNIT_DIP, 13f)

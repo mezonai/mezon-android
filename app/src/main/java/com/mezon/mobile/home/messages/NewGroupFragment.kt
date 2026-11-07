@@ -28,6 +28,7 @@ import com.mezon.mobile.R
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
+import com.mezon.mobile.core.theme.MobileThemeColors
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.di.FragmentEntryPoint
@@ -40,7 +41,6 @@ import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.search.LOCAL_PAGE_SIZE
 import com.mezon.mobile.search.SearchController
 import com.mezon.mobile.ui.cells.MezonIcon
-import com.mezon.mobile.ui.theme.ThemeMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -122,7 +122,7 @@ class NewGroupFragment : BaseFragment() {
         }
         observe(NotificationCenter.themeChanged) { _, _, _ ->
             if (isPaused || fragmentView == null) return@observe
-            fragmentView?.setBackgroundColor(themeColors.serverRailBg)
+            fragmentView?.setBackgroundColor(themeColors.surface)
             if (::adapter.isInitialized) adapter.notifyDataSetChanged()
         }
 
@@ -135,7 +135,7 @@ class NewGroupFragment : BaseFragment() {
         rootFrame = FrameLayout(context)
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(themeColors.serverRailBg)
+            setBackgroundColor(themeColors.surface)
         }
         rootFrame.addView(root, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
         root.addView(buildHeader(context), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
@@ -181,7 +181,7 @@ class NewGroupFragment : BaseFragment() {
 
         emptyView = TextView(context).apply {
             text = getString(R.string.dm_no_friends)
-            setTextColor(themeColors.onSurfaceVariant)
+            setTextColor(themeColors.textDisabled)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
             gravity = Gravity.CENTER
             visibility = View.GONE
@@ -210,7 +210,7 @@ class NewGroupFragment : BaseFragment() {
         val container = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(0, AndroidUtilities.statusBarHeight, 0, 0)
-            setBackgroundColor(themeColors.serverRailBg)
+            setBackgroundColor(themeColors.surface)
         }
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -231,7 +231,7 @@ class NewGroupFragment : BaseFragment() {
         }
         val backIcon = ImageView(context).apply {
             val d = MezonIcon.arrowLargeLeftIcon.getDrawable(context)
-            d.colorFilter = PorterDuffColorFilter(themeColors.colorText, PorterDuff.Mode.SRC_IN)
+            d.colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
             setImageDrawable(d)
         }
         back.addView(backIcon, LayoutHelper.createFrame(20, 20, Gravity.CENTER_VERTICAL or Gravity.START))
@@ -243,7 +243,7 @@ class NewGroupFragment : BaseFragment() {
         }
         val title = TextView(context).apply {
             text = if (mode == MODE_ADD_MEMBERS) getString(R.string.dm_add_members) else getString(R.string.dm_new_group)
-            setTextColor(themeColors.colorText)
+            setTextColor(themeColors.onSurface)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
             setTypeface(Typeface.DEFAULT, Typeface.BOLD)
             includeFontPadding = false
@@ -252,7 +252,7 @@ class NewGroupFragment : BaseFragment() {
         }
         titleColumn.addView(title, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT))
         subtitleText = TextView(context).apply {
-            setTextColor(rnTextDisabled())
+            setTextColor(themeColors.textDisabled)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
             setTypeface(Typeface.DEFAULT, Typeface.BOLD)
             includeFontPadding = false
@@ -264,7 +264,7 @@ class NewGroupFragment : BaseFragment() {
         val actionWrap = FrameLayout(context)
         actionText = TextView(context).apply {
             text = if (mode == MODE_ADD_MEMBERS) getString(R.string.dm_add) else getString(R.string.dm_create)
-            setTextColor(themeColors.blurple)
+            setTextColor(MobileThemeColors.newConversation)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             gravity = Gravity.CENTER or Gravity.END
             includeFontPadding = false
@@ -281,20 +281,20 @@ class NewGroupFragment : BaseFragment() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(LayoutHelper.dp(12), 0, LayoutHelper.dp(12), 0)
-            background = roundedBg(themeColors.secondaryInputBackground, 40f)
+            background = roundedBg(themeColors.background, 40f)
         }
         val searchIconSlot = FrameLayout(context)
         val searchIcon = ImageView(context).apply {
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             setImageResource(R.drawable.ic_magnifying)
-            colorFilter = PorterDuffColorFilter(themeColors.colorText, PorterDuff.Mode.SRC_IN)
+            colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
         }
         searchIconSlot.addView(searchIcon, LayoutHelper.createFrame(18, 18, Gravity.CENTER))
         row.addView(searchIconSlot, LayoutHelper.createLinear(18, LayoutHelper.MATCH_PARENT, rightMargin = 5f))
 
         val input = EditText(context).apply {
             hint = getString(R.string.common_search_placeholder)
-            setHintTextColor(rnTextDisabled())
+            setHintTextColor(themeColors.textDisabled)
             setTextColor(themeColors.textStrong)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             background = null
@@ -492,12 +492,6 @@ class NewGroupFragment : BaseFragment() {
 
     private fun normalize(value: String): String =
         SearchController.removeDiacritics(value.trim().lowercase(Locale.getDefault()))
-
-    private fun rnTextDisabled(): Int = when (themeColors.resolvedMode) {
-        ThemeMode.LIGHT -> 0xFF606065.toInt()
-        ThemeMode.ABYSS -> 0xFFBDB4DC.toInt()
-        else -> 0xFF7B7B83.toInt()
-    }
 
     private fun roundedBg(color: Int, radiusDp: Float): GradientDrawable =
         GradientDrawable().apply {

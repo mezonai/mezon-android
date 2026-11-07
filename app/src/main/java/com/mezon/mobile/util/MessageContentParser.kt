@@ -18,6 +18,7 @@ import android.text.style.UnderlineSpan
 import android.view.View
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.core.theme.DesktopThemeToken
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.chat.CodeFenceSpan
 import com.mezon.mobile.home.chat.EmojiSpan
@@ -287,7 +288,7 @@ fun formatEmbedRichText(raw: String, theme: ThemeColors): CharSequence {
     if (raw.isEmpty()) return ""
     val sb = SpannableStringBuilder()
     appendRichMarkdownWithFences(sb, raw, theme)
-    applyAutoDetectedHttpLinks(sb, theme.blurple)
+    applyAutoDetectedHttpLinks(sb, theme.desktop[DesktopThemeToken.MENTION_COLOR])
     trimTrailingNewlines(sb)
     return sb
 }

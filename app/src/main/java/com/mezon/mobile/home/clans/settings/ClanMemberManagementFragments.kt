@@ -19,6 +19,7 @@ import com.mezon.mobile.R
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
+import com.mezon.mobile.core.theme.DesktopThemeToken
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.home.UserClanController
@@ -81,9 +82,13 @@ class ClanMemberManageFragment : BaseFragment() {
     }
 
     override fun createView(context: Context): View {
-        val root = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
-        ClanRolesUiTheme.applyPrimaryFlowRoot(root, themeColors)
-        actionBar = simpleActionBar(context, getString(R.string.clan_member_edit_title))
+        val root = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(themeColors.surface)
+        }
+        actionBar = simpleActionBar(context, getString(R.string.clan_member_edit_title)).apply {
+            setBackgroundColor(themeColors.surface)
+        }
         root.addView(actionBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
         val scroll = ClanSettingsUiHelpers.newMezonScrollRoot(context)
@@ -140,7 +145,7 @@ class ClanMemberManageFragment : BaseFragment() {
         }, LayoutHelper.createLinear(40, 40, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, 12f, 0f))
         val labels = LinearLayout(requireContext()).apply { orientation = LinearLayout.VERTICAL }
         labels.addView(managementLabel(displayName, 15f, themeColors.textStrong, true))
-        labels.addView(managementLabel(member.username, 13f, themeColors.colorText, false))
+        labels.addView(managementLabel(member.username, 13f, themeColors.textDisabled, false))
         row.addView(labels, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.CENTER_VERTICAL))
         return row
     }
@@ -169,7 +174,9 @@ class ClanMemberManageFragment : BaseFragment() {
             allRoles.filter { it.roleId in member.roleIds }.forEach { role ->
                 rows.add(ClanSettingsUiHelpers.buildMezonTextMenuRow(
                     requireContext(), themeColors, role.title, Runnable {}
-                ).apply { isClickable = false })
+                ).apply {
+                    isClickable = false
+                })
             }
         }
         rows.add(ClanSettingsUiHelpers.buildMezonTextMenuRow(
@@ -180,12 +187,14 @@ class ClanMemberManageFragment : BaseFragment() {
                     editRoles = !editRoles
                     rebuildContent()
                 }
-            }
-        ).apply {
-            setBackgroundColor(themeColors.channelPanelBg)
-        })
+            },
+            textColor = themeColors.desktop[DesktopThemeToken.BG_BUTTON_PRIMARY],
+        ))
         return ClanSettingsUiHelpers.buildMezonSection(
-            requireContext(), themeColors, getString(R.string.clan_member_roles), rows
+            requireContext(), themeColors, getString(R.string.clan_member_roles), rows,
+            cardColor = memberCardColor,
+            separatorColor = themeColors.border,
+            titleColor = themeColors.textStrong,
         )
     }
 
@@ -249,27 +258,29 @@ class ClanMemberManageFragment : BaseFragment() {
                 requireContext(), themeColors, MezonIcon.transferOwnershipIcon,
                 getString(R.string.clan_member_transfer_ownership), destructiveRed, destructiveRed,
                 Runnable { presentFragment(ClanTransferOwnershipFragment.newInstance(clanId, member.userId)) }
-            ).apply {
-                setBackgroundColor(themeColors.channelPanelBg)
-            })
+            ))
         }
         if (!isSelf && member.userId != clanOwnerId && (permission.isClanOwner || permission.hasAdminPermission)) {
             rows.add(ClanSettingsUiHelpers.buildMezonMenuRow(
                 requireContext(), themeColors, MezonIcon.removeFriend,
                 getString(R.string.clan_member_kick), destructiveRed, destructiveRed,
                 Runnable { presentFragment(ClanKickMemberFragment.newInstance(clanId, member.userId)) }
-            ).apply {
-                setBackgroundColor(themeColors.channelPanelBg)
-            })
+            ))
         }
         if (rows.isEmpty()) return null
         return ClanSettingsUiHelpers.buildMezonSection(
-            requireContext(), themeColors, getString(R.string.clan_member_actions), rows
+            requireContext(), themeColors, getString(R.string.clan_member_actions), rows,
+            cardColor = memberCardColor,
+            separatorColor = themeColors.border,
+            titleColor = themeColors.textStrong,
         )
     }
 
+    private val memberCardColor: Int
+        get() = if (themeColors.resolvedMode.isLight) themeColors.background else themeColors.tertiary
+
     private fun cardBackground() = GradientDrawable().apply {
-        setColor(themeColors.channelPanelBg)
+        setColor(memberCardColor)
         cornerRadius = LayoutHelper.dpf(10f)
     }
 

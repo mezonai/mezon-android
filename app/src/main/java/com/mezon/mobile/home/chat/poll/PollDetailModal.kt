@@ -21,7 +21,6 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
-import androidx.core.graphics.ColorUtils
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mobile.R
@@ -136,7 +135,7 @@ class PollDetailModal(
         val close = ImageView(context).apply {
             setImageResource(R.drawable.ic_close_icon)
             colorFilter =
-                PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
+                PorterDuffColorFilter(themeColors.textStrong, PorterDuff.Mode.SRC_IN)
             scaleType = ImageView.ScaleType.FIT_CENTER
             setPadding(LayoutHelper.dp(10), LayoutHelper.dp(10), LayoutHelper.dp(10), LayoutHelper.dp(10))
             contentDescription = context.getString(R.string.common_close)
@@ -156,7 +155,7 @@ class PollDetailModal(
 
         subtitleView = TextView(context).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-            setTextColor(themeColors.onSurfaceVariant)
+            setTextColor(themeColors.textStrong)
         }
         root.addView(
             subtitleView,
@@ -243,7 +242,7 @@ class PollDetailModal(
             attributes = attributes.apply {
                 width = maxDialogW
                 height = WindowManager.LayoutParams.WRAP_CONTENT
-                dimAmount = 0.52f
+                dimAmount = 0.6f
             }
             setLayout(maxDialogW, WindowManager.LayoutParams.WRAP_CONTENT)
         }
@@ -297,10 +296,7 @@ class PollDetailModal(
     private fun optionRowBackground(selected: Boolean): GradientDrawable {
         return GradientDrawable().apply {
             cornerRadius = LayoutHelper.dpf(10f)
-            setColor(
-                if (selected) ColorUtils.blendARGB(themeColors.surface, themeColors.primary, 0.2f)
-                else Color.TRANSPARENT
-            )
+            setColor(if (selected) SELECTED_OPTION_BACKGROUND else Color.TRANSPARENT)
         }
     }
 
@@ -324,7 +320,7 @@ class PollDetailModal(
             }
             val count = TextView(context).apply {
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-                setTextColor(themeColors.tabLabelInactive)
+                setTextColor(themeColors.textDisabled)
                 setSingleLine(true)
                 text = loaded.countFor(ans.index).toString()
             }
@@ -406,7 +402,7 @@ class PollDetailModal(
             }
             val sub = TextView(parent.context).apply {
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-                setTextColor(theme.tabLabelInactive)
+                setTextColor(theme.textDisabled)
                 setSingleLine(true)
                 ellipsize = TextUtils.TruncateAt.END
             }
@@ -455,5 +451,6 @@ class PollDetailModal(
 
     companion object {
         private const val TAG = "PollDetailModal"
+        private const val SELECTED_OPTION_BACKGROUND = 0x335865F2
     }
 }

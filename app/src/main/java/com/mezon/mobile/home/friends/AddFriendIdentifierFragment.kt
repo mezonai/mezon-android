@@ -16,6 +16,7 @@ import android.widget.Toast
 import com.mezon.mobile.R
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
+import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.di.FragmentEntryPoint
 
 class AddFriendIdentifierFragment : BaseFragment() {
@@ -28,13 +29,15 @@ class AddFriendIdentifierFragment : BaseFragment() {
 
     override fun onFragmentCreate(): Boolean {
         super.onFragmentCreate()
+        observe(NotificationCenter.themeChanged) { _, _, _ ->
+            fragmentView?.background = friendListBackground(themeColors)
+        }
         return true
     }
 
     override fun createView(context: Context): View {
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(themeColors.background)
             setPadding(LayoutHelper.dp(16), LayoutHelper.dp(16), LayoutHelper.dp(16), LayoutHelper.dp(16))
         }
 
@@ -146,6 +149,8 @@ class AddFriendIdentifierFragment : BaseFragment() {
             }
         }
 
-        return wrapWithActionBar(getString(R.string.friends_add_by_username), content)
+        return wrapWithActionBar(getString(R.string.friends_add_by_username), content).apply {
+            background = friendListBackground(themeColors)
+        }
     }
 }

@@ -18,7 +18,6 @@ import android.text.TextUtils
 import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
-import com.mezon.mobile.ui.theme.ThemeMode
 import com.mezon.mobile.util.LocationMessageData
 import com.mezon.mobile.util.MAP_TILE_PX
 import com.mezon.mobile.util.MapTile
@@ -88,9 +87,9 @@ class LocationCardLayout(private val context: Context) {
         cardRect.set(0f, 0f, cardWidth.toFloat(), blockHeight.toFloat())
         mapRect.set(0f, 0f, cardWidth.toFloat(), MAP_HEIGHT.toFloat())
 
-        val dark = theme.resolvedMode != ThemeMode.LIGHT
+        val dark = !theme.resolvedMode.isLight
         cardBgPaint.color = theme.secondaryLight
-        mapPlaceholderPaint.color = theme.border
+        mapPlaceholderPaint.color = theme.background
         gridPaint.color = if (dark) 0x14FFFFFF else 0x14000000
         CARD_BORDER_PAINT.color = theme.border
         haloFillPaint.color = (theme.blurple and 0x00FFFFFF) or 0x26000000

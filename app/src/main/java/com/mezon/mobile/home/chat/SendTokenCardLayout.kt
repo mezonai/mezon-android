@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.chat
 
+import com.mezon.mobile.core.theme.DesktopThemeToken
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -40,16 +41,18 @@ class SendTokenCardLayout(private val context: Context) {
     private val cardRect = RectF()
     private val buttonRect = RectF()
 
+    private val transactionColor = 0xFF16A34A.toInt()
+    private val actionColor = 0xFF3B82F6.toInt()
     private val cardBgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val dividerPaint = Paint()
+    private val footerPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val titlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
     private val detailPaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
     private val buttonPaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
 
     fun prepare(content: String, theme: ThemeColors, maxWidth: Int) {
         cardWidth = (maxWidth - TRAILING_INSET).coerceAtLeast(MIN_WIDTH).coerceAtMost(maxWidth.coerceAtLeast(1))
-        cardBgPaint.color = theme.secondaryLight
-        dividerPaint.color = theme.getColor(ThemeColors.key_divider)
+        cardBgPaint.color = theme.desktop[DesktopThemeToken.THEME_SETTING_PRIMARY]
+        footerPaint.color = theme.desktop[DesktopThemeToken.THEME_SETTING_NAV]
 
         val rawText = try {
             JSONObject(content).optString("t", content)
@@ -63,7 +66,7 @@ class SendTokenCardLayout(private val context: Context) {
         val textW = (cardWidth - PAD_H * 2 - ICON_SLOT - ICON_GAP).coerceAtLeast(1)
         titlePaint.typeface = Typeface.DEFAULT_BOLD
         titlePaint.textSize = LayoutHelper.sp(14f)
-        titlePaint.color = theme.onSurface
+        titlePaint.color = theme.textThemePrimary
         titleLayout = StaticLayout.Builder.obtain(title, 0, title.length, titlePaint, textW)
             .setMaxLines(2)
             .setEllipsize(TextUtils.TruncateAt.END)
@@ -71,12 +74,12 @@ class SendTokenCardLayout(private val context: Context) {
 
         detailPaint.typeface = Typeface.DEFAULT
         detailPaint.textSize = LayoutHelper.sp(12f)
-        detailPaint.color = theme.onSurface
+        detailPaint.color = theme.textThemePrimary
         detailLayout = if (description.isNotEmpty()) {
             val ssb = SpannableStringBuilder()
             val detailLabel = "${context.getString(R.string.common_detail)}: "
             ssb.append(detailLabel)
-            ssb.setSpan(ForegroundColorSpan(theme.blurple), 0, detailLabel.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            ssb.setSpan(ForegroundColorSpan(actionColor), 0, detailLabel.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             ssb.setSpan(StyleSpan(Typeface.BOLD), 0, detailLabel.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             ssb.append(description)
             StaticLayout.Builder.obtain(ssb, 0, ssb.length, detailPaint, textW)
@@ -89,7 +92,7 @@ class SendTokenCardLayout(private val context: Context) {
 
         buttonPaint.typeface = Typeface.DEFAULT_BOLD
         buttonPaint.textSize = LayoutHelper.sp(14f)
-        buttonPaint.color = theme.blurple
+        buttonPaint.color = actionColor
         val buttonText = context.getString(R.string.token_transaction_transfer_button)
         val buttonW = (cardWidth - PAD_H * 2).coerceAtLeast(1)
         buttonLayout = StaticLayout.Builder.obtain(buttonText, 0, buttonText.length, buttonPaint, buttonW)
@@ -97,8 +100,8 @@ class SendTokenCardLayout(private val context: Context) {
             .setMaxLines(1)
             .build()
 
-        if (iconDrawable == null || iconTint != theme.colorSuccess) {
-            iconTint = theme.colorSuccess
+        if (iconDrawable == null || iconTint != transactionColor) {
+            iconTint = transactionColor
             iconDrawable = MezonIcon.transactionIcon.getDrawable(context).mutate().apply {
                 colorFilter = PorterDuffColorFilter(iconTint, PorterDuff.Mode.SRC_IN)
                 setBounds(0, 0, ICON_SIZE, ICON_SIZE)
@@ -145,7 +148,10 @@ class SendTokenCardLayout(private val context: Context) {
         }
 
         val dividerY = buttonRect.top
-        canvas.drawRect(PAD_H.toFloat(), dividerY, cardWidth - PAD_H.toFloat(), dividerY + DIVIDER_HEIGHT, dividerPaint)
+        canvas.save()
+        canvas.clipRect(buttonRect)
+        canvas.drawRoundRect(cardRect, CARD_RADIUS, CARD_RADIUS, footerPaint)
+        canvas.restore()
 
         buttonLayout?.let {
             canvas.save()

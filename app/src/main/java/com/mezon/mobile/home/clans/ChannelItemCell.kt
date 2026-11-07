@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.clans
 
+import com.mezon.mobile.core.theme.DesktopThemeToken
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -75,7 +76,7 @@ class ChannelItemCell(
     private var currentIconAgeRestricted: Boolean = false
     private var cachedIconColorFilter: PorterDuffColorFilter? = null
     private var cachedIconColor: Int = 0
-    private val voiceActiveColorFilter = PorterDuffColorFilter(themeColors.voiceActiveGreen, PorterDuff.Mode.SRC_IN)
+    private val voiceActiveColorFilter = PorterDuffColorFilter(0xFF16A34A.toInt(), PorterDuff.Mode.SRC_IN)
     private val badgeRectF = RectF()
     private var streamViewerCount: Int? = null
     private var streamViewerCountText = ""
@@ -167,16 +168,16 @@ class ChannelItemCell(
         val showMentionBadge = ch.unreadCount > 0 && !ch.isVoiceLike
 
         val textColor = when {
-            isActive -> themeColors.onSurface
-            isMutedVisual -> withAlpha(themeColors.onSurfaceVariant, MUTED_CONTENT_ALPHA)
-            showUnreadHighlight -> themeColors.onSurface
-            else -> themeColors.onSurfaceVariant
+            isActive -> themeColors.desktop[DesktopThemeToken.TEXT_SECONDARY]
+            isMutedVisual -> withAlpha(themeColors.textThemePrimary, MUTED_CONTENT_ALPHA)
+            showUnreadHighlight -> themeColors.desktop[DesktopThemeToken.TEXT_SECONDARY]
+            else -> themeColors.textThemePrimary
         }
         namePaint.color = textColor
         namePaint.typeface = if (showUnreadHighlight) android.graphics.Typeface.DEFAULT_BOLD else android.graphics.Typeface.DEFAULT
 
         if (isActive) {
-            activeBgPaint.color = themeColors.primaryContainer
+            activeBgPaint.color = themeColors.desktop[DesktopThemeToken.BG_ACTIVE_MEMBER_CHANNEL]
             activeBgRectF.set(
                 paddingHPx / 2f, (height - cellHeightPx) / 2f + ACTIVE_INSET,
                 width - paddingHPx / 2f, (height + cellHeightPx) / 2f - ACTIVE_INSET
@@ -187,7 +188,7 @@ class ChannelItemCell(
         val cy = height / 2f
 
         if (showUnreadHighlight && !ch.isThread) {
-            unreadDotPaint.color = themeColors.onSurface
+            unreadDotPaint.color = themeColors.desktop[DesktopThemeToken.TEXT_SECONDARY]
             canvas.drawCircle(0f, cy, unreadDotRadius, unreadDotPaint)
         }
 
@@ -199,9 +200,17 @@ class ChannelItemCell(
         } else if (isVoiceType && voiceActive) {
             voiceActiveColorFilter
         } else {
-            if (cachedIconColorFilter == null || cachedIconColor != textColor) {
-                cachedIconColor = textColor
-                cachedIconColorFilter = PorterDuffColorFilter(textColor, PorterDuff.Mode.SRC_IN)
+            val token = if (isActive || showUnreadHighlight) {
+                DesktopThemeToken.BG_ICON_THEME_ACTIVE
+            } else {
+                DesktopThemeToken.BG_ICON_THEME
+            }
+            val iconColor = themeColors.desktop[token].let {
+                if (isMutedVisual) withAlpha(it, MUTED_CONTENT_ALPHA) else it
+            }
+            if (cachedIconColorFilter == null || cachedIconColor != iconColor) {
+                cachedIconColor = iconColor
+                cachedIconColorFilter = PorterDuffColorFilter(iconColor, PorterDuff.Mode.SRC_IN)
             }
             cachedIconColorFilter
         }

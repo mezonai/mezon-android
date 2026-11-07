@@ -157,7 +157,7 @@ class WebhookEditFragment : BaseFragment() {
     override fun createView(context: Context): View {
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(themeColors.background)
+            setBackgroundColor(themeColors.surface)
         }
 
         actionBar = ActionBarView(context, themeColors).apply {
@@ -279,7 +279,7 @@ class WebhookEditFragment : BaseFragment() {
             filters = arrayOf(InputFilter.LengthFilter(WebhookUtil.WEBHOOK_NAME_MAX))
             background = GradientDrawable().apply {
                 cornerRadius = CreateClanRnUiTokens.clanSettingsMenuCornerPx()
-                setColor(themeColors.surfaceVariant)
+                setColor(themeColors.background)
             }
             setPadding(LayoutHelper.dp(12f), LayoutHelper.dp(10f), LayoutHelper.dp(12f), LayoutHelper.dp(10f))
             addTextChangedListener(object : TextWatcher {
@@ -366,7 +366,7 @@ class WebhookEditFragment : BaseFragment() {
             setPadding(LayoutHelper.dp(12f), LayoutHelper.dp(10f), LayoutHelper.dp(12f), LayoutHelper.dp(10f))
             background = GradientDrawable().apply {
                 cornerRadius = CreateClanRnUiTokens.clanSettingsMenuCornerPx()
-                setColor(themeColors.surfaceVariant)
+                setColor(themeColors.background)
             }
         }
 

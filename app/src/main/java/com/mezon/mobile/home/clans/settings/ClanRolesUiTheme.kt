@@ -3,11 +3,10 @@ package com.mezon.mobile.home.clans.settings
 import android.widget.LinearLayout
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.ui.cells.ActionBarView
-import com.mezon.mobile.ui.theme.ThemeMode
 
 object ClanRolesUiTheme {
 
-    fun rnScreenBackground(theme: ThemeColors): Int = theme.serverRailBg
+    fun rnScreenBackground(theme: ThemeColors): Int = theme.background
 
     fun applyPrimaryFlowRoot(root: LinearLayout, theme: ThemeColors) {
         root.setBackgroundColor(rnScreenBackground(theme))
@@ -22,8 +21,5 @@ object ClanRolesUiTheme {
 
     fun textOnScreenMuted(theme: ThemeColors): Int = theme.colorText
 
-    fun secondaryCardTitleColor(theme: ThemeColors): Int = when (theme.resolvedMode) {
-        ThemeMode.LIGHT -> theme.textStrong
-        else -> 0xFFFFFFFF.toInt()
-    }
+    fun secondaryCardTitleColor(theme: ThemeColors): Int = theme.textStrong
 }

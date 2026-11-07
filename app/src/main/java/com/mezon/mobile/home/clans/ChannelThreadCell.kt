@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.clans
 
+import com.mezon.mobile.core.theme.DesktopThemeToken
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -126,7 +127,7 @@ class ChannelThreadCell(
         val th = thread ?: return
         val cy = height / 2f
 
-        connectorPaint.color = 0xFF535353.toInt()
+        connectorPaint.color = themeColors.textDisabled
         connectorPaint.strokeWidth = connectorStrokePx
 
         val verticalBottom = if (isLast) cy - cornerRadius else height.toFloat()
@@ -141,7 +142,7 @@ class ChannelThreadCell(
         canvas.drawLine(connectorLineX + cornerRadius, cy, branchEndX, cy, connectorPaint)
 
         if (isActive) {
-            activeBgPaint.color = themeColors.primaryContainer
+            activeBgPaint.color = themeColors.desktop[DesktopThemeToken.BG_ACTIVE_MEMBER_CHANNEL]
             activeBgRectF.set(
                 textStartX - ACTIVE_PAD_H, ACTIVE_PAD_V,
                 width - ACTIVE_PAD_RIGHT, height - ACTIVE_PAD_V
@@ -153,10 +154,10 @@ class ChannelThreadCell(
         val showUnreadHighlight = th.hasUnread && !isMutedVisual
         val showMentionBadge = th.unreadCount > 0
         val textColor = when {
-            isActive -> themeColors.onSurface
-            isMutedVisual -> withAlpha(themeColors.onSurfaceVariant, MUTED_CONTENT_ALPHA)
-            showUnreadHighlight -> themeColors.onSurface
-            else -> themeColors.onSurfaceVariant
+            isActive -> themeColors.desktop[DesktopThemeToken.TEXT_SECONDARY]
+            isMutedVisual -> withAlpha(themeColors.textThemePrimary, MUTED_CONTENT_ALPHA)
+            showUnreadHighlight -> themeColors.desktop[DesktopThemeToken.TEXT_SECONDARY]
+            else -> themeColors.textThemePrimary
         }
         namePaint.color = textColor
         namePaint.typeface = if (showUnreadHighlight) Typeface.DEFAULT_BOLD else Typeface.DEFAULT

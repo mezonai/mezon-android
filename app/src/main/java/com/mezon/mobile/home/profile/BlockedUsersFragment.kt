@@ -52,8 +52,8 @@ class BlockedUsersFragment : BaseFragment() {
         }
         observe(NotificationCenter.themeChanged) { _, _, _ ->
             if (fragmentView == null) return@observe
-            fragmentView?.setBackgroundColor(themeColors.background)
-            emptyView.setTextColor(themeColors.onSurfaceVariant)
+            fragmentView?.setBackgroundColor(themeColors.surface)
+            emptyView.setTextColor(themeColors.textDisabled)
             listAdapter.notifyDataSetChanged()
         }
 
@@ -63,7 +63,7 @@ class BlockedUsersFragment : BaseFragment() {
 
     override fun createView(context: Context): View {
         val contentFrame = FrameLayout(context).apply {
-            setBackgroundColor(themeColors.background)
+            setBackgroundColor(themeColors.surface)
         }
 
         listAdapter = BlockedAdapter()
@@ -82,7 +82,7 @@ class BlockedUsersFragment : BaseFragment() {
         emptyView = TextView(context).apply {
             text = getString(R.string.blocked_users_empty)
             textSize = 15f
-            setTextColor(themeColors.onSurfaceVariant)
+            setTextColor(themeColors.textDisabled)
             gravity = Gravity.CENTER
             visibility = View.GONE
         }

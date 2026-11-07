@@ -17,7 +17,11 @@ import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 
-class SearchCell(context: Context, private val theme: ThemeColors) : LinearLayout(context) {
+class SearchCell(
+    context: Context,
+    private val theme: ThemeColors,
+    cornerRadiusDp: Float = 50f,
+) : LinearLayout(context) {
 
     lateinit var editText: EditText
         private set
@@ -45,7 +49,7 @@ class SearchCell(context: Context, private val theme: ThemeColors) : LinearLayou
             minimumHeight = LayoutHelper.dp(40)
             background = GradientDrawable().apply {
                 setColor(theme.surfaceVariant)
-                cornerRadius = LayoutHelper.dpf(50f)
+                cornerRadius = LayoutHelper.dpf(cornerRadiusDp)
             }
             val padH = LayoutHelper.dp(15)
             setPadding(padH, 0, padH, 0)
@@ -152,6 +156,25 @@ class SearchCell(context: Context, private val theme: ThemeColors) : LinearLayou
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         badgeView.maxWidth = (w * BADGE_MAX_WIDTH_RATIO).toInt()
+    }
+
+    fun applyTheme(promptColor: Int = theme.onSurfaceVariant, accentColor: Int = theme.blurple) {
+        (barContainer.background as GradientDrawable).setColor(theme.surfaceVariant)
+        editText.setTextColor(theme.onSurface)
+        setPromptColor(promptColor)
+        (badgeView.background as GradientDrawable).setColor(accentColor)
+        badgeView.setTextColor(theme.onPrimary)
+        cancelButton.setTextColor(theme.primary)
+    }
+
+    fun setPromptColor(color: Int) {
+        searchIcon.setColorFilter(color)
+        clearButton.setColorFilter(color)
+        editText.setHintTextColor(color)
+    }
+
+    fun setBarBackgroundColor(color: Int) {
+        (barContainer.background as? GradientDrawable)?.setColor(color)
     }
 
     fun setPlaceholder(text: String) {

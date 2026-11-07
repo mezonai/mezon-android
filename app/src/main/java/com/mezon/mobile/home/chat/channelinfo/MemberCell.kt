@@ -25,6 +25,8 @@ class MemberCell(context: Context, private val theme: ThemeColors) : BaseCell(co
     private var isDm = false
 
     private var nameLayout: StaticLayout? = null
+    private val namePaint = TextPaint()
+    private var nameColor: Int? = null
     private val avatarDrawable = AvatarDrawable()
     private var currentAvatarUrl: String? = null
     private var avatarDisposable: MezonImageLoader.Cancellable? = null
@@ -39,6 +41,17 @@ class MemberCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         val width = MeasureSpec.getSize(widthMeasureSpec)
         setMeasuredDimension(width, CELL_HEIGHT)
         buildLayouts()
+    }
+
+    fun setNameColor(color: Int) {
+        nameColor = color
+    }
+
+    fun updateNameColor(color: Int) {
+        if (nameColor == color) return
+        setNameColor(color)
+        update(UPDATE_MASK_NAME)
+        invalidate()
     }
 
     fun setCreatorId(id: Long) {
@@ -137,8 +150,10 @@ class MemberCell(context: Context, private val theme: ThemeColors) : BaseCell(co
             (if (isOwner) OWNER_ICON_SIZE + LayoutHelper.dp(4) else 0)
         if (maxWidth <= 0) return
 
+        namePaint.set(theme.dialogNamePaint)
+        namePaint.color = nameColor ?: theme.onSurface
         nameLayout = StaticLayout.Builder.obtain(
-            displayName, 0, displayName.length, theme.dialogNamePaint, maxWidth
+            displayName, 0, displayName.length, namePaint, maxWidth
         ).setMaxLines(1).setEllipsize(TextUtils.TruncateAt.END).build()
 
         val statusWidth = measuredWidth - NAME_LEFT - PADDING_RIGHT - STATUS_ICON_SIZE - STATUS_ICON_GAP

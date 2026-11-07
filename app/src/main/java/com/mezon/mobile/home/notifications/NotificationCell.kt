@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.notifications
 
+import android.text.TextPaint
 import android.content.Context
 import android.graphics.Canvas
 import android.text.StaticLayout
@@ -106,8 +107,7 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : BaseC
         if (contentWidth <= 0) return
 
         val timeText = convertTimestampToTimeAgo(context, n.createTimeSeconds)
-        val timePaint = theme.dialogTimePaint
-        timePaint.color = theme.onSurfaceVariant
+        val timePaint = TextPaint(theme.dialogTimePaint).apply { color = theme.textDisabled }
         timeLayout = StaticLayout.Builder
             .obtain(timeText, 0, timeText.length, timePaint, contentWidth)
             .setMaxLines(1)
@@ -126,7 +126,7 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : BaseC
             .build()
 
         val bodyText = if (n.category == NOTIF_CATEGORY_FOR_YOU) "" else n.messageText
-        val bodyPaint = theme.dialogMessagePaint
+        val bodyPaint = TextPaint(theme.dialogMessagePaint).apply { color = theme.onSurface }
         bodyLayout = if (bodyText.isEmpty()) null else StaticLayout.Builder
             .obtain(bodyText, 0, bodyText.length, bodyPaint, contentWidth)
             .setMaxLines(2)

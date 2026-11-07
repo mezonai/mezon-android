@@ -92,6 +92,7 @@ class ChannelPermissionsFragment : BaseFragment() {
     private lateinit var clansController: ClansController
     private lateinit var userController: UserController
     private lateinit var contentFrame: FrameLayout
+    private var tabsContainer: LinearLayout? = null
     private lateinit var tabBasic: TextView
     private lateinit var tabAdvanced: TextView
 
@@ -124,6 +125,15 @@ class ChannelPermissionsFragment : BaseFragment() {
         }
         observe(NotificationCenter.userClansDidLoad) { _, _, _ ->
             renderCurrentTab()
+        }
+        observe(NotificationCenter.themeChanged) { _, _, _ ->
+            if (fragmentView != null) {
+                fragmentView?.setBackgroundColor(themeColors.background)
+                actionBar?.let { ClanRolesUiTheme.applyPrimaryFlowActionBar(it, themeColors) }
+                tabsContainer?.background = rounded(themeColors.surface, 16f)
+                updateTabs()
+                renderCurrentTab()
+            }
         }
         userClanController.loadUsers()
         permissionController.loadChannelPermissionData(
@@ -179,8 +189,9 @@ class ChannelPermissionsFragment : BaseFragment() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
             setPadding(LayoutHelper.dp(4f), LayoutHelper.dp(4f), LayoutHelper.dp(4f), LayoutHelper.dp(4f))
-            background = rounded(themeColors.tertiary, 16f)
+            background = rounded(themeColors.surface, 16f)
         }
+        tabsContainer = tabs
         tabBasic = tabText(context, getString(R.string.channel_permissions_basic_view), TAB_BASIC)
         tabAdvanced = tabText(context, getString(R.string.channel_permissions_advanced_view), TAB_ADVANCED)
         tabs.addView(tabBasic, LayoutHelper.createLinear(0, LayoutHelper.MATCH_PARENT, 1f, Gravity.CENTER_VERTICAL, 0f, 0f, 3f, 0f))
@@ -208,7 +219,7 @@ class ChannelPermissionsFragment : BaseFragment() {
         listOf(tabBasic to TAB_BASIC, tabAdvanced to TAB_ADVANCED).forEach { (view, tab) ->
             val selected = activeTab == tab
             view.setTextColor(if (selected) 0xFFFFFFFF.toInt() else themeColors.colorText)
-            view.background = rounded(if (selected) themeColors.blurple else themeColors.tertiary, 14f)
+            view.background = rounded(if (selected) themeColors.blurple else themeColors.surface, 14f)
         }
     }
 
@@ -248,7 +259,7 @@ class ChannelPermissionsFragment : BaseFragment() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(LayoutHelper.dp(14f), LayoutHelper.dp(14f), LayoutHelper.dp(14f), LayoutHelper.dp(14f))
-            background = rounded(themeColors.channelPanelBg, 14f)
+            background = rounded(themeColors.surface, 14f)
         }
         val copy = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -286,7 +297,7 @@ class ChannelPermissionsFragment : BaseFragment() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(LayoutHelper.dp(14f), LayoutHelper.dp(14f), LayoutHelper.dp(14f), LayoutHelper.dp(14f))
-            background = rounded(themeColors.channelPanelBg, 14f)
+            background = rounded(themeColors.surface, 14f)
             isClickable = true
             setOnClickListener { showAddSheet(context) }
         }
@@ -519,7 +530,7 @@ class ChannelPermissionsFragment : BaseFragment() {
                         textView.gravity = Gravity.NO_GRAVITY
                         textView.setTextColor(themeColors.textStrong)
                         textView.setPadding(LayoutHelper.dp(12f), LayoutHelper.dp(12f), LayoutHelper.dp(12f), LayoutHelper.dp(8f))
-                        textView.background = rounded(themeColors.channelPanelBg, 14f)
+                        textView.background = rounded(themeColors.surface, 14f)
                     }
                     VIEW_TYPE_SECTION -> {
                         textView.textSize = 14f
@@ -535,7 +546,7 @@ class ChannelPermissionsFragment : BaseFragment() {
                         textView.gravity = Gravity.CENTER
                         textView.setTextColor(themeColors.colorText)
                         textView.setPadding(LayoutHelper.dp(16f), LayoutHelper.dp(40f), LayoutHelper.dp(16f), LayoutHelper.dp(40f))
-                        textView.background = rounded(themeColors.channelPanelBg, 14f)
+                        textView.background = rounded(themeColors.surface, 14f)
                     }
                 }
             }
@@ -691,7 +702,7 @@ class ChannelPermissionsFragment : BaseFragment() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(LayoutHelper.dp(10f), LayoutHelper.dp(10f), LayoutHelper.dp(10f), LayoutHelper.dp(10f))
-            background = rounded(themeColors.tertiary, 10f)
+            background = rounded(themeColors.surface, 10f)
             isClickable = true
         }
 
@@ -720,7 +731,7 @@ class ChannelPermissionsFragment : BaseFragment() {
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(themeColors.colorText)
             setPadding(LayoutHelper.dp(8f), LayoutHelper.dp(3f), LayoutHelper.dp(8f), LayoutHelper.dp(3f))
-            background = rounded(themeColors.borderDim, 10f)
+            background = rounded(themeColors.background, 10f)
         }
 
     private fun chevron(context: Context): ImageView =
