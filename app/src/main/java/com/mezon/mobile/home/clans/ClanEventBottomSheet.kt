@@ -71,6 +71,12 @@ class ClanEventBottomSheet(
             if (idArg == clanId) loadClanEvent()
         }
     }
+    private val channelsLoadedObserver = object : NotificationCenter.NotificationCenterDelegate {
+        override fun didReceivedNotification(id: Int, account: Int, vararg args: Any?) {
+            val idArg = args.firstOrNull() as? Long ?: return
+            if (idArg == clanId) loadClanEvent()
+        }
+    }
 
     private val root = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
@@ -141,10 +147,12 @@ class ClanEventBottomSheet(
             logoLoadTokens.forEach { it.cancel() }
             logoLoadTokens.clear()
             notificationCenter.removeObserver(eventsLoadedObserver, NotificationCenter.clanEventsDidLoad)
+            notificationCenter.removeObserver(channelsLoadedObserver, NotificationCenter.channelsDidLoad)
             notificationCenter.removeObserver(membersLoadedObserver, NotificationCenter.clanMembersDidLoad)
             notificationCenter.removeObserver(membersLoadedObserver, NotificationCenter.clanRolesDidLoad)
         }
         notificationCenter.addObserver(eventsLoadedObserver, NotificationCenter.clanEventsDidLoad)
+        notificationCenter.addObserver(channelsLoadedObserver, NotificationCenter.channelsDidLoad)
         notificationCenter.addObserver(membersLoadedObserver, NotificationCenter.clanMembersDidLoad)
         notificationCenter.addObserver(membersLoadedObserver, NotificationCenter.clanRolesDidLoad)
         loadClanEvent()
@@ -501,7 +509,10 @@ class ClanEventBottomSheet(
             )
         } else {
             val label = voiceChannel?.channelLabel?.takeIf { it.isNotBlank() }
-                ?: context.getString(R.string.clan_event_private_room)
+                ?: context.getString(
+                    if (event.channelVoiceId != 0L) R.string.clan_event_private_room
+                    else R.string.clan_event_external_meeting_room,
+                )
             val row = buildInlineInfoRow(
                 context,
                 theme,
