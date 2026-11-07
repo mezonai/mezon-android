@@ -569,7 +569,7 @@ class SendTokenFragment : BaseFragment() {
     ): View {
         val gr = GradientDrawable(
             GradientDrawable.Orientation.LEFT_RIGHT,
-            intArrayOf(themeColors.secondaryLight, themeColors.background)
+            intArrayOf(themeColors.mobile.secondaryLight, themeColors.background)
         )
         gr.cornerRadius = LayoutHelper.dp(10f).toFloat()
         gr.setStroke(1, themeColors.border)
@@ -617,7 +617,7 @@ class SendTokenFragment : BaseFragment() {
     ): View {
         val gr = GradientDrawable(
             GradientDrawable.Orientation.LEFT_RIGHT,
-            intArrayOf(themeColors.secondaryLight, themeColors.background)
+            intArrayOf(themeColors.mobile.secondaryLight, themeColors.background)
         )
         gr.cornerRadius = LayoutHelper.dp(16f).toFloat()
         gr.setStroke(LayoutHelper.dp(1f), themeColors.border)

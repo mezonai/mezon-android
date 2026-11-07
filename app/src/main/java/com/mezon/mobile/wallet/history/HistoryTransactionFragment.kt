@@ -6,6 +6,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.widget.ProgressBar
 import android.widget.TextView
+import androidx.core.graphics.ColorUtils
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mmn.IndexerClient
@@ -98,12 +99,13 @@ class HistoryTransactionFragment : BaseFragment() {
 
         val themeColors = com.mezon.mobile.core.ThemeColors.instance
         view.setBackgroundColor(themeColors.surface)
-        val baseColor = themeColors.primaryContainer
-        val midColor = themeColors.surfaceVariant
-        val lightColor = themeColors.secondaryLight
         view.findViewById<android.view.View>(R.id.walletCard).background = android.graphics.drawable.GradientDrawable(
-            android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
-            intArrayOf(baseColor, midColor, lightColor)
+            android.graphics.drawable.GradientDrawable.Orientation.RIGHT_LEFT,
+            intArrayOf(
+                themeColors.desktop.conversationGradient?.startColor ?: themeColors.surface,
+                themeColors.mobile.secondaryLight,
+                ColorUtils.setAlphaComponent(themeColors.background, 128)
+            )
         ).apply {
             cornerRadius = com.mezon.mobile.core.LayoutHelper.dp(16f).toFloat()
         }
