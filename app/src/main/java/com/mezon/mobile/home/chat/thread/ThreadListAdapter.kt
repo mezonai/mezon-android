@@ -11,6 +11,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+private fun List<Any>.hasThreadAt(position: Int) = getOrNull(position) is ThreadInfo
+
 class ThreadListAdapter(
     private val theme: ThemeColors,
     private val creatorNameResolver: (Long, String) -> String,
@@ -110,7 +112,12 @@ class ThreadListAdapter(
             }
             is ThreadInfo -> {
                 val senderName = displayNames[item.channelId] ?: item.creatorName
-                (holder.itemView as ThreadCell).setData(item, senderName)
+                (holder.itemView as ThreadCell).setData(
+                    item,
+                    senderName,
+                    isFirst = !items.hasThreadAt(position - 1),
+                    isLast = !items.hasThreadAt(position + 1)
+                )
             }
         }
     }
@@ -152,7 +159,9 @@ class ThreadListAdapter(
                     old.creatorName == new.creatorName &&
                     old.lastMessageContent == new.lastMessageContent &&
                     old.lastMessageTs == new.lastMessageTs &&
-                    old.lastSenderId == new.lastSenderId
+                    old.lastSenderId == new.lastSenderId &&
+                    oldList.hasThreadAt(oldPos - 1) == newList.hasThreadAt(newPos - 1) &&
+                    oldList.hasThreadAt(oldPos + 1) == newList.hasThreadAt(newPos + 1)
             }
             return false
         }

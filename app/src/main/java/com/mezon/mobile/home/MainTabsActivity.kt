@@ -207,7 +207,7 @@ class MainTabsActivity : ViewPagerActivity() {
 
     override fun getStatusBarColor(): Int = Color.TRANSPARENT
 
-    override fun isLightStatusBar(): Boolean = themeColors.resolvedMode == com.mezon.mobile.ui.theme.ThemeMode.LIGHT
+    override fun isLightStatusBar(): Boolean = themeColors.resolvedMode.isLight
 
     private fun createAdapter(): ViewPagerFixed.Adapter {
         return object : ViewPagerFixed.Adapter() {

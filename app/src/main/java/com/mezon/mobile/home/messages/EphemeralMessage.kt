@@ -9,6 +9,7 @@ import android.text.StaticLayout
 import android.text.TextPaint
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.core.theme.MobileThemeColors
 
 object EphemeralMessageUi {
 
@@ -33,9 +34,9 @@ object EphemeralMessageUi {
 
     fun indicatorIconSize(): Int = LayoutHelper.dp(12)
 
-    fun drawBubbleBackground(canvas: Canvas, theme: ThemeColors, bounds: RectF) {
+    fun drawBubbleBackground(canvas: Canvas, bounds: RectF) {
         if (bounds.width() <= 0f || bounds.height() <= 0f) return
-        fillPaint.color = theme.blurple and 0x00FFFFFF or (0x1A shl 24)
+        fillPaint.color = MobileThemeColors.accent and 0x00FFFFFF or (0x1A shl 24)
         canvas.drawRoundRect(bounds, cornerRadius, cornerRadius, fillPaint)
     }
 

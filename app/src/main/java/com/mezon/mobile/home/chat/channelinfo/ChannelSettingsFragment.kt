@@ -147,10 +147,12 @@ class ChannelSettingsFragment : BaseFragment() {
         return true
     }
 
+    override fun getStatusBarColor(): Int = themeColors.background
+
     override fun createView(context: Context): View {
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(themeColors.serverRailBg)
+            setBackgroundColor(themeColors.background)
         }
 
         root.addView(
@@ -230,7 +232,10 @@ class ChannelSettingsFragment : BaseFragment() {
         val topRows = buildTopRows(context)
         if (topRows.isNotEmpty()) {
             content.addView(
-                ClanSettingsUiHelpers.buildMezonSection(context, themeColors, null, topRows),
+                ClanSettingsUiHelpers.buildMezonSection(
+                    context, themeColors, null, topRows,
+                    cardColor = themeColors.surface, separatorColor = themeColors.border
+                ),
                 LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 0f, 0f, 20f)
             )
         }
@@ -251,7 +256,10 @@ class ChannelSettingsFragment : BaseFragment() {
         val bottomRows = buildBottomRows(context)
         if (bottomRows.isNotEmpty()) {
             content.addView(
-                ClanSettingsUiHelpers.buildMezonSection(context, themeColors, null, bottomRows),
+                ClanSettingsUiHelpers.buildMezonSection(
+                    context, themeColors, null, bottomRows,
+                    cardColor = themeColors.surface, separatorColor = themeColors.border
+                ),
                 LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT)
             )
         }
@@ -260,7 +268,7 @@ class ChannelSettingsFragment : BaseFragment() {
     private fun buildHeader(context: Context): FrameLayout {
         val titleRes = if (isThread) R.string.channel_settings_title_thread else R.string.channel_settings_title
         return FrameLayout(context).apply {
-            setBackgroundColor(themeColors.serverRailBg)
+            setBackgroundColor(themeColors.background)
 
             addView(
                 iconButton(context, MezonIcon.closeIcon) { finishFragment() },
@@ -338,7 +346,9 @@ class ChannelSettingsFragment : BaseFragment() {
             textSize = 16f
             typeface = Typeface.DEFAULT_BOLD
             includeFontPadding = false
-            background = rounded(themeColors.channelPanelBg, 16f)
+            background = rounded(themeColors.surface, 16f).apply {
+                setStroke(LayoutHelper.dp(1), themeColors.border)
+            }
             setPadding(LayoutHelper.dp(14f), LayoutHelper.dp(12f), LayoutHelper.dp(14f), LayoutHelper.dp(12f))
             isSingleLine = !multiline
             gravity = if (multiline) Gravity.TOP or Gravity.START else Gravity.CENTER_VERTICAL or Gravity.START
@@ -552,7 +562,7 @@ class ChannelSettingsFragment : BaseFragment() {
             ch.ageRestricted
         }
         saving = true
-        saveText?.isEnabled = false
+        updateSaveState()
         fragmentScope.launch {
             val result = channelController.updateChannelDescSettings(
                 clanId = clanId,
@@ -763,7 +773,8 @@ class ChannelSettingsFragment : BaseFragment() {
             ageRestrictedDraft != originalAgeRestricted
         val canSave = changed && nameValidationError == null && !isDuplicateName && !saving
         saveText?.isEnabled = canSave
-        saveText?.setTextColor(if (canSave) themeColors.blurple else themeColors.textDisabled)
+        saveText?.alpha = if (canSave) 1f else 0.5f
+        saveText?.setTextColor(if (canSave) themeColors.textLink else themeColors.textDisabled)
     }
 
     private fun topicDraftValue(): String =

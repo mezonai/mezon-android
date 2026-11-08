@@ -91,19 +91,23 @@ class GlobalSearchAdapter(
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         if (position !in items.indices) return
         val item = items[position]
+        if (holder.itemView is HeaderCell) {
+            holder.itemView.setBackgroundColor(themeColors.surface)
+        }
         when (val view = holder.itemView) {
             is ProfileSearchCell -> if (item is SearchMember) view.update(0, item)
             is ChannelSearchCell -> if (item is ChannelSearchDisplay) {
                 view.setJoinClickListener(
                     if (item.showJoinUi) onChannelJoinClick else null
                 )
-                view.update(0, item)
+                view.update(0, item, showDivider = items.hasNextChannel(position))
             }
             is MessageSearchCell -> if (item is SearchMessageDocument) {
                 view.update(0, item, resolveMessageSenderName(item))
             }
             is HeaderCell -> if (item is SectionHeader) {
                 view.setText(item.title)
+                view.textView.setTextColor(if (item.muted) themeColors.textDisabled else themeColors.onSurface)
                 if (item.muted) {
                     view.textView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
                     view.textView.letterSpacing = 0.06f
@@ -214,6 +218,9 @@ private fun sectionStableId(sec: Int): Long = -(2000L + sec)
 
 private const val MEMBERS_HEADER_STABLE_ID = -3000L
 
+private fun List<Any>.hasNextChannel(position: Int): Boolean =
+    getOrNull(position + 1) is ChannelSearchDisplay
+
 private class SearchDiffCallback(
     private val oldList: List<Any>,
     private val newList: List<Any>
@@ -240,6 +247,8 @@ private class SearchDiffCallback(
     override fun areContentsTheSame(oldPos: Int, newPos: Int): Boolean {
         val oldItem = oldList[oldPos]
         val newItem = newList[newPos]
-        return oldItem == newItem
+        if (oldItem != newItem) return false
+        return oldItem !is ChannelSearchDisplay ||
+            oldList.hasNextChannel(oldPos) == newList.hasNextChannel(newPos)
     }
 }

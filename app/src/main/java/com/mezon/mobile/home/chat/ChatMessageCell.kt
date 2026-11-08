@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.chat
 
+import com.mezon.mobile.core.theme.DesktopThemeToken
 import android.app.DatePickerDialog
 import android.content.Context
 import android.content.Intent
@@ -119,6 +120,7 @@ import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.TextView
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.ColorUtils
 import java.util.Calendar
 import java.util.Locale
 import kotlin.math.ceil
@@ -151,7 +153,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         textSize = LayoutHelper.sp(12f)
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.ITALIC)
     }
-    private val embedInputBackground = GradientDrawable()
     private val embedSelectBackground = GradientDrawable()
     private val embedSelectChevronDrawable: Drawable
 
@@ -987,9 +988,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
         val maxH = maxW + LayoutHelper.dp(100)
 
-        // Multi-image grids (2/3/4) use a fixed grid geometry instead of the first
-        // image's aspect ratio: cells are square-ish and center-cropped, so deriving
-        // height from a single image squeezes the thumbnails (issue mezonai/mezon#13176).
         val media = displaySnapshot?.media.orEmpty()
         val gridCount = media.size
         if (gridCount > 1) {
@@ -1281,7 +1279,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 } catch (e: CancellationException) {
                     throw e
                 } catch (_: Exception) {
-                    // Keep the supplied thumbnail if a frame cannot be extracted.
+                   
                 } finally {
                     runCatching { retriever.release() }
                 }
@@ -1519,7 +1517,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         callLogCallbackPaint.isFakeBoldText = true
 
         callLogCardBgPaint.style = Paint.Style.FILL
-        callLogCardBgPaint.color = theme.border
+        callLogCardBgPaint.color = theme.background
         callLogDividerPaint.style = Paint.Style.STROKE
         callLogDividerPaint.color = theme.secondaryWeight
         callLogDividerPaint.strokeWidth = LayoutHelper.dp(1f).toFloat()
@@ -1683,9 +1681,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         return if (hasText) {
             val contentToParse = if (hasActualText) msg.content else ""
             val parsedToParse = if (hasActualText) parsedContent else ""
-            val linkColor = theme.blurple
+            val linkColor = theme.desktop[DesktopThemeToken.MENTION_COLOR]
             val mentionColors = MentionColors(
-                theme.textLink,
+                linkColor,
                 theme.midnightBlue,
                 theme.textRoleLink,
                 theme.darkMossGreen
@@ -3700,7 +3698,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             )
         } else if (!photoImage.hasMainImage() && photoImage.shouldAnimateLoadingPlaceholder()) {
             shimmerEffect.draw(canvas, imgX, yOff, imgX + photoWidth, yOff + photoHeight, 0f,
-                theme.resolvedMode != com.mezon.mobile.ui.theme.ThemeMode.LIGHT)
+                !theme.resolvedMode.isLight)
             if (visibleOnScreen) postInvalidateDelayed(32)
         } else if (!photoImage.hasImage()) {
             drawBrokenImagePlaceholder(
@@ -3766,7 +3764,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
 
         if (hasEphemeralDecor) {
-            EphemeralMessageUi.drawBubbleBackground(canvas, theme, ephemeralDecorRect)
+            EphemeralMessageUi.drawBubbleBackground(canvas, ephemeralDecorRect)
         }
 
         contentLayout?.let {
@@ -4146,7 +4144,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             (ogpTitleLayout?.let { it.height + GAP_V_INNER } ?: 0) +
             (ogpDescLayout?.let { it.height + GAP_V_INNER } ?: 0) +
             ogpImageH
-        ogpCardPaint.color = theme.border
+        ogpCardPaint.color = theme.secondaryLight
         ogpAccentPaint.color = theme.blurple
         ogpCardRect.set(left, top, cardRight, cardBottom)
         canvas.drawRoundRect(ogpCardRect, OGP_CARD_RADIUS, OGP_CARD_RADIUS, ogpCardPaint)
@@ -4257,7 +4255,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     }
 
     private fun drawMediaGrid(canvas: Canvas, msg: MessageEntity, startX: Float, startY: Float): Float {
-        val isDark = theme.resolvedMode != com.mezon.mobile.ui.theme.ThemeMode.LIGHT
+        val isDark = !theme.resolvedMode.isLight
         var needsShimmerRedraw = false
         var maxBottom = startY
         for (i in 0 until mediaGridCount) {
@@ -4295,7 +4293,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 drawVideoPlaceholder(canvas, imgX, imgY, w, h, MEDIA_RADIUS)
             } else if (photoImage.shouldAnimateLoadingPlaceholder()) {
                 shimmerEffect.draw(canvas, imgX, imgY, imgX + w, imgY + h, MEDIA_RADIUS,
-                    theme.resolvedMode != com.mezon.mobile.ui.theme.ThemeMode.LIGHT)
+                    !theme.resolvedMode.isLight)
                 if (visibleOnScreen) postInvalidateDelayed(32)
             } else if (!photoImage.hasImage()) {
                 drawBrokenImagePlaceholder(canvas, imgX, imgY, w, h, MEDIA_RADIUS)
@@ -4318,7 +4316,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     private fun drawBrokenImagePlaceholder(canvas: Canvas, x: Float, y: Float, w: Float, h: Float, radius: Float) {
         tmpRect.set(x, y, x + w, y + h)
-        BROKEN_IMAGE_BG_PAINT.color = theme.border
+        BROKEN_IMAGE_BG_PAINT.color = theme.background
         if (radius > 0f) {
             canvas.drawRoundRect(tmpRect, radius, radius, BROKEN_IMAGE_BG_PAINT)
         } else {
@@ -4326,11 +4324,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
         val size = min(BROKEN_IMAGE_ICON_SIZE, (min(w, h) * 0.45f).toInt())
         if (size < BROKEN_IMAGE_ICON_MIN) return
-        val tint = if (theme.resolvedMode == com.mezon.mobile.ui.theme.ThemeMode.ABYSS) {
-            0xFF938F99.toInt()
-        } else {
-            theme.outline
-        }
+        val tint = theme.onSurfaceVariant
         var icon = brokenImageDrawable
         if (icon == null || brokenImageDrawableTint != tint) {
             icon = MezonIcon.imageIcon.getDrawable(context, tint)
@@ -4538,7 +4532,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             groups[i].senders.any { it.senderId == currentUserId && it.count > 0 }
         }
 
-        REACTION_COUNT_PAINT.color = theme.onSurface
+        REACTION_COUNT_PAINT.color = theme.textThemePrimary
         val countLayouts = Array<StaticLayout?>(groups.size) { i ->
             val txt = groups[i].totalCount.toString()
             StaticLayout.Builder.obtain(txt, 0, txt.length, REACTION_COUNT_PAINT, LayoutHelper.dp(60))
@@ -4642,7 +4636,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 val countY = chipY + (REACTION_CHIP_H - countLayout.height) / 2f
                 canvas.save()
                 canvas.translate(countX, countY)
-                REACTION_COUNT_PAINT.color = theme.onSurface
+                REACTION_COUNT_PAINT.color = theme.textThemePrimary
                 countLayout.draw(canvas)
                 canvas.restore()
             }
@@ -4664,14 +4658,11 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     }
 
     private fun refreshEmbedInteractiveChrome() {
-        embedInputBackground.cornerRadius = LayoutHelper.dpf(12f)
-        embedInputBackground.setColor(theme.secondaryLight)
-        embedInputBackground.setStroke(LayoutHelper.dp(1), theme.outline)
         embedSelectBackground.cornerRadius = LayoutHelper.dpf(4f)
         embedSelectBackground.setColor(theme.surface)
-        embedSelectBackground.setStroke(LayoutHelper.dp(1), theme.outline)
+        embedSelectBackground.setStroke(LayoutHelper.dp(1), ColorUtils.setAlphaComponent(theme.outline, 128))
         embedSelectChevronDrawable.colorFilter =
-            PorterDuffColorFilter(theme.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
+            PorterDuffColorFilter(theme.onSurface, PorterDuff.Mode.SRC_IN)
     }
 
     private fun embedSelectRowForeground(): Drawable? {
@@ -4934,6 +4925,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     }
 
     private inner class EmbedSelectSlot {
+        private val standaloneBackground = GradientDrawable()
         val row: FrameLayout = FrameLayout(context).apply {
             clipToOutline = true
             isClickable = true
@@ -4999,7 +4991,14 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 rippleInstalled = true
             }
 
-            row.background = embedSelectBackground
+            if (standalone) {
+                standaloneBackground.cornerRadius = LayoutHelper.dpf(4f)
+                standaloneBackground.setColor(Color.TRANSPARENT)
+                standaloneBackground.setStroke(LayoutHelper.dp(1), ColorUtils.setAlphaComponent(theme.onSurface, 89))
+                row.background = standaloneBackground
+            } else {
+                row.background = embedSelectBackground
+            }
             row.isEnabled = !spec.disabled
             row.alpha = if (spec.disabled) 0.5f else 1f
 
@@ -5011,7 +5010,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 label.maxLines = 1
                 note.setPadding(LayoutHelper.dp(12), LayoutHelper.dp(2), LayoutHelper.dp(12), LayoutHelper.dp(12))
                 note.text = embedSelectPlaceholder(spec, "")
-                note.setTextColor(theme.onSurfaceVariant)
+                note.setTextColor(ColorUtils.setAlphaComponent(theme.onSurface, 179))
                 note.visibility = View.VISIBLE
             } else {
                 label.setPadding(LayoutHelper.dp(10), LayoutHelper.dp(9), LayoutHelper.dp(10), LayoutHelper.dp(9))
@@ -5035,7 +5034,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 formatEmbedSelectLabel(spec, messageId, componentId, fieldName)
             }
             val hasValue = !EmbedFormUtil.isComponentEmpty(messageId, componentId)
-            label.setTextColor(if (hasValue) theme.onSurface else theme.onSurfaceVariant)
+            label.setTextColor(if (standalone || hasValue) theme.onSurface else theme.textDisabled)
 
             val sheetTitle: CharSequence = if (standalone) {
                 placeholder.ifEmpty { embedSelectPlaceholder(spec, "") }
@@ -5054,6 +5053,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     }
 
     private inner class EmbedRadioSlot {
+        private val background = GradientDrawable()
         val container = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
         }
@@ -5063,6 +5063,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         private var suppressRadioCb = false
 
         fun bind(messageId: Long, componentId: String, spec: EmbedRadioSpec) {
+            background.cornerRadius = LayoutHelper.dpf(8f)
+            background.setColor(theme.surface)
+            background.setStroke(LayoutHelper.dp(1), ColorUtils.setAlphaComponent(theme.outline, 128))
+            container.background = background
             val identityChanged =
                 boundMessageId != messageId ||
                     boundComponentId != componentId ||
@@ -5280,10 +5284,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             edit.tag = componentId
 
             inputBackground.cornerRadius = LayoutHelper.dpf(12f)
-            inputBackground.setColor(theme.secondaryLight)
-            inputBackground.setStroke(LayoutHelper.dp(1), theme.outline)
+            inputBackground.setColor(theme.surface)
+            inputBackground.setStroke(LayoutHelper.dp(1), ColorUtils.setAlphaComponent(theme.outline, 128))
             edit.background = inputBackground
-            edit.setHintTextColor(theme.onSurfaceVariant)
+            edit.setHintTextColor(theme.textDisabled)
             edit.setTextColor(theme.onSurface)
             edit.hint = spec.placeholder.takeIf { it.isNotEmpty() }
             edit.isEnabled = !spec.disabled

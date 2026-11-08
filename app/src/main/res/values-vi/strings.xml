@@ -910,6 +910,12 @@
     <string name="setting_theme_light">Sáng</string>
     <string name="setting_theme_dark">Tối</string>
     <string name="setting_theme_abyss">Vực thẳm</string>
+    <string name="setting_theme_sunrise">Bình minh</string>
+    <string name="setting_theme_red_dark">Đỏ trầm</string>
+    <string name="setting_theme_purple_haze">Tím mộng mơ</string>
+    <string name="setting_theme_sunset">Hoàng hôn</string>
+    <string name="setting_theme_cisher">Cisher</string>
+    <string name="setting_theme_berrynade">Berrynade</string>
     <string name="setting_theme_system">Theo hệ thống</string>
     <string name="setting_theme_system_short">Hệ thống</string>
     <string name="theme_screen_title">Chủ đề ứng dụng</string>

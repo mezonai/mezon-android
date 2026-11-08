@@ -10,7 +10,6 @@ import android.text.Spanned
 import android.text.TextPaint
 import android.text.method.LinkMovementMethod
 import android.text.style.ClickableSpan
-import android.text.style.ForegroundColorSpan
 import android.view.Gravity
 import android.view.View
 import android.view.ViewOutlineProvider
@@ -26,6 +25,7 @@ import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.R
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
+import com.mezon.mobile.core.theme.MobileThemeColors
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.chat.MezonImageLoader
@@ -122,7 +122,7 @@ class WebhooksListFragment : BaseFragment() {
     override fun createView(context: Context): View {
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(themeColors.background)
+            setBackgroundColor(themeColors.surface)
         }
 
         val titleRes = if (isClanIntegration) {
@@ -160,6 +160,7 @@ class WebhooksListFragment : BaseFragment() {
                 text = webhookListDescriptionSpans(context)
                 textSize = 12f
                 setTextColor(CreateClanRnUiTokens.textDisabled(themeColors))
+                setLinkTextColor(MobileThemeColors.accent)
                 movementMethod = LinkMovementMethod.getInstance()
                 setPadding(0, 0, 0, LayoutHelper.dp(12f))
             },
@@ -233,7 +234,7 @@ class WebhooksListFragment : BaseFragment() {
             gravity = Gravity.CENTER
             background = android.graphics.drawable.GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(10f).toFloat()
-                setColor(themeColors.primary)
+                setColor(MobileThemeColors.accent)
             }
             elevation = LayoutHelper.dp(6f).toFloat()
             setPadding(LayoutHelper.dp(18f), LayoutHelper.dp(10f), LayoutHelper.dp(18f), LayoutHelper.dp(10f))
@@ -261,8 +262,6 @@ class WebhooksListFragment : BaseFragment() {
             val ss = SpannableStringBuilder(full)
             val start = full.lastIndexOf(tip).coerceAtLeast(0)
             val end = start + tip.length
-            val lc = themeColors.primary
-            ss.setSpan(ForegroundColorSpan(lc), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             ss.setSpan(object : ClickableSpan() {
                 override fun onClick(widget: View) {
                     safeOpenUrl(context, WebhookConfig.CLAN_WEBHOOK_DOCS_URL)
@@ -284,8 +283,6 @@ class WebhooksListFragment : BaseFragment() {
         val full = "$p1 $lm $suf $bo"
         val ss = SpannableStringBuilder(full)
         fun paint(rangeStart: Int, rangeEndExclusive: Int) {
-            val lc = themeColors.primary
-            ss.setSpan(ForegroundColorSpan(lc), rangeStart, rangeEndExclusive, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             ss.setSpan(object : ClickableSpan() {
                 override fun onClick(widget: View) {
                     safeOpenUrl(context, WebhookConfig.CHANNEL_WEBHOOK_DOCS_URL)
@@ -390,7 +387,7 @@ class WebhooksListFragment : BaseFragment() {
             gravity = Gravity.CENTER_VERTICAL
             background = android.graphics.drawable.GradientDrawable().apply {
                 cornerRadius = CreateClanRnUiTokens.clanSettingsMenuCornerPx()
-                setColor(themeColors.surfaceVariant)
+                setColor(themeColors.background)
             }
             setPadding(LayoutHelper.dp(14f), LayoutHelper.dp(10f), LayoutHelper.dp(14f), LayoutHelper.dp(10f))
         }
@@ -437,7 +434,7 @@ class WebhooksListFragment : BaseFragment() {
             TextView(ctx).apply {
                 text = name
                 textSize = 15f
-                setTextColor(CreateClanRnUiTokens.menuText(themeColors))
+                setTextColor(themeColors.textStrong)
             },
             LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT),
         )
@@ -468,7 +465,7 @@ class WebhooksListFragment : BaseFragment() {
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
                 val d = MezonIcon.chevronSmallRightIcon.getDrawable(ctx)
                 d.mutate()
-                d.colorFilter = PorterDuffColorFilter(CreateClanRnUiTokens.menuText(themeColors), PorterDuff.Mode.SRC_IN)
+                d.colorFilter = PorterDuffColorFilter(themeColors.textStrong, PorterDuff.Mode.SRC_IN)
                 setImageDrawable(d)
             },
             LayoutHelper.createLinear(18, 18, 0f, Gravity.CENTER_VERTICAL),

@@ -9,7 +9,6 @@ import androidx.annotation.DrawableRes
 import androidx.core.content.ContextCompat
 import com.mezon.mobile.R
 import com.mezon.mobile.core.ThemeColors
-import com.mezon.mobile.ui.theme.ThemeMode
 import java.util.concurrent.ConcurrentHashMap
 
 enum class MezonIcon(@DrawableRes val resId: Int) {
@@ -266,7 +265,7 @@ enum class MezonIcon(@DrawableRes val resId: Int) {
     fun getDrawable(context: Context, themeColors: ThemeColors): Drawable =
         when (this) {
             threadLockIcon -> {
-                val resId = if (themeColors.resolvedMode == ThemeMode.LIGHT) {
+                val resId = if (themeColors.resolvedMode.isLight) {
                     R.drawable.ic_threadlockicon_light
                 } else {
                     R.drawable.ic_threadlockicon
@@ -275,7 +274,7 @@ enum class MezonIcon(@DrawableRes val resId: Int) {
             }
 
             scanQR -> {
-                val resId = if (themeColors.resolvedMode == ThemeMode.LIGHT) {
+                val resId = if (themeColors.resolvedMode.isLight) {
                     R.drawable.ic_qr_scan_light
                 } else {
                     R.drawable.ic_qr_scan

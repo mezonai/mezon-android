@@ -119,7 +119,7 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         val namePaint = if (isUnread) theme.dialogNameBoldPaint else theme.dialogNamePaint
         val previewPaint = if (isUnread) theme.dialogMessageBoldPaint else theme.dialogMessagePaint
         val timePaint = theme.dialogTimePaint
-        timeColor = if (isUnread) theme.primary else theme.onSurfaceVariant
+        timeColor = if (isUnread) theme.onSurface else theme.onSurfaceVariant
 
         val timeText = if (dm.lastSentMessageTs > 0) formatRelativeTime(dm.lastSentMessageTs) else ""
         timeLayout = StaticLayout.Builder.obtain(timeText, 0, timeText.length, timePaint, contentWidth)
@@ -280,7 +280,7 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         }
 
         val divLeft = (cx + AVATAR_SIZE + GAP_H).toFloat()
-        canvas.drawRect(divLeft, height - 1f, width.toFloat(), height.toFloat(), theme.dividerPaint)
+        canvas.drawRect(divLeft, height - 1f, width - PADDING_H.toFloat(), height.toFloat(), theme.dividerPaint)
     }
 
     companion object {

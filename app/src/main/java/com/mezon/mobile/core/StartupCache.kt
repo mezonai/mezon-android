@@ -34,19 +34,8 @@ object StartupCache {
         set(value) = prefs.edit().putBoolean(KEY_HAS_SESSION, value).apply()
 
     var themeMode: ThemeMode
-        get() = when (prefs.getString(KEY_THEME, null)) {
-            "light" -> ThemeMode.LIGHT
-            "dark" -> ThemeMode.DARK
-            "abyss" -> ThemeMode.ABYSS
-            "system" -> ThemeMode.SYSTEM
-            else -> ThemeMode.DARK
-        }
-        set(value) = prefs.edit().putString(KEY_THEME, when (value) {
-            ThemeMode.LIGHT -> "light"
-            ThemeMode.DARK -> "dark"
-            ThemeMode.ABYSS -> "abyss"
-            ThemeMode.SYSTEM -> "system"
-        }).apply()
+        get() = ThemeMode.fromStorage(prefs.getString(KEY_THEME, null))
+        set(value) = prefs.edit().putString(KEY_THEME, value.storageKey).apply()
 
     var locale: String
         get() = prefs.getString(KEY_LOCALE, "en") ?: "en"

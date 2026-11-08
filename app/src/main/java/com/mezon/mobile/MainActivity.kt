@@ -206,7 +206,7 @@ class MainActivity : BasePermissionsActivity(),
 
         applyLocaleToActivity()
         lastLocaleTag = resources.configuration.locales[0]?.toLanguageTag()
-        themeColors.setTheme(themeMode, isSystemDarkMode())
+        setThemeColors(themeMode)
 
         if (hasSession) {
             splashScreen.setKeepOnScreenCondition { !isContentReady }
@@ -560,7 +560,7 @@ class MainActivity : BasePermissionsActivity(),
             NotificationCenter.themeChanged -> {
                 val mode = args.firstOrNull() as? ThemeMode
                     ?: StartupCache.themeMode
-                themeColors.setTheme(mode, isSystemDarkMode())
+                setThemeColors(mode)
                 applyMediaRoomTheme()
                 drawerLayoutContainer.setBehindKeyboardColor(themeColors.surface)
                 applySystemBarColors(mode)
@@ -574,7 +574,7 @@ class MainActivity : BasePermissionsActivity(),
             NotificationCenter.autoNightModeChanged -> {
                 val userMode = themeColors.currentMode
                 if (userMode == ThemeMode.SYSTEM) {
-                    themeColors.setTheme(userMode, isSystemDarkMode())
+                    setThemeColors(userMode)
                     applyMediaRoomTheme()
                     drawerLayoutContainer.setBehindKeyboardColor(themeColors.surface)
                     applySystemBarColors(userMode)
@@ -1806,9 +1806,8 @@ class MainActivity : BasePermissionsActivity(),
 
         if (themeColors.currentMode == ThemeMode.SYSTEM) {
             val dark = isSystemDarkMode()
-            if ((dark && themeColors.resolvedMode != ThemeMode.DARK) ||
-                (!dark && themeColors.resolvedMode != ThemeMode.LIGHT)) {
-                themeColors.setTheme(ThemeMode.SYSTEM, dark)
+            if (themeColors.resolvedMode != themeManager.resolveEffectiveMode(ThemeMode.SYSTEM, dark)) {
+                setThemeColors(ThemeMode.SYSTEM)
                 applyMediaRoomTheme()
                 drawerLayoutContainer.setBehindKeyboardColor(themeColors.surface)
                 applySystemBarColors(ThemeMode.SYSTEM)
@@ -1823,6 +1822,11 @@ class MainActivity : BasePermissionsActivity(),
         val config = android.content.res.Configuration(resources.configuration)
         config.setLocale(locale)
         resources.updateConfiguration(config, resources.displayMetrics)
+    }
+
+    private fun setThemeColors(mode: ThemeMode) {
+        val systemIsDark = isSystemDarkMode()
+        themeColors.setTheme(mode, systemIsDark, themeManager.resolveEffectiveMode(mode, systemIsDark))
     }
 
     private fun isSystemDarkMode(): Boolean =
@@ -1847,7 +1851,7 @@ class MainActivity : BasePermissionsActivity(),
 
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
                 val isLight = lastFragment?.isLightStatusBar()
-                    ?: (themeColors.resolvedMode == ThemeMode.LIGHT)
+                    ?: (themeColors.resolvedMode.isLight)
                 val flags = window.decorView.systemUiVisibility
                 window.decorView.systemUiVisibility = if (isLight) {
                     flags or android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR

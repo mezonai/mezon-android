@@ -63,10 +63,7 @@ class AutoNightConfig(private val context: Context) : SensorEventListener {
         scheduleToHour = prefs.getInt("to_hour", 8)
         scheduleToMinute = prefs.getInt("to_minute", 0)
         brightnessThreshold = prefs.getFloat("brightness", 0.25f)
-        nightThemeMode = when (prefs.getString("night_theme", "dark")) {
-            "abyss" -> ThemeMode.ABYSS
-            else -> ThemeMode.DARK
-        }
+        nightThemeMode = ThemeMode.fromStorage(prefs.getString("night_theme", "dark")).asNightTheme()
     }
 
     fun save(
@@ -84,7 +81,7 @@ class AutoNightConfig(private val context: Context) : SensorEventListener {
         scheduleToHour = toHour
         scheduleToMinute = toMinute
         brightnessThreshold = brightness
-        nightThemeMode = nightMode
+        nightThemeMode = nightMode.asNightTheme()
 
         prefs.edit()
             .putInt("type", type)
@@ -93,7 +90,7 @@ class AutoNightConfig(private val context: Context) : SensorEventListener {
             .putInt("to_hour", toHour)
             .putInt("to_minute", toMinute)
             .putFloat("brightness", brightness)
-            .putString("night_theme", if (nightMode == ThemeMode.ABYSS) "abyss" else "dark")
+            .putString("night_theme", nightThemeMode.storageKey)
             .apply()
 
         updateSensorState()

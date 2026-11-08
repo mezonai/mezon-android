@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.chat.emoji
 
+import com.mezon.mobile.core.theme.MobileThemeColors
 import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
@@ -139,7 +140,7 @@ class EmojiView(
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             background = android.graphics.drawable.GradientDrawable().apply {
-                setColor(themeColors.surface)
+                setColor(themeColors.background)
                 cornerRadii = floatArrayOf(sheetRadius, sheetRadius, sheetRadius, sheetRadius, 0f, 0f, 0f, 0f)
             }
         }
@@ -152,7 +153,7 @@ class EmojiView(
         tabBar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            setBackgroundColor(themeColors.surface)
+            setBackgroundColor((themeColors.surface and 0x00FFFFFF) or 0x99000000.toInt())
             setPadding(0, LayoutHelper.dp(4f), 0, LayoutHelper.dp(4f))
         }
 
@@ -287,7 +288,7 @@ class EmojiView(
         ))
 
         val bottomBar = FrameLayout(context).apply {
-            setBackgroundColor(themeColors.surface)
+            setBackgroundColor(themeColors.background)
         }
         backspaceButton = ImageView(context).apply {
             val d = MezonIcon.backspaceIcon.getDrawable(context)
@@ -694,7 +695,7 @@ class EmojiView(
             val isSelected = i == currentTab
             tab.setTextColor(if (isSelected) themeColors.onPrimary else themeColors.onSurfaceVariant)
             (tab.background as? android.graphics.drawable.GradientDrawable)?.setColor(
-                if (isSelected) themeColors.primary else Color.TRANSPARENT
+                if (isSelected) MobileThemeColors.accent else Color.TRANSPARENT
             )
         }
         searchField.hint = when (currentTab) {

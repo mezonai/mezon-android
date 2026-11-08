@@ -30,6 +30,7 @@ import com.mezon.mobile.home.clans.PermissionPolicy
 import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.ui.cells.ActionBarView
 import com.mezon.mobile.ui.cells.AvatarView
+import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.SearchCell
 import com.mezon.mobile.util.createImgproxyUrl
 import kotlinx.coroutines.Dispatchers
@@ -93,18 +94,22 @@ class ClanMembersFragment : BaseFragment() {
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
         }
-        ClanRolesUiTheme.applyPrimaryFlowRoot(root, themeColors)
+        root.setBackgroundColor(themeColors.surface)
 
         actionBar = ActionBarView(context, themeColors).apply {
             setTitle(getString(R.string.clan_settings_members))
-            setBackButtonImage(R.drawable.ic_close_24)
+            setBackButtonImage(R.drawable.ic_arrow_back)
             setCenterTitle(true)
-            ClanRolesUiTheme.applyPrimaryFlowActionBar(this, themeColors)
+            setBackgroundColor(themeColors.surface)
+            setTitleColor(themeColors.textStrong)
+            setItemsColor(themeColors.textStrong, false)
+            setDrawDivider(false)
             setBackClickListener { finishFragment() }
         }
         root.addView(actionBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
-        searchInput = SearchCell(context, themeColors).apply {
+        searchInput = SearchCell(context, themeColors, cornerRadiusDp = 12f).apply {
+            setPromptColor(themeColors.textDisabled)
             setPlaceholder(getString(R.string.clan_roles_members_search))
             onTextChanged = {
                 val nextFilter = it.trim()
@@ -137,9 +142,10 @@ class ClanMembersFragment : BaseFragment() {
         }
     }
 
+    private fun canManageMembers(): Boolean = permissionPolicy.clanSettingsPermissionState(clanId).isCanEditRole
+
     private fun handleMemberClick(member: ClanMember) {
-        val permission = permissionPolicy.clanSettingsPermissionState(clanId)
-        if (!permission.isCanEditRole) return
+        if (!canManageMembers()) return
         presentFragment(ClanMemberManageFragment.newInstance(clanId, member.userId))
     }
 
@@ -149,6 +155,7 @@ class ClanMembersFragment : BaseFragment() {
         private var diffJob: Job? = null
         private var scrollResetPending = false
         private var showSearchEmptyState = false
+        private var showMemberChevron = false
 
         init {
             setHasStableIds(true)
@@ -166,8 +173,10 @@ class ClanMembersFragment : BaseFragment() {
                     m.username.lowercase(Locale.getDefault()).contains(q)
             }
             val nextShowSearchEmptyState = q.isNotEmpty() && nextRows.isEmpty()
-            if (showSearchEmptyState != nextShowSearchEmptyState) {
+            val nextShowMemberChevron = canManageMembers()
+            if (showSearchEmptyState != nextShowSearchEmptyState || showMemberChevron != nextShowMemberChevron) {
                 showSearchEmptyState = nextShowSearchEmptyState
+                showMemberChevron = nextShowMemberChevron
                 rows = nextRows
                 notifyDataSetChanged()
                 resetScrollIfNeeded()
@@ -209,7 +218,7 @@ class ClanMembersFragment : BaseFragment() {
                 val emptyView = TextView(parent.context).apply {
                     text = getString(R.string.clan_roles_members_none)
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-                    setTextColor(ClanRolesUiTheme.textOnScreenMuted(themeColors))
+                    setTextColor(themeColors.textDisabled)
                     gravity = Gravity.CENTER
                     layoutParams = RecyclerView.LayoutParams(
                         RecyclerView.LayoutParams.MATCH_PARENT,
@@ -225,7 +234,7 @@ class ClanMembersFragment : BaseFragment() {
         }
 
         override fun onBindViewHolder(holder: Holder, position: Int) {
-            holder.cell?.bind(rows[position], position < rows.lastIndex)
+            holder.cell?.bind(rows[position], position < rows.lastIndex, showMemberChevron)
         }
 
         inner class Holder(itemView: View, val cell: MemberRowCell?) : RecyclerView.ViewHolder(itemView)
@@ -328,6 +337,10 @@ class ClanMembersFragment : BaseFragment() {
         private val displayNameText: TextView
         private val usernameText: TextView
         private val rolesLayout: RoleWrapLayout
+        private val chevronView = ImageView(context).apply {
+            setImageDrawable(MezonIcon.chevronSmallRightIcon.getDrawable(context, themeColors.textStrong))
+            scaleType = ImageView.ScaleType.FIT_CENTER
+        }
         private val dividerPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
         private var drawDivider = false
         private var currentMember: ClanMember? = null
@@ -374,7 +387,7 @@ class ClanMembersFragment : BaseFragment() {
 
             usernameText = TextView(context).apply {
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-                setTextColor(themeColors.colorText)
+                setTextColor(themeColors.textDisabled)
                 includeFontPadding = false
                 maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END
@@ -387,12 +400,15 @@ class ClanMembersFragment : BaseFragment() {
             }
             textContainer.addView(rolesLayout, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, topMargin = 4f))
 
+            row.addView(chevronView, LayoutHelper.createLinear(16, 16, 0f, Gravity.CENTER_VERTICAL, 10f, 0f, 0f, 0f))
+
             setOnClickListener {
                 currentMember?.let { onClick(it) }
             }
         }
 
-        fun bind(member: ClanMember, divider: Boolean) {
+        fun bind(member: ClanMember, divider: Boolean, showChevron: Boolean) {
+            chevronView.visibility = if (showChevron) View.VISIBLE else View.GONE
             currentMember = member
             drawDivider = divider
             val displayName = member.clanNick.takeIf { it.isNotBlank() } ?: member.displayName.takeIf { it.isNotBlank() } ?: member.username
@@ -435,7 +451,7 @@ class ClanMembersFragment : BaseFragment() {
                     }
                     chipView.addView(TextView(context).apply {
                         text = chip.title.uppercase(Locale.getDefault())
-                        setTextColor(themeColors.colorText)
+                        setTextColor(themeColors.textStrong)
                         setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
                         setTypeface(Typeface.DEFAULT, Typeface.BOLD)
                         maxLines = 1
@@ -510,9 +526,8 @@ class ClanMembersFragment : BaseFragment() {
             super.dispatchDraw(canvas)
             if (!drawDivider) return
             dividerPaint.color = themeColors.border
-            val leftPad = LayoutHelper.dp(16f).toFloat()
             val y = (height - 1).toFloat()
-            canvas.drawRect(leftPad, y, width.toFloat(), y + 1f, dividerPaint)
+            canvas.drawRect(0f, y, width.toFloat(), y + 1f, dividerPaint)
         }
     }
 }

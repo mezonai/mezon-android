@@ -7,6 +7,7 @@ import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
+import android.graphics.drawable.GradientDrawable
 import android.text.StaticLayout
 import android.text.TextPaint
 import android.text.TextUtils
@@ -21,6 +22,8 @@ class ThreadCell(context: Context, private val theme: ThemeColors) : BaseCell(co
 
     private var threadInfo: ThreadInfo? = null
     private var senderName: String = ""
+    private var showDivider = false
+    private val cardBackground = GradientDrawable()
 
     private var nameLayout: StaticLayout? = null
     private var senderLayout: StaticLayout? = null
@@ -29,13 +32,13 @@ class ThreadCell(context: Context, private val theme: ThemeColors) : BaseCell(co
     private var chevronDrawable: Drawable? = null
 
     private val borderPaint = Paint().apply {
-        color = theme.outlineVariant
+        color = theme.mobile.borderDim
     }
 
     private val namePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = LayoutHelper.sp(17f)
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        color = theme.tabLabelActive
+        color = theme.textStrong
     }
 
     private val messagePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -55,9 +58,18 @@ class ThreadCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         color = theme.textDisabled
     }
 
-    fun setData(info: ThreadInfo, resolvedSenderName: String) {
+    init {
+        background = cardBackground
+    }
+
+    fun setData(info: ThreadInfo, resolvedSenderName: String, isFirst: Boolean, isLast: Boolean) {
         threadInfo = info
         senderName = resolvedSenderName
+        showDivider = !isFirst
+        cardBackground.setColor(theme.background)
+        val top = if (isFirst) CARD_RADIUS else 0f
+        val bottom = if (isLast) CARD_RADIUS else 0f
+        cardBackground.cornerRadii = floatArrayOf(top, top, top, top, bottom, bottom, bottom, bottom)
         buildLayouts()
         invalidate()
     }
@@ -118,7 +130,9 @@ class ThreadCell(context: Context, private val theme: ThemeColors) : BaseCell(co
     override fun onDraw(canvas: Canvas) {
         val info = threadInfo ?: return
 
-        canvas.drawRect(0f, 0f, measuredWidth.toFloat(), 1f, borderPaint)
+        if (showDivider) {
+            canvas.drawRect(PADDING.toFloat(), 0f, (measuredWidth - PADDING).toFloat(), 1f, borderPaint)
+        }
 
         canvas.save()
         canvas.translate(PADDING.toFloat(), PADDING.toFloat())
@@ -162,6 +176,7 @@ class ThreadCell(context: Context, private val theme: ThemeColors) : BaseCell(co
     companion object {
         private val CELL_HEIGHT = LayoutHelper.dp(60f)
         private val PADDING = LayoutHelper.dp(10f)
+        private val CARD_RADIUS = LayoutHelper.dpf(8f)
         private val CHEVRON_SIZE = LayoutHelper.dp(24f)
         private val CHEVRON_MARGIN_LEFT = LayoutHelper.dp(30f)
         private val CHEVRON_MARGIN_RIGHT_ABS = LayoutHelper.dp(4f)

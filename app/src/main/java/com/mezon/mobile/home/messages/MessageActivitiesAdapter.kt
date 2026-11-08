@@ -101,7 +101,7 @@ class MessageActivityStripCell(
             ellipsize = TextUtils.TruncateAt.END
         }
         subtitleView = TextView(context).apply {
-            setTextColor(themeColors.onSurfaceVariant)
+            setTextColor(themeColors.textDisabled)
             textSize = 10f
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END

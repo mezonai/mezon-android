@@ -23,7 +23,6 @@ import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.clans.CHANNEL_TYPE_VOICE
 import com.mezon.mobile.home.clans.ChannelItemCell
 import com.mezon.mobile.ui.cells.MezonIcon
-import com.mezon.mobile.ui.theme.ThemeMode
 import com.mezon.mobile.util.ColorUtilities
 import com.mezon.mobile.util.avatarImgproxyUrl
 import com.mezon.mobile.di.FragmentEntryPoint
@@ -83,10 +82,7 @@ class UserProfileBottomSheet(
     private val theme: ThemeColors = ThemeColors.instance
 
     private val rnProfileSectionTitleColor: Int
-        get() = when (theme.resolvedMode) {
-            ThemeMode.LIGHT -> 0xFF000000.toInt()
-            else -> 0xFFFFFFFF.toInt()
-        }
+        get() = theme.textStrong
 
     init {
         if (voiceParticipantExtras != null) {
@@ -96,26 +92,11 @@ class UserProfileBottomSheet(
 
     // RN color mappings
     private val primaryColor: Int
-        get() = when (theme.resolvedMode) {
-            ThemeMode.LIGHT -> 0xFFF4F4F8.toInt()
-            ThemeMode.DARK -> 0xFF121218.toInt()
-            ThemeMode.ABYSS -> 0xFF110B33.toInt()
-            else -> 0xFF121218.toInt()
-        }
+        get() = theme.surface
     private val textStrongColor: Int
-        get() = when (theme.resolvedMode) {
-            ThemeMode.LIGHT -> 0xFF070709.toInt()
-            ThemeMode.DARK -> 0xFFDFE0E4.toInt()
-            ThemeMode.ABYSS -> 0xFFDFE0E4.toInt()
-            else -> 0xFFDFE0E4.toInt()
-        }
+        get() = theme.textStrong
     private val textColor: Int
-        get() = when (theme.resolvedMode) {
-            ThemeMode.LIGHT -> 0xFF29292B.toInt()
-            ThemeMode.DARK -> 0xFFCCCCCC.toInt()
-            ThemeMode.ABYSS -> 0xFFCCCCCC.toInt()
-            else -> 0xFFCCCCCC.toInt()
-        }
+        get() = theme.onSurface
 
     private var backdropColorView: View? = null
     private var profileAvatarView: ImageView? = null

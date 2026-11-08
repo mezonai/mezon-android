@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.chat.poll
 
+import com.mezon.mobile.core.theme.MobileThemeColors
 import android.content.Context
 import android.graphics.Rect
 import android.graphics.PorterDuff
@@ -27,7 +28,6 @@ import com.mezon.mobile.core.AlertDialog
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
-import com.mezon.mobile.ui.theme.ThemeMode
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.chat.EmojiController
 import com.mezon.mobile.home.chat.EmojiItem
@@ -83,15 +83,12 @@ class CreatePollFragment : BaseFragment() {
     private val postRadiusPx by lazy { LayoutHelper.dpf(10f) }
 
     private val colorScreen get() = themeColors.chatBackground
-    private val colorField get() = themeColors.tertiary
+    private val colorField get() = themeColors.background
     private val colorLabel get() = themeColors.onSurfaceVariant
     private val colorText get() = themeColors.onSurface
-    private val colorHint get() = themeColors.onSurfaceVariant
-    private val colorLink get() = themeColors.primary
-    private val colorPostDisabled get() = when (themeColors.resolvedMode) {
-        ThemeMode.LIGHT -> themeColors.borderDim
-        else -> themeColors.tertiary
-    }
+    private val colorHint get() = themeColors.textDisabled
+    private val colorLink get() = MobileThemeColors.accent
+    private val colorPostDisabled get() = (themeColors.textDisabled and 0x00FFFFFF) or 0x66000000
 
     private data class AnswerRow(
         val root: LinearLayout,
@@ -623,16 +620,9 @@ class CreatePollFragment : BaseFragment() {
         }
     }
 
-    private fun fieldBorderColor(): Int = when (themeColors.resolvedMode) {
-        ThemeMode.LIGHT -> themeColors.outlineVariant
-        ThemeMode.ABYSS -> themeColors.outline
-        else -> themeColors.outlineVariant
-    }
-
     private fun fieldBackground(): GradientDrawable = GradientDrawable().apply {
         setColor(colorField)
         cornerRadius = fieldRadiusPx
-        setStroke(LayoutHelper.dp(1), fieldBorderColor())
     }
 
     private fun buildSelectRow(context: Context, onClick: () -> Unit): LinearLayout =

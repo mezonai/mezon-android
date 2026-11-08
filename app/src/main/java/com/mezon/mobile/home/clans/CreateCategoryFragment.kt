@@ -101,6 +101,7 @@ class CreateCategoryFragment : BaseFragment() {
 
         nameCell = InputCell(context, themeColors).apply {
             setLabel(null, false, false)
+            setCellBackgroundColor(themeColors.background)
             setMaxCharacter(64)
             setHint(getString(R.string.category_creator_name_placeholder))
             onTextChanged = {
@@ -145,7 +146,7 @@ class CreateCategoryFragment : BaseFragment() {
         }
 
         val bodyRoot = FrameLayout(context).apply {
-            setBackgroundColor(themeColors.background)
+            setBackgroundColor(themeColors.surface)
             addView(scroll, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
             addView(loadingOverlay, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
         }

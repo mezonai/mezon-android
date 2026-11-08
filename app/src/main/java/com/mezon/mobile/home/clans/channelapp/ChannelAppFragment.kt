@@ -28,7 +28,6 @@ import androidx.core.animation.doOnEnd
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
-import com.mezon.mobile.ui.theme.ThemeMode
 import com.mezon.mobile.home.chat.ShimmerEffect
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.network.MezonApi
@@ -74,7 +73,7 @@ class ChannelAppFragment : BaseFragment() {
     private val statusBarInset: Int
         get() = AndroidUtilities.statusBarHeight.coerceAtLeast(0)
     private val headerPrimaryColor: Int
-        get() = themeColors.serverRailBg
+        get() = themeColors.surface
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
         api = entryPoint.mezonApi()
@@ -116,11 +115,11 @@ class ChannelAppFragment : BaseFragment() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun createView(context: Context): View {
         val root = FrameLayout(context).apply {
-            setBackgroundColor(themeColors.background)
+            setBackgroundColor(themeColors.surface)
         }
         val container = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(themeColors.background)
+            setBackgroundColor(themeColors.surface)
         }
 
         headerBar = buildHeader(context)
@@ -133,12 +132,12 @@ class ChannelAppFragment : BaseFragment() {
         )
 
         val content = FrameLayout(context).apply {
-            setBackgroundColor(themeColors.background)
+            setBackgroundColor(themeColors.surface)
         }
         webContentContainer = content
 
         val skeleton = SkeletonView(context).apply {
-            isDark = themeColors.resolvedMode == ThemeMode.DARK
+            isDark = !themeColors.resolvedMode.isLight
         }
         skeletonView = skeleton
         content.addView(
@@ -206,7 +205,7 @@ class ChannelAppFragment : BaseFragment() {
                 @Suppress("DEPRECATION")
                 setRenderPriority(WebSettings.RenderPriority.HIGH)
             }
-            setBackgroundColor(themeColors.background)
+            setBackgroundColor(themeColors.surface)
             alpha = 0f
             setLayerType(View.LAYER_TYPE_HARDWARE, null)
             webViewClient = object : WebViewClient() {
@@ -490,7 +489,7 @@ class ChannelAppFragment : BaseFragment() {
         val container = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setBackgroundColor(themeColors.background)
+            setBackgroundColor(themeColors.surface)
             isClickable = true
         }
         val message = TextView(context).apply {

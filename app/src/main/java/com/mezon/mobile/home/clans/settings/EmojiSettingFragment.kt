@@ -983,7 +983,7 @@ class EmojiSettingFragment : BaseFragment() {
                 gravity = Gravity.CENTER_VERTICAL
                 minimumHeight = LayoutHelper.dp(60f)
                 setPadding(LayoutHelper.dp(14f), LayoutHelper.dp(8f), LayoutHelper.dp(14f), LayoutHelper.dp(8f))
-                setBackgroundColor(themeColors.border)
+                setBackgroundColor(themeColors.background)
                 layoutParams = RecyclerView.LayoutParams(
                     RecyclerView.LayoutParams.MATCH_PARENT,
                     RecyclerView.LayoutParams.WRAP_CONTENT,
