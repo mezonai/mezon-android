@@ -57,3 +57,124 @@ private val legacyDarkPalette: DesktopThemePalette by lazy {
         primaryFillGradient = null,
     )
 }
+
+internal class AndroidThemeOverrides(
+    val chatLink: Int? = null,
+    val successButton: Int? = null,
+    val sheetItemBackground: Int? = null,
+    val dialogName: Int? = null,
+    val chatBackground: Int? = null,
+    val surfaceVariant: Int? = null,
+    val strongText: Int? = null,
+    val createClanAccent: Int? = null,
+    val outline: Int? = null,
+    val outlineVariant: Int? = null,
+    val onPrimaryContainer: Int? = null,
+    val unreadBadge: Int? = null,
+    val onlinePresence: Int? = null,
+    val voiceActive: Int? = null,
+    val reactionBackground: Int? = null,
+    val reactionBorder: Int? = null,
+    val tabIconDetail: Int? = null,
+    val tabLabelActive: Int? = null,
+    val tabLabelInactive: Int? = null,
+    val channelPanelBackground: Int? = null,
+    val channelDocumentBackground: Int? = null,
+    val messageMenuItemBackground: Int? = null,
+    val messageMenuGroupBackground: Int? = null,
+    val messageMenuText: Int? = null,
+    val messageMenuWarning: Int? = null,
+    val messageMenuDivider: Int? = null,
+    val messageMenuWarningBackground: Int? = null,
+    val serverRailBackground: Int? = null,
+    val threadCardBackground: Int? = null,
+    val threadDivider: Int? = null,
+    val threadSearchClear: Int? = null,
+    val threadEmptyIconBackground: Int? = null,
+    val friendHint: Int? = null,
+    val friendRequestCount: Int? = null,
+    val raisedControlBackground: Int? = null,
+    val pollFormHint: Int? = null,
+    val pollFormFieldStroke: Int? = null,
+    val pollPostDisabledBackground: Int? = null,
+    val profileAvatarRing: Int? = null,
+    val charcoal: Int? = null,
+    val borderDim: Int? = null,
+    val secondaryWeight: Int? = null,
+    val colorText: Int? = null,
+    val codeInlineBackground: Int? = null,
+    val tintChannelIconFromName: Boolean = false,
+    val tintThreadEmptyIcon: Boolean = true,
+    val friendCardsUseSheetBackground: Boolean = false,
+    val showFriendScreenDividers: Boolean = true,
+)
+
+private val defaultAndroidOverrides = AndroidThemeOverrides()
+
+internal fun androidThemeOverrides(mode: ThemeMode): AndroidThemeOverrides =
+    if (mode == ThemeMode.DARK) darkAndroidOverrides else defaultAndroidOverrides
+
+// Android-specific roles that differ from the desktop defaults.
+private val darkAndroidOverrides: AndroidThemeOverrides by lazy {
+    val palette = appThemePalette(ThemeMode.DARK)
+    val semantic = palette.semantic
+    val mobile = MobileThemeColors.forMode(ThemeMode.DARK, palette)
+    val accent = palette[Token.BUTTON_THEME_PRIMARY]
+    val chatBackground = palette[Token.BG_INPUT_SECONDARY]
+    val raisedSurface = palette[Token.BG_PRIMARY]
+    val surfaceVariant = 0xFF49454F.toInt()
+    val serverRail = 0xFF121218.toInt()
+    val strongText = 0xFFDFE0E4.toInt()
+    val colorText = 0xFFCCCCCC.toInt()
+
+    AndroidThemeOverrides(
+        chatLink = accent,
+        successButton = semantic.statusOnline,
+        sheetItemBackground = 0xFF2B2B33.toInt(),
+        dialogName = semantic.textPrimary,
+        chatBackground = chatBackground,
+        surfaceVariant = surfaceVariant,
+        strongText = strongText,
+        createClanAccent = 0xFF5865F2.toInt(),
+        outline = 0xFF938F99.toInt(),
+        outlineVariant = surfaceVariant,
+        onPrimaryContainer = 0xFFEADDFF.toInt(),
+        unreadBadge = semantic.mentionBadge,
+        onlinePresence = semantic.statusOnline,
+        voiceActive = 0xFF16A34A.toInt(),
+        reactionBackground = 0x80373A54.toInt(),
+        reactionBorder = 0xFF2563EB.toInt(),
+        tabIconDetail = semantic.textMuted,
+        tabLabelActive = strongText,
+        tabLabelInactive = 0xFFAEAEAE.toInt(),
+        channelPanelBackground = chatBackground,
+        channelDocumentBackground = surfaceVariant,
+        messageMenuItemBackground = palette[Token.BORDER_PRIMARY],
+        messageMenuGroupBackground = chatBackground,
+        messageMenuText = colorText,
+        messageMenuWarning = 0xFFC61E1B.toInt(),
+        messageMenuDivider = raisedSurface,
+        messageMenuWarningBackground = raisedSurface,
+        serverRailBackground = serverRail,
+        threadCardBackground = serverRail,
+        threadDivider = surfaceVariant,
+        threadSearchClear = semantic.textSecondary,
+        threadEmptyIconBackground = surfaceVariant,
+        friendHint = semantic.textSecondary,
+        friendRequestCount = semantic.textSecondary,
+        raisedControlBackground = raisedSurface,
+        pollFormHint = semantic.textSecondary,
+        pollFormFieldStroke = surfaceVariant,
+        pollPostDisabledBackground = raisedSurface,
+        profileAvatarRing = serverRail,
+        charcoal = mobile.charcoal,
+        borderDim = mobile.borderDim,
+        secondaryWeight = mobile.secondaryWeight,
+        colorText = colorText,
+        codeInlineBackground = raisedSurface,
+        tintChannelIconFromName = true,
+        tintThreadEmptyIcon = false,
+        friendCardsUseSheetBackground = true,
+        showFriendScreenDividers = false,
+    )
+}

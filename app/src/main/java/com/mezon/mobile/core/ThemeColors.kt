@@ -1,12 +1,13 @@
 package com.mezon.mobile.core
 
-import com.mezon.mobile.core.theme.MobileThemeColors
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.text.TextPaint
 import androidx.core.graphics.ColorUtils
 import com.mezon.mobile.core.theme.DesktopThemePalette
+import com.mezon.mobile.core.theme.MobileThemeColors
+import com.mezon.mobile.core.theme.androidThemeOverrides
 import com.mezon.mobile.core.theme.appThemePalette
 import com.mezon.mobile.core.theme.DesktopThemeToken as Token
 import com.mezon.mobile.ui.theme.ThemeMode
@@ -132,7 +133,7 @@ class ThemeColors @Inject constructor() {
     val switchThumbPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
     val shadowPaint = Paint().apply { color = 0x12000000 }
 
-    private val usesLegacyDarkColors: Boolean get() = resolvedMode == ThemeMode.DARK
+    private val androidOverrides get() = androidThemeOverrides(resolvedMode)
 
     val desktop: DesktopThemePalette get() = appThemePalette(resolvedMode)
     internal var mobile: MobileThemeColors = MobileThemeColors.forMode(resolvedMode, desktop)
@@ -208,7 +209,7 @@ class ThemeColors @Inject constructor() {
         currentColors[key_chat_inTime] = onSurfaceVariant
         currentColors[key_chat_outTime] = onPrimary and 0x99FFFFFF.toInt()
         currentColors[key_chat_senderName] = primary
-        currentColors[key_chat_linkColor] = if (usesLegacyDarkColors) blurple else textLink
+        currentColors[key_chat_linkColor] = androidOverrides.chatLink ?: textLink
 
         currentColors[key_settings_name] = onSurface
         currentColors[key_settings_value] = onSurfaceVariant
@@ -234,7 +235,7 @@ class ThemeColors @Inject constructor() {
         currentColors[key_connectedColor] = connectedColor
         currentColors[key_connectingColor] = connectingColor
         currentColors[key_disconnectedColor] = disconnectedColor
-        currentColors[key_color_success] = if (usesLegacyDarkColors) 0xFF43B581.toInt() else 0xFF16A34A.toInt()
+        currentColors[key_color_success] = androidOverrides.successButton ?: 0xFF16A34A.toInt()
 
         currentColors[key_dialogBackground] = surface
         currentColors[key_dialogTextBlack] = onSurface
@@ -277,14 +278,14 @@ class ThemeColors @Inject constructor() {
         currentColors[key_profile_tabText] = onSurfaceVariant
         currentColors[key_profile_tabSelector] = (primary and 0x00FFFFFF) or 0x29000000
 
-        currentColors[key_sheetItemBackground] = if (usesLegacyDarkColors) 0xFF2B2B33.toInt() else surface
+        currentColors[key_sheetItemBackground] = androidOverrides.sheetItemBackground ?: surface
         currentColors[key_dialogTextRed] = error
         currentColors[key_dialogIcon] = onSurfaceVariant
 
         System.arraycopy(currentColors, 0, defaultColors, 0, NUM_KEYS)
     }
 
-    private val dialogNameColor: Int get() = if (usesLegacyDarkColors) onSurface else textThemePrimary
+    private val dialogNameColor: Int get() = androidOverrides.dialogName ?: textThemePrimary
 
     private fun applyPaintColors() {
         dialogNamePaint.color = dialogNameColor
@@ -330,11 +331,11 @@ class ThemeColors @Inject constructor() {
 
     val background: Int get() = desktop[Token.BG_THEME_DIRECT_MESSAGE]
 
-    val chatBackground: Int get() = if (usesLegacyDarkColors) secondaryInputBackground else surface
+    val chatBackground: Int get() = androidOverrides.chatBackground ?: surface
 
     val surface: Int get() = desktop[Token.BG_SECONDARY]
 
-    val surfaceVariant: Int get() = if (usesLegacyDarkColors) 0xFF49454F.toInt() else desktop[Token.BG_PRIMARY]
+    val surfaceVariant: Int get() = androidOverrides.surfaceVariant ?: desktop[Token.BG_PRIMARY]
 
     val secondaryLight: Int get() = desktop[Token.BG_SURFACE]
 
@@ -344,11 +345,11 @@ class ThemeColors @Inject constructor() {
 
     val primaryGradiant: Int get() = primaryContainer
 
-    val textStrong: Int get() = if (usesLegacyDarkColors) tabLabelActive else desktop.semantic.textPrimary
+    val textStrong: Int get() = androidOverrides.strongText ?: desktop.semantic.textPrimary
 
     val secondaryInputBackground: Int get() = desktop[Token.BG_INPUT_SECONDARY]
 
-    val createClanDiscordBlurple: Int get() = if (usesLegacyDarkColors) 0xFF5865F2.toInt() else primary
+    val createClanDiscordBlurple: Int get() = androidOverrides.createClanAccent ?: primary
 
     val createClanCameraGray: Int get() = 0xFF676B73.toInt()
 
@@ -358,9 +359,9 @@ class ThemeColors @Inject constructor() {
 
     val onSurfaceVariant: Int get() = desktop.semantic.textSecondary
 
-    val outline: Int get() = if (usesLegacyDarkColors) 0xFF938F99.toInt() else border
+    val outline: Int get() = androidOverrides.outline ?: border
 
-    val outlineVariant: Int get() = if (usesLegacyDarkColors) surfaceVariant else outline
+    val outlineVariant: Int get() = androidOverrides.outlineVariant ?: outline
 
     val dividerColor: Int get() = outlineVariant
 
@@ -370,7 +371,7 @@ class ThemeColors @Inject constructor() {
 
     val primaryContainer: Int get() = desktop[Token.BG_ACTIVE_FRIEND_LIST]
 
-    val onPrimaryContainer: Int get() = if (usesLegacyDarkColors) 0xFFEADDFF.toInt() else onSurface
+    val onPrimaryContainer: Int get() = androidOverrides.onPrimaryContainer ?: onSurface
 
     val connectedColor: Int get() = desktop.semantic.statusOnline
     val connectingColor: Int get() = 0xFFFAA61A.toInt()
@@ -387,12 +388,12 @@ class ThemeColors @Inject constructor() {
     val darkMossGreen: Int get() = desktop[Token.BG_MENTION_EVRYONE]
 
     val badgeRed: Int get() = desktop.semantic.mentionBadge
-    internal val unreadBadge: Int get() = if (usesLegacyDarkColors) badgeRed else MobileThemeColors.unreadBadge
-    val onlineGreen: Int get() = if (usesLegacyDarkColors) connectedColor else DesktopThemePalette.onlinePresenceBadge
-    val voiceActiveGreen: Int get() = if (usesLegacyDarkColors) 0xFF16A34A.toInt() else desktop.semantic.statusOnline
+    internal val unreadBadge: Int get() = androidOverrides.unreadBadge ?: MobileThemeColors.unreadBadge
+    val onlineGreen: Int get() = androidOverrides.onlinePresence ?: DesktopThemePalette.onlinePresenceBadge
+    val voiceActiveGreen: Int get() = androidOverrides.voiceActive ?: desktop.semantic.statusOnline
 
-    val reactionBgColor: Int get() = if (usesLegacyDarkColors) 0x80373A54.toInt() else (primary and 0x00FFFFFF) or 0x2E000000
-    val reactionBorderColor: Int get() = if (usesLegacyDarkColors) 0xFF2563EB.toInt() else primary
+    val reactionBgColor: Int get() = androidOverrides.reactionBackground ?: ((primary and 0x00FFFFFF) or 0x2E000000)
+    val reactionBorderColor: Int get() = androidOverrides.reactionBorder ?: primary
 
     val qrOverlayDim: Int get() = 0x66000000
     val qrOverlayFrame: Int get() = Color.WHITE
@@ -402,55 +403,55 @@ class ThemeColors @Inject constructor() {
     val qrAvatarBackground: Int get() = Color.WHITE
 
     // Bottom tab icon detail uses the full theme icon color.
-    val tabIconDetail: Int get() = if (usesLegacyDarkColors) textDisabled else desktop[Token.BG_ICON_THEME]
+    val tabIconDetail: Int get() = androidOverrides.tabIconDetail ?: desktop[Token.BG_ICON_THEME]
 
     // Active labels use the desktop navigation text token.
-    val tabLabelActive: Int get() = if (usesLegacyDarkColors) 0xFFDFE0E4.toInt() else desktop[Token.TEXT_SECONDARY]
+    val tabLabelActive: Int get() = androidOverrides.tabLabelActive ?: desktop[Token.TEXT_SECONDARY]
 
     // Inactive labels use secondary semantic text.
-    val tabLabelInactive: Int get() = if (usesLegacyDarkColors) 0xFFAEAEAE.toInt() else desktop.semantic.textSecondary
+    val tabLabelInactive: Int get() = androidOverrides.tabLabelInactive ?: desktop.semantic.textSecondary
 
-    val channelPanelBg: Int get() = if (usesLegacyDarkColors) chatBackground else background
+    val channelPanelBg: Int get() = androidOverrides.channelPanelBackground ?: background
 
-    internal val channelDocumentBackground: Int get() = if (usesLegacyDarkColors) surfaceVariant else background
+    internal val channelDocumentBackground: Int get() = androidOverrides.channelDocumentBackground ?: background
 
     internal fun channelListIconTint(desktopTint: Int, channelNameTint: Int): Int =
-        if (usesLegacyDarkColors) channelNameTint else desktopTint
+        if (androidOverrides.tintChannelIconFromName) channelNameTint else desktopTint
 
-    internal val messageMenuItemBackground: Int get() = if (usesLegacyDarkColors) border else background
-    internal val messageMenuGroupBackground: Int get() = if (usesLegacyDarkColors) channelPanelBg else background
-    internal val messageMenuText: Int get() = if (usesLegacyDarkColors) colorText else textStrong
-    internal val messageMenuWarning: Int get() = if (usesLegacyDarkColors) redStrong else error
-    internal val messageMenuDivider: Int get() = if (usesLegacyDarkColors) tertiary else border
+    internal val messageMenuItemBackground: Int get() = androidOverrides.messageMenuItemBackground ?: background
+    internal val messageMenuGroupBackground: Int get() = androidOverrides.messageMenuGroupBackground ?: background
+    internal val messageMenuText: Int get() = androidOverrides.messageMenuText ?: textStrong
+    internal val messageMenuWarning: Int get() = androidOverrides.messageMenuWarning ?: error
+    internal val messageMenuDivider: Int get() = androidOverrides.messageMenuDivider ?: border
 
     internal fun messageMenuWarningBackground(sheetBackground: Int): Int =
-        if (usesLegacyDarkColors) tertiary else sheetBackground
+        androidOverrides.messageMenuWarningBackground ?: sheetBackground
 
-    val serverRailBg: Int get() = if (usesLegacyDarkColors) 0xFF121218.toInt() else desktop[Token.BG_PRIMARY]
+    val serverRailBg: Int get() = androidOverrides.serverRailBackground ?: desktop[Token.BG_PRIMARY]
 
-    internal val threadCardBackground: Int get() = if (usesLegacyDarkColors) serverRailBg else background
-    internal val threadDividerColor: Int get() = if (usesLegacyDarkColors) outlineVariant else mobile.borderDim
-    internal val threadSearchClearTint: Int get() = if (usesLegacyDarkColors) onSurfaceVariant else textStrong
+    internal val threadCardBackground: Int get() = androidOverrides.threadCardBackground ?: background
+    internal val threadDividerColor: Int get() = androidOverrides.threadDivider ?: mobile.borderDim
+    internal val threadSearchClearTint: Int get() = androidOverrides.threadSearchClear ?: textStrong
     internal val threadEmptyIconBackground: Int
-        get() = if (usesLegacyDarkColors) surfaceVariant else ColorUtils.setAlphaComponent(primary, 36)
-    internal val threadEmptyIconTint: Int? get() = if (usesLegacyDarkColors) null else textDisabled
+        get() = androidOverrides.threadEmptyIconBackground ?: ColorUtils.setAlphaComponent(primary, 36)
+    internal val threadEmptyIconTint: Int? get() = textDisabled.takeIf { androidOverrides.tintThreadEmptyIcon }
 
     internal val friendScreenCardBackground: Int
-        get() = if (usesLegacyDarkColors) getColor(key_sheetItemBackground) else background
-    internal val friendScreenHint: Int get() = if (usesLegacyDarkColors) onSurfaceVariant else textDisabled
-    internal val friendRequestCountText: Int get() = if (usesLegacyDarkColors) onSurfaceVariant else onSurface
-    internal val friendScreenShowsDividers: Boolean get() = !usesLegacyDarkColors
+        get() = if (androidOverrides.friendCardsUseSheetBackground) getColor(key_sheetItemBackground) else background
+    internal val friendScreenHint: Int get() = androidOverrides.friendHint ?: textDisabled
+    internal val friendRequestCountText: Int get() = androidOverrides.friendRequestCount ?: onSurface
+    internal val friendScreenShowsDividers: Boolean get() = androidOverrides.showFriendScreenDividers
 
     internal fun friendActionBackground(useFriendScreenStyle: Boolean): Int =
         if (useFriendScreenStyle) background else raisedControlBackground
 
-    internal val raisedControlBackground: Int get() = if (usesLegacyDarkColors) tertiary else background
-    internal val pollFormHint: Int get() = if (usesLegacyDarkColors) onSurfaceVariant else textDisabled
-    internal val pollFormFieldStroke: Int? get() = if (usesLegacyDarkColors) outlineVariant else null
+    internal val raisedControlBackground: Int get() = androidOverrides.raisedControlBackground ?: background
+    internal val pollFormHint: Int get() = androidOverrides.pollFormHint ?: textDisabled
+    internal val pollFormFieldStroke: Int? get() = androidOverrides.pollFormFieldStroke
     internal val pollPostDisabledBackground: Int
-        get() = if (usesLegacyDarkColors) tertiary else ColorUtils.setAlphaComponent(textDisabled, 0x66)
+        get() = androidOverrides.pollPostDisabledBackground ?: ColorUtils.setAlphaComponent(textDisabled, 0x66)
 
-    val profileSheetAvatarRingColor: Int get() = if (usesLegacyDarkColors) serverRailBg else surface
+    val profileSheetAvatarRingColor: Int get() = androidOverrides.profileAvatarRing ?: surface
 
     val profileSheetBackdropFallback: Int get() = 0xFF808080.toInt()
 
@@ -458,21 +459,21 @@ class ThemeColors @Inject constructor() {
 
     val textDisabled: Int get() = desktop.semantic.textMuted
 
-    val charcoal: Int get() = if (usesLegacyDarkColors) mobile.charcoal else surfaceVariant
+    val charcoal: Int get() = androidOverrides.charcoal ?: surfaceVariant
 
-    val borderDim: Int get() = if (usesLegacyDarkColors) mobile.borderDim else outline
+    val borderDim: Int get() = androidOverrides.borderDim ?: outline
 
     val border: Int get() = desktop[Token.BORDER_PRIMARY]
 
-    val secondaryWeight: Int get() = if (usesLegacyDarkColors) mobile.secondaryWeight else desktop[Token.BG_ACTIVE_FRIEND_LIST]
+    val secondaryWeight: Int get() = androidOverrides.secondaryWeight ?: desktop[Token.BG_ACTIVE_FRIEND_LIST]
 
-    val colorText: Int get() = if (usesLegacyDarkColors) 0xFFCCCCCC.toInt() else desktop.semantic.textSecondary
+    val colorText: Int get() = androidOverrides.colorText ?: desktop.semantic.textSecondary
 
     val colorAvatarDefault: Int get() = desktop[Token.BG_ICON_THEME]
 
     val buzzRed: Int get() = 0xFFEA2420.toInt()
 
-    val codeInlineBg: Int get() = if (usesLegacyDarkColors) tertiary else desktop[Token.BG_ACTIVE_MEMBER_CHANNEL]
+    val codeInlineBg: Int get() = androidOverrides.codeInlineBackground ?: desktop[Token.BG_ACTIVE_MEMBER_CHANNEL]
 
     val codeInlineText: Int get() = desktop[Token.TEXT_SECONDARY]
 
