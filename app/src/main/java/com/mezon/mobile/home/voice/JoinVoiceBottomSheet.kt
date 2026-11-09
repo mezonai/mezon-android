@@ -44,7 +44,13 @@ class JoinVoiceBottomSheet(
         get() = themeColors.surface
 
     override val sheetHandleColor: Int
-        get() = themeColors.border
+        get() = if (themeColors.usesLegacyDarkColors) super.sheetHandleColor else themeColors.border
+
+    private val controlBackgroundColor: Int
+        get() = if (themeColors.usesLegacyDarkColors) themeColors.surfaceVariant else themeColors.background
+
+    private val joinColor: Int
+        get() = if (themeColors.usesLegacyDarkColors) themeColors.connectedColor else themeColors.voiceActiveGreen
 
     var onJoinVoice: ((role: SfuRole) -> Unit)? = null
     var onOpenChat: (() -> Unit)? = null
@@ -77,8 +83,8 @@ class JoinVoiceBottomSheet(
         val closeButton = FrameLayout(context).apply {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(themeColors.background)
-                setStroke(LayoutHelper.dp(1), themeColors.border)
+                setColor(controlBackgroundColor)
+                if (!themeColors.usesLegacyDarkColors) setStroke(LayoutHelper.dp(1), themeColors.border)
             }
             isClickable = true
             isFocusable = true
@@ -131,7 +137,7 @@ class JoinVoiceBottomSheet(
                 val avatarWrap = FrameLayout(context).apply {
                     background = GradientDrawable().apply {
                         shape = GradientDrawable.OVAL
-                        setColor(themeColors.surface)
+                        setColor(if (themeColors.usesLegacyDarkColors) 0xFFFFFFFF.toInt() else themeColors.surface)
                     }
                     addView(avatarView, FrameLayout.LayoutParams(
                         avatarSizePx - LayoutHelper.dp(2), avatarSizePx - LayoutHelper.dp(2), Gravity.CENTER
@@ -154,8 +160,8 @@ class JoinVoiceBottomSheet(
                     gravity = Gravity.CENTER
                     val bgDrawable = GradientDrawable().apply {
                         shape = GradientDrawable.OVAL
-                        setColor(themeColors.background)
-                        setStroke(LayoutHelper.dp(1), themeColors.surface)
+                        setColor(controlBackgroundColor)
+                        setStroke(LayoutHelper.dp(1), if (themeColors.usesLegacyDarkColors) 0xFFFFFFFF.toInt() else themeColors.surface)
                     }
                     background = bgDrawable
                 }
@@ -167,8 +173,8 @@ class JoinVoiceBottomSheet(
             val emptyVoice = FrameLayout(context).apply {
                 background = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL
-                    setColor(themeColors.background)
-                    setStroke(LayoutHelper.dp(1), themeColors.border)
+                    setColor(controlBackgroundColor)
+                    if (!themeColors.usesLegacyDarkColors) setStroke(LayoutHelper.dp(1), themeColors.border)
                 }
                 val icon = if (kind == JoinMediaSheetKind.STREAMING) {
                     MezonIcon.channelStream
@@ -249,7 +255,7 @@ class JoinVoiceBottomSheet(
                 text = "+" + java.text.NumberFormat.getIntegerInstance().format(overflow)
                 gravity = Gravity.CENTER; setTextColor(themeColors.onSurface); textSize = 12f
                 setPadding(LayoutHelper.dp(8), 0, LayoutHelper.dp(8), 0)
-                background = GradientDrawable().apply { setColor(themeColors.background); cornerRadius = LayoutHelper.dp(18).toFloat() }
+                background = GradientDrawable().apply { setColor(controlBackgroundColor); cornerRadius = LayoutHelper.dp(18).toFloat() }
             }, LinearLayout.LayoutParams(-2, LayoutHelper.dp(36)).apply { marginStart = -LayoutHelper.dp(5) })
             root.addView(viewers, LinearLayout.LayoutParams(-1, -2).apply { topMargin = LayoutHelper.dp(12); bottomMargin = LayoutHelper.dp(12) })
         }
@@ -264,7 +270,7 @@ class JoinVoiceBottomSheet(
                 alpha = if (canJoin) 1f else 0.45f
                 background = GradientDrawable().apply {
                     cornerRadius = LayoutHelper.dp(40).toFloat()
-                    setColor(themeColors.voiceActiveGreen)
+                    setColor(joinColor)
                 }
                 setPadding(LayoutHelper.dp(32), LayoutHelper.dp(12), LayoutHelper.dp(32), LayoutHelper.dp(12))
                 isClickable = canJoin
@@ -292,8 +298,8 @@ class JoinVoiceBottomSheet(
         val chatButton = FrameLayout(context).apply {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(themeColors.background)
-                setStroke(LayoutHelper.dp(1), themeColors.border)
+                setColor(controlBackgroundColor)
+                if (!themeColors.usesLegacyDarkColors) setStroke(LayoutHelper.dp(1), themeColors.border)
             }
             isClickable = true
             isFocusable = true
@@ -339,7 +345,7 @@ class JoinVoiceBottomSheet(
             orientation = LinearLayout.HORIZONTAL
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(40).toFloat()
-                setColor(themeColors.voiceActiveGreen)
+                setColor(joinColor)
             }
         }
         val primary = TextView(context).apply {
@@ -385,8 +391,8 @@ class JoinVoiceBottomSheet(
             orientation = LinearLayout.VERTICAL
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(12).toFloat()
-                setColor(themeColors.surface)
-                setStroke(LayoutHelper.dp(1), themeColors.border)
+                setColor(if (themeColors.usesLegacyDarkColors) 0xFF20202D.toInt() else themeColors.surface)
+                setStroke(LayoutHelper.dp(1), if (themeColors.usesLegacyDarkColors) 0xFF3A3A48.toInt() else themeColors.border)
             }
             setPadding(0, LayoutHelper.dp(6), 0, LayoutHelper.dp(6))
         }
@@ -400,7 +406,11 @@ class JoinVoiceBottomSheet(
             val selected = role == selectedRole
             menu.addView(TextView(ctx).apply {
                 text = label
-                setTextColor(if (selected) themeColors.voiceActiveGreen else themeColors.onSurface)
+                setTextColor(when {
+                    selected -> joinColor
+                    themeColors.usesLegacyDarkColors -> 0xFFFFFFFF.toInt()
+                    else -> themeColors.onSurface
+                })
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
                 typeface = if (selected) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
                 setPadding(LayoutHelper.dp(16), LayoutHelper.dp(12), LayoutHelper.dp(16), LayoutHelper.dp(12))

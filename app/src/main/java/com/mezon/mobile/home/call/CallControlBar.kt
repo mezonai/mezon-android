@@ -69,7 +69,7 @@ class CallControlBar(
 
         val btnBorder = themeColors.textDisabled
         val tertiary = themeColors.tertiary
-        val defaultTint = themeColors.onSurface
+        val defaultTint = if (themeColors.usesLegacyDarkColors) themeColors.tabLabelActive else themeColors.onSurface
 
         speakerBtn = VoiceStyleCircleButton(context, MezonIcon.voiceLowIcon, tertiary, btnBorder, defaultTint).apply {
             setOnClickListener { delegate?.onSpeakerClicked() }
@@ -103,19 +103,22 @@ class CallControlBar(
         speakerBtn.updateBgColor(controlFill(isSpeakerActive))
         if (isSpeakerActive) {
             speakerBtn.updateIcon(MezonIcon.voiceWaveDoubleIcon)
-            speakerBtn.updateIconTint(themeColors.surface)
+            speakerBtn.updateIconTint(if (themeColors.usesLegacyDarkColors) themeColors.tabIconActivePrimary else themeColors.surface)
         } else {
             speakerBtn.updateIcon(MezonIcon.voiceWaveIcon)
-            speakerBtn.updateIconTint(themeColors.onSurface)
+            speakerBtn.updateIconTint(if (themeColors.usesLegacyDarkColors) themeColors.tabLabelActive else themeColors.onSurface)
         }
     }
 
     private fun applyMicUi() {
         micBtn.updateIcon(if (isMicActive) MezonIcon.microphoneIcon else MezonIcon.microphoneSlashIcon)
         micBtn.updateBgColor(controlFill(isMicActive))
-        micBtn.updateIconTint(if (isMicActive) themeColors.surface else themeColors.onSurface)
+        micBtn.updateIconTint(if (themeColors.usesLegacyDarkColors) themeColors.tabLabelActive else if (isMicActive) themeColors.surface else themeColors.onSurface)
     }
 
-    private fun controlFill(active: Boolean): Int = if (active) themeColors.onSurface
-        else (themeColors.mobile.secondaryWeight and 0x00FFFFFF) or 0x8C000000.toInt()
+    private fun controlFill(active: Boolean): Int = when {
+        themeColors.usesLegacyDarkColors -> themeColors.tertiary
+        active -> themeColors.onSurface
+        else -> (themeColors.mobile.secondaryWeight and 0x00FFFFFF) or 0x8C000000.toInt()
+    }
 }

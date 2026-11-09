@@ -31,7 +31,7 @@ class SearchTabHeader(context: Context, private val theme: ThemeColors) : Linear
 
     fun applyTheme() {
         setBackgroundColor(theme.surface)
-        bottomBorderPaint.color = ColorUtils.setAlphaComponent(theme.border, 77)
+        bottomBorderPaint.color = if (theme.usesLegacyDarkColors) 0x305A5B5C else ColorUtils.setAlphaComponent(theme.border, 77)
         selectTab(selectedTab)
         invalidate()
     }
@@ -104,7 +104,7 @@ class SearchTabHeader(context: Context, private val theme: ThemeColors) : Linear
             addView(labelView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
 
             indicatorView = View(context).apply {
-                setBackgroundColor(MobileThemeColors.searchAccent)
+                setBackgroundColor(if (theme.usesLegacyDarkColors) theme.blurple else MobileThemeColors.searchAccent)
                 visibility = GONE
             }
             addView(indicatorView, LayoutParams(LayoutParams.MATCH_PARENT, INDICATOR_HEIGHT))
@@ -122,11 +122,11 @@ class SearchTabHeader(context: Context, private val theme: ThemeColors) : Linear
 
         fun setActive(active: Boolean) {
             if (active) {
-                labelView.setTextColor(MobileThemeColors.searchAccent)
+                labelView.setTextColor(if (theme.usesLegacyDarkColors) theme.blurple else MobileThemeColors.searchAccent)
                 labelView.setTypeface(labelView.typeface, Typeface.BOLD)
                 indicatorView.visibility = VISIBLE
             } else {
-                labelView.setTextColor(theme.textDisabled)
+                labelView.setTextColor(if (theme.usesLegacyDarkColors) theme.onSurface else theme.textDisabled)
                 labelView.setTypeface(labelView.typeface, Typeface.NORMAL)
                 indicatorView.visibility = GONE
             }

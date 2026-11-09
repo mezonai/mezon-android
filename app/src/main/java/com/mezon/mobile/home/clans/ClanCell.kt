@@ -12,7 +12,6 @@ import com.mezon.mobile.core.BaseCell
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
-import com.mezon.mobile.core.theme.MobileThemeColors
 import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.util.avatarImgproxyUrl
 
@@ -270,7 +269,7 @@ class ClanCell(
         }
 
         if (clan.badgeCount > 0) {
-            badgeBgPaint.color = MobileThemeColors.unreadBadge
+            badgeBgPaint.color = themeColors.unreadBadge
             val text = if (clan.badgeCount > 99) "99+" else clan.badgeCount.toString()
             val textW = badgeTextPaint.measureText(text)
             val badgeW = (textW + BADGE_PAD_H * 2).coerceAtLeast(BADGE_HEIGHT)

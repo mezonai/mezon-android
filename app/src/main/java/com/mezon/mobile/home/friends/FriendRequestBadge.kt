@@ -9,7 +9,7 @@ import android.view.Gravity
 import android.view.View
 import android.widget.TextView
 import com.mezon.mobile.core.LayoutHelper
-import com.mezon.mobile.core.theme.MobileThemeColors
+import com.mezon.mobile.core.ThemeColors
 
 internal fun createFriendRequestBadgeView(context: Context): TextView {
     return TextView(context).apply {
@@ -31,7 +31,7 @@ internal fun TextView.updateFriendRequestBadge(count: Int) {
         background = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = LayoutHelper.dp(9f).toFloat()
-            setColor(MobileThemeColors.unreadBadge)
+            setColor(ThemeColors.instance.unreadBadge)
         }
         visibility = View.VISIBLE
     } else {

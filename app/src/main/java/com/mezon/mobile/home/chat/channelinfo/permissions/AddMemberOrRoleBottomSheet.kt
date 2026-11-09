@@ -36,7 +36,7 @@ class AddMemberOrRoleBottomSheet(
 ) : BottomSheet(context, needFocusable = true) {
 
     override val sheetBackgroundColor: Int
-        get() = theme.channelPanelBg
+        get() = if (theme.usesLegacyDarkColors) super.sheetBackgroundColor else theme.channelPanelBg
 
     private val selectedMemberIds = LinkedHashSet<Long>()
     private val selectedRoleIds = LinkedHashSet<Long>()
@@ -52,6 +52,13 @@ class AddMemberOrRoleBottomSheet(
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(LayoutHelper.dp(14f), LayoutHelper.dp(12f), LayoutHelper.dp(14f), LayoutHelper.dp(14f))
+            if (theme.usesLegacyDarkColors) {
+                background = GradientDrawable().apply {
+                    setColor(theme.channelPanelBg)
+                    val radius = LayoutHelper.dpf(18f)
+                    cornerRadii = floatArrayOf(radius, radius, radius, radius, 0f, 0f, 0f, 0f)
+                }
+            }
         }
 
         root.addView(
@@ -67,7 +74,7 @@ class AddMemberOrRoleBottomSheet(
 
         val searchInput = SearchCell(context, theme).apply {
             setPlaceholder(context.getString(R.string.channel_permissions_role_member_placeholder))
-            setBarBackgroundColor(theme.surface)
+            if (!theme.usesLegacyDarkColors) setBarBackgroundColor(theme.surface)
             onTextChanged = {
                 query = it.trim().lowercase()
                 rebuildRows(context)
@@ -137,7 +144,7 @@ class AddMemberOrRoleBottomSheet(
         gravity = Gravity.CENTER_VERTICAL
         setPadding(LayoutHelper.dp(10f), LayoutHelper.dp(10f), LayoutHelper.dp(10f), LayoutHelper.dp(10f))
         background = GradientDrawable().apply {
-            setColor(theme.surface)
+            setColor(if (theme.usesLegacyDarkColors) theme.tertiary else theme.surface)
             cornerRadius = LayoutHelper.dpf(10f)
         }
         isClickable = true

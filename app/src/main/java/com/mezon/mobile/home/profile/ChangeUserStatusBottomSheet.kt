@@ -39,7 +39,7 @@ class ChangeUserStatusBottomSheet(
         val titleText = TextView(context).apply {
             text = context.getString(R.string.status_change_online_status)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
-            setTextColor(themeColors.textStrong)
+            setTextColor(if (themeColors.usesLegacyDarkColors) themeColors.onSurface else themeColors.textStrong)
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER_HORIZONTAL
         }
@@ -61,7 +61,7 @@ class ChangeUserStatusBottomSheet(
             orientation = LinearLayout.VERTICAL
             val bg = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(12f).toFloat()
-                setColor(themeColors.background)
+                setColor(if (themeColors.usesLegacyDarkColors) themeColors.getColor(ThemeColors.key_sheetItemBackground) else themeColors.background)
             }
             background = bg
             setPadding(LayoutHelper.dp(8), LayoutHelper.dp(8), LayoutHelper.dp(8), LayoutHelper.dp(8))
@@ -91,7 +91,7 @@ class ChangeUserStatusBottomSheet(
             val labelView = TextView(context).apply {
                 text = label
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-                setTextColor(themeColors.textStrong)
+                setTextColor(if (themeColors.usesLegacyDarkColors) themeColors.onSurface else themeColors.textStrong)
                 typeface = Typeface.DEFAULT_BOLD
                 setPadding(LayoutHelper.dp(12), 0, 0, 0)
             }
@@ -132,7 +132,7 @@ class ChangeUserStatusBottomSheet(
             optionsContainer.addView(createOptionRow(label, value, icon))
             if (!isLast) {
                 val separator = View(context).apply {
-                    setBackgroundColor(themeColors.border)
+                    setBackgroundColor(if (themeColors.usesLegacyDarkColors) themeColors.dividerColor else themeColors.border)
                 }
                 optionsContainer.addView(separator, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LayoutHelper.dp(0.5f)).apply {
                     leftMargin = -LayoutHelper.dp(8)
@@ -151,7 +151,7 @@ class ChangeUserStatusBottomSheet(
             gravity = Gravity.CENTER_VERTICAL
             val bg = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(12f).toFloat()
-                setColor(themeColors.background)
+                setColor(if (themeColors.usesLegacyDarkColors) themeColors.getColor(ThemeColors.key_sheetItemBackground) else themeColors.background)
             }
             background = bg
             setPadding(LayoutHelper.dp(20), LayoutHelper.dp(16), LayoutHelper.dp(20), LayoutHelper.dp(16))
@@ -173,7 +173,7 @@ class ChangeUserStatusBottomSheet(
         val customLabel = TextView(context).apply {
             text = customStatus.ifEmpty { context.getString(R.string.status_set_custom_status) }
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-            setTextColor(themeColors.textStrong)
+            setTextColor(if (themeColors.usesLegacyDarkColors) themeColors.onSurface else themeColors.textStrong)
             typeface = Typeface.DEFAULT_BOLD
             ellipsize = android.text.TextUtils.TruncateAt.END
             maxLines = 1

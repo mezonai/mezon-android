@@ -261,14 +261,14 @@ class FriendPickerAdapter(
 
 private class HeaderRowView(context: Context, private val themeColors: ThemeColors) : TextView(context) {
     init {
-        setTextColor(themeColors.textDisabled)
+        setTextColor(if (themeColors.usesLegacyDarkColors) themeColors.colorText else themeColors.textDisabled)
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
         includeFontPadding = false
     }
 
     fun bind(title: String, uppercase: Boolean, separated: Boolean) {
         text = if (uppercase) title.uppercase(Locale.getDefault()) else title
-        setTextColor(themeColors.textDisabled)
+        setTextColor(if (themeColors.usesLegacyDarkColors) themeColors.colorText else themeColors.textDisabled)
         val topPadding = when {
             !uppercase -> PAD_TOP_SEARCH
             separated -> PAD_TOP_SEPARATED
@@ -318,7 +318,7 @@ private class FriendPickerCell(
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(LayoutHelper.dp(10), LayoutHelper.dp(8), LayoutHelper.dp(10), LayoutHelper.dp(8))
-            background = rowBackground.apply { setColor(themeColors.background) }
+            background = rowBackground.apply { setColor(if (themeColors.usesLegacyDarkColors) themeColors.secondaryInputBackground else themeColors.background) }
         }
         addView(row, LayoutParams(LayoutParams.MATCH_PARENT, LayoutHelper.dp(56)))
 
@@ -349,7 +349,7 @@ private class FriendPickerCell(
 
         subtitleView = TextView(context).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-            setTextColor(themeColors.textDisabled)
+            setTextColor(if (themeColors.usesLegacyDarkColors) themeColors.textStrong else themeColors.textDisabled)
             includeFontPadding = false
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
@@ -369,9 +369,9 @@ private class FriendPickerCell(
         selectMode: Boolean,
         divider: Boolean
     ) {
-        rowBackground.setColor(themeColors.background)
+        rowBackground.setColor(if (themeColors.usesLegacyDarkColors) themeColors.secondaryInputBackground else themeColors.background)
         titleView.setTextColor(themeColors.textStrong)
-        subtitleView.setTextColor(themeColors.textDisabled)
+        subtitleView.setTextColor(if (themeColors.usesLegacyDarkColors) themeColors.textStrong else themeColors.textDisabled)
         val user = friend.user
         val displayName = user.displayName.ifBlank { user.username }
         avatarView.setUserId(user.id)
@@ -427,12 +427,15 @@ private class SquareCheckView(
         val pad = LayoutHelper.dpf(2f)
         rect.set(pad, pad, width - pad, height - pad)
         val radius = LayoutHelper.dpf(5f)
+        val legacyDark = themeColors.usesLegacyDarkColors
+        val selectedColor = if (legacyDark) themeColors.blurple else MobileThemeColors.newConversation
+        val borderColor = if (legacyDark) themeColors.outline else themeColors.textDisabled
         if (checked) {
-            bgPaint.color = MobileThemeColors.newConversation
+            bgPaint.color = selectedColor
             bgPaint.alpha = if (disabled) 150 else 255
             canvas.drawRoundRect(rect, radius, radius, bgPaint)
         }
-        borderPaint.color = if (checked) MobileThemeColors.newConversation else themeColors.textDisabled
+        borderPaint.color = if (checked) selectedColor else borderColor
         borderPaint.alpha = if (disabled) 120 else 255
         canvas.drawRoundRect(rect, radius, radius, borderPaint)
         if (checked) {

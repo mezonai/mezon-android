@@ -95,7 +95,11 @@ class ChannelNotificationSettingsBottomSheet(
             setPadding(LayoutHelper.dp(20), 0, LayoutHelper.dp(20), LayoutHelper.dp(20))
             addView(title, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
             addView(
-                ClanSettingsUiHelpers.buildMezonSection(context, theme, null, optionRows, cardColor = theme.background, separatorColor = theme.border),
+                ClanSettingsUiHelpers.buildMezonSection(
+                    context, theme, null, optionRows,
+                    cardColor = if (theme.usesLegacyDarkColors) theme.channelPanelBg else theme.background,
+                    separatorColor = if (theme.usesLegacyDarkColors) theme.tertiary else theme.border
+                ),
                 LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT),
             )
         }
@@ -196,7 +200,7 @@ class ChannelNotificationSettingsBottomSheet(
             gravity = Gravity.CENTER_VERTICAL
             minimumHeight = LayoutHelper.dp(58)
             setPadding(LayoutHelper.dp(16), LayoutHelper.dp(10), LayoutHelper.dp(16), LayoutHelper.dp(10))
-            setBackgroundColor(theme.background)
+            setBackgroundColor(if (theme.usesLegacyDarkColors) theme.border else theme.background)
             isClickable = true
             isFocusable = true
             contentDescription = title

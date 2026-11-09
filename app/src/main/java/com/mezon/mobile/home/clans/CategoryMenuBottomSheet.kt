@@ -47,7 +47,7 @@ class CategoryMenuBottomSheet(
         fun buildRow(
             label: String,
             icon: MezonIcon,
-            labelColor: Int = theme.textStrong,
+            labelColor: Int = if (theme.usesLegacyDarkColors) theme.colorText else theme.textStrong,
             iconColor: Int = theme.textStrong,
             onClick: () -> Unit,
         ) = ClanSettingsUiHelpers.buildMezonMenuRow(
@@ -58,13 +58,17 @@ class CategoryMenuBottomSheet(
             labelColor,
             iconColor,
             dismissAndRun(onClick),
-            rowBackgroundColor = theme.background,
+            rowBackgroundColor = if (theme.usesLegacyDarkColors) theme.border else theme.background,
         )
 
         fun addSection(parent: LinearLayout, rows: List<View>, topGap: Float = sectionGap) {
             if (rows.all { it.visibility == View.GONE }) return
             parent.addView(
-                ClanSettingsUiHelpers.buildMezonSection(context, theme, null, rows, cardColor = theme.background, separatorColor = theme.border),
+                ClanSettingsUiHelpers.buildMezonSection(
+                    context, theme, null, rows,
+                    cardColor = if (theme.usesLegacyDarkColors) theme.channelPanelBg else theme.background,
+                    separatorColor = if (theme.usesLegacyDarkColors) theme.tertiary else theme.border
+                ),
                 LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, topGap, 0f, 0f)
             )
         }

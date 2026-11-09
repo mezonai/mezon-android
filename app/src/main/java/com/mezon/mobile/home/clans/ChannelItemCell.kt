@@ -205,8 +205,11 @@ class ChannelItemCell(
             } else {
                 DesktopThemeToken.BG_ICON_THEME
             }
-            val iconColor = themeColors.desktop[token].let {
-                if (isMutedVisual) withAlpha(it, MUTED_CONTENT_ALPHA) else it
+            val iconColor = if (themeColors.usesLegacyDarkColors) {
+                textColor
+            } else {
+                val color = themeColors.desktop[token]
+                if (isMutedVisual) withAlpha(color, MUTED_CONTENT_ALPHA) else color
             }
             if (cachedIconColorFilter == null || cachedIconColor != iconColor) {
                 cachedIconColor = iconColor

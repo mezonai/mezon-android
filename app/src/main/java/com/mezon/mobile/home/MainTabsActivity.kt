@@ -207,6 +207,8 @@ class MainTabsActivity : ViewPagerActivity() {
 
     override fun getStatusBarColor(): Int = Color.TRANSPARENT
 
+    override fun getNavigationBarColor(): Int = BottomTabBar.containerColor(themeColors.resolvedMode)
+
     override fun isLightStatusBar(): Boolean = themeColors.resolvedMode.isLight
 
     private fun createAdapter(): ViewPagerFixed.Adapter {

@@ -252,7 +252,7 @@ class SystemMessageCell(context: Context, private val theme: ThemeColors) : Line
     private fun bindBody(msg: MessageEntity) {
         val linkColor = theme.desktop[DesktopThemeToken.MENTION_COLOR]
         val mentionColors = MentionColors(
-            linkColor,
+            if (theme.usesLegacyDarkColors) theme.textLink else linkColor,
             theme.midnightBlue,
             theme.textRoleLink,
             theme.darkMossGreen
@@ -302,7 +302,7 @@ class SystemMessageCell(context: Context, private val theme: ThemeColors) : Line
                 textStr.isBlank() -> systemFallbackText(msg)
                 else -> parseContentToSpannable(
                     msg.content,
-                    linkColor,
+                    if (theme.usesLegacyDarkColors) theme.primary else linkColor,
                     plainMessageTextView,
                     mentionColors,
                     theme,

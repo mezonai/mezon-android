@@ -187,8 +187,8 @@ class IntegrationSettingFragment : BaseFragment() {
                                 onClanWebhooks,
                             ),
                         ),
-                        cardColor = themeColors.background,
-                        separatorColor = themeColors.border,
+                        cardColor = if (themeColors.usesLegacyDarkColors) themeColors.channelPanelBg else themeColors.background,
+                        separatorColor = if (themeColors.usesLegacyDarkColors) themeColors.tertiary else themeColors.border,
                     ),
                 )
             }

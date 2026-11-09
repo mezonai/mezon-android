@@ -29,6 +29,8 @@ import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.core.theme.DesktopThemePalette
+import com.mezon.mobile.core.theme.DesktopThemeToken as Token
 import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.util.avatarImgproxyUrl
@@ -49,6 +51,8 @@ class PollDetailModal(
     private val channelId: Long,
     private val parentChannelId: Long
 ) : Dialog(context), NotificationCenter.NotificationCenterDelegate {
+
+    private val palette get() = DesktopThemePalette.forTheme(themeColors.resolvedMode)
 
     private lateinit var titleView: TextView
     private lateinit var subtitleView: TextView
@@ -103,8 +107,8 @@ class PollDetailModal(
 
         val modalBg = GradientDrawable().apply {
             cornerRadius = LayoutHelper.dpf(12f)
-            setColor(themeColors.surface)
-            setStroke(LayoutHelper.dp(1), themeColors.borderDim)
+            setColor(palette[Token.BG_SECONDARY])
+            setStroke(LayoutHelper.dp(1), palette[Token.BORDER_PRIMARY])
         }
 
         val root = LinearLayout(context).apply {
@@ -118,7 +122,7 @@ class PollDetailModal(
         }
         titleView = TextView(context).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
-            setTextColor(themeColors.onSurface)
+            setTextColor(palette.semantic.textPrimary)
             typeface = android.graphics.Typeface.DEFAULT_BOLD
             maxLines = 3
         }
@@ -135,7 +139,7 @@ class PollDetailModal(
         val close = ImageView(context).apply {
             setImageResource(R.drawable.ic_close_icon)
             colorFilter =
-                PorterDuffColorFilter(themeColors.textStrong, PorterDuff.Mode.SRC_IN)
+                PorterDuffColorFilter(palette.semantic.textPrimary, PorterDuff.Mode.SRC_IN)
             scaleType = ImageView.ScaleType.FIT_CENTER
             setPadding(LayoutHelper.dp(10), LayoutHelper.dp(10), LayoutHelper.dp(10), LayoutHelper.dp(10))
             contentDescription = context.getString(R.string.common_close)
@@ -155,7 +159,7 @@ class PollDetailModal(
 
         subtitleView = TextView(context).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-            setTextColor(themeColors.textStrong)
+            setTextColor(palette.semantic.textPrimary)
         }
         root.addView(
             subtitleView,
@@ -170,7 +174,7 @@ class PollDetailModal(
         )
 
         val divider = android.view.View(context).apply {
-            setBackgroundColor(themeColors.borderDim)
+            setBackgroundColor(palette[Token.BORDER_PRIMARY])
         }
         root.addView(
             divider,
@@ -205,7 +209,7 @@ class PollDetailModal(
         )
 
         val vDiv = android.view.View(context).apply {
-            setBackgroundColor(themeColors.borderDim)
+            setBackgroundColor(palette[Token.BORDER_PRIMARY])
         }
         body.addView(
             vDiv,
@@ -313,14 +317,14 @@ class PollDetailModal(
             }
             val label = TextView(context).apply {
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-                setTextColor(themeColors.onSurface)
+                setTextColor(palette.semantic.textPrimary)
                 setSingleLine(true)
                 ellipsize = TextUtils.TruncateAt.END
                 text = buildPollAnswerSpannable(ans.label, this)
             }
             val count = TextView(context).apply {
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-                setTextColor(themeColors.textDisabled)
+                setTextColor(palette.semantic.textMuted)
                 setSingleLine(true)
                 text = loaded.countFor(ans.index).toString()
             }
@@ -368,6 +372,7 @@ class PollDetailModal(
         }
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VoterHolder {
+            val palette = DesktopThemePalette.forTheme(theme.resolvedMode)
             val row = LinearLayout(parent.context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
@@ -395,14 +400,14 @@ class PollDetailModal(
             }
             val name = TextView(parent.context).apply {
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-                setTextColor(theme.onSurface)
+                setTextColor(palette.semantic.textPrimary)
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
                 setSingleLine(true)
                 ellipsize = TextUtils.TruncateAt.END
             }
             val sub = TextView(parent.context).apply {
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-                setTextColor(theme.textDisabled)
+                setTextColor(palette.semantic.textMuted)
                 setSingleLine(true)
                 ellipsize = TextUtils.TruncateAt.END
             }

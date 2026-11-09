@@ -218,7 +218,7 @@ class RoleDetailFragment : BaseFragment() {
             setPadding(LayoutHelper.dp(10f), LayoutHelper.dp(10f), LayoutHelper.dp(10f), LayoutHelper.dp(10f))
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dpf(8f)
-                setColor(themeColors.tertiary)
+                setColor(if (themeColors.usesLegacyDarkColors) CreateClanRnUiTokens.menuItemBackground(themeColors) else themeColors.tertiary)
             }
             setOnClickListener { showRoleColorPickerSheet() }
         }
@@ -291,7 +291,7 @@ class RoleDetailFragment : BaseFragment() {
             setPadding(LayoutHelper.dp(10f), LayoutHelper.dp(10f), LayoutHelper.dp(10f), LayoutHelper.dp(10f))
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dpf(8f)
-                setColor(themeColors.tertiary)
+                setColor(if (themeColors.usesLegacyDarkColors) CreateClanRnUiTokens.menuItemBackground(themeColors) else themeColors.tertiary)
             }
             isClickable = true
             setOnClickListener { showRoleIconPickerFromHit() }
@@ -388,7 +388,7 @@ class RoleDetailFragment : BaseFragment() {
             orientation = LinearLayout.VERTICAL
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dpf(10f)
-                setColor(themeColors.tertiary)
+                setColor(if (themeColors.usesLegacyDarkColors) CreateClanRnUiTokens.menuItemBackground(themeColors) else themeColors.tertiary)
             }
             clipToOutline = true
         }
@@ -418,7 +418,7 @@ class RoleDetailFragment : BaseFragment() {
             setPadding(LayoutHelper.dp(12f), LayoutHelper.dp(16f), LayoutHelper.dp(12f), LayoutHelper.dp(16f))
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dpf(10f)
-                setColor(themeColors.tertiary)
+                setColor(if (themeColors.usesLegacyDarkColors) CreateClanRnUiTokens.menuItemBackground(themeColors) else themeColors.tertiary)
             }
             isClickable = true
             setOnClickListener { confirmDelete() }

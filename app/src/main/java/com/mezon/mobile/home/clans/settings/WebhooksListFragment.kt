@@ -387,7 +387,7 @@ class WebhooksListFragment : BaseFragment() {
             gravity = Gravity.CENTER_VERTICAL
             background = android.graphics.drawable.GradientDrawable().apply {
                 cornerRadius = CreateClanRnUiTokens.clanSettingsMenuCornerPx()
-                setColor(themeColors.background)
+                setColor(if (themeColors.usesLegacyDarkColors) themeColors.surfaceVariant else themeColors.background)
             }
             setPadding(LayoutHelper.dp(14f), LayoutHelper.dp(10f), LayoutHelper.dp(14f), LayoutHelper.dp(10f))
         }
@@ -429,12 +429,13 @@ class WebhooksListFragment : BaseFragment() {
         }
         row.addView(img)
 
+        val rowTextColor = if (themeColors.usesLegacyDarkColors) CreateClanRnUiTokens.menuText(themeColors) else themeColors.textStrong
         val textCol = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
         textCol.addView(
             TextView(ctx).apply {
                 text = name
                 textSize = 15f
-                setTextColor(themeColors.textStrong)
+                setTextColor(rowTextColor)
             },
             LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT),
         )
@@ -465,7 +466,7 @@ class WebhooksListFragment : BaseFragment() {
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
                 val d = MezonIcon.chevronSmallRightIcon.getDrawable(ctx)
                 d.mutate()
-                d.colorFilter = PorterDuffColorFilter(themeColors.textStrong, PorterDuff.Mode.SRC_IN)
+                d.colorFilter = PorterDuffColorFilter(rowTextColor, PorterDuff.Mode.SRC_IN)
                 setImageDrawable(d)
             },
             LayoutHelper.createLinear(18, 18, 0f, Gravity.CENTER_VERTICAL),

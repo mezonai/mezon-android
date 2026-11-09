@@ -72,7 +72,7 @@ class DmMenuBottomSheet(
         fun buildRow(
             label: String,
             icon: MezonIcon,
-            labelColor: Int = theme.textStrong,
+            labelColor: Int = if (theme.usesLegacyDarkColors) theme.colorText else theme.textStrong,
             iconColor: Int = theme.textStrong,
             onClick: () -> Unit,
         ): View {
@@ -85,7 +85,7 @@ class DmMenuBottomSheet(
                 iconColor,
                 keepOriginalIconColors = icon in newOriginalColorIcons,
                 onPress = dismissAndRun(onClick),
-                rowBackgroundColor = theme.background,
+                rowBackgroundColor = if (theme.usesLegacyDarkColors) theme.border else theme.background,
             )
             return row
         }
@@ -93,7 +93,11 @@ class DmMenuBottomSheet(
         fun addSection(parent: LinearLayout, rows: List<View>, topGap: Float = sectionGap) {
             if (rows.all { it.visibility == View.GONE }) return
             parent.addView(
-                com.mezon.mobile.home.clans.settings.ClanSettingsUiHelpers.buildMezonSection(context, theme, null, rows, cardColor = theme.background, separatorColor = theme.border),
+                com.mezon.mobile.home.clans.settings.ClanSettingsUiHelpers.buildMezonSection(
+                    context, theme, null, rows,
+                    cardColor = if (theme.usesLegacyDarkColors) theme.channelPanelBg else theme.background,
+                    separatorColor = if (theme.usesLegacyDarkColors) theme.tertiary else theme.border
+                ),
                 LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, topGap, 0f, 0f)
             )
         }
@@ -139,8 +143,8 @@ class DmMenuBottomSheet(
                     buildRow(
                         context.getString(R.string.dm_menu_delete_group),
                         com.mezon.mobile.ui.cells.MezonIcon.closeSmallBold,
-                        labelColor = theme.error,
-                        iconColor = theme.error,
+                        labelColor = if (theme.usesLegacyDarkColors) theme.redStrong else theme.error,
+                        iconColor = if (theme.usesLegacyDarkColors) theme.redStrong else theme.error,
                         onClick = onDeleteGroup,
                     )
                 )
@@ -149,8 +153,8 @@ class DmMenuBottomSheet(
                     buildRow(
                         context.getString(R.string.dm_menu_leave_group),
                         com.mezon.mobile.ui.cells.MezonIcon.leaveGroupIcon,
-                        labelColor = theme.error,
-                        iconColor = theme.error,
+                        labelColor = if (theme.usesLegacyDarkColors) theme.redStrong else theme.error,
+                        iconColor = if (theme.usesLegacyDarkColors) theme.redStrong else theme.error,
                         onClick = onLeaveGroup,
                     )
                 )
@@ -163,8 +167,8 @@ class DmMenuBottomSheet(
                     buildRow(
                         context.getString(R.string.dm_menu_close_dm),
                         com.mezon.mobile.ui.cells.MezonIcon.closeDMIcon,
-                        labelColor = theme.error,
-                        iconColor = theme.error,
+                        labelColor = if (theme.usesLegacyDarkColors) theme.redStrong else theme.error,
+                        iconColor = if (theme.usesLegacyDarkColors) theme.redStrong else theme.error,
                         onClick = onCloseDm,
                     )
                 )
@@ -174,8 +178,8 @@ class DmMenuBottomSheet(
                     buildRow(
                         context.getString(R.string.dm_menu_remove_friend),
                         com.mezon.mobile.ui.cells.MezonIcon.removeFriend,
-                        labelColor = theme.error,
-                        iconColor = theme.error,
+                        labelColor = if (theme.usesLegacyDarkColors) theme.redStrong else theme.error,
+                        iconColor = if (theme.usesLegacyDarkColors) theme.redStrong else theme.error,
                         onClick = onRemoveFriend,
                     )
                 )
@@ -201,8 +205,8 @@ class DmMenuBottomSheet(
                     buildRow(
                         context.getString(R.string.dm_menu_block_user),
                         com.mezon.mobile.ui.cells.MezonIcon.blockUser,
-                        labelColor = theme.error,
-                        iconColor = theme.error,
+                        labelColor = if (theme.usesLegacyDarkColors) theme.redStrong else theme.error,
+                        iconColor = if (theme.usesLegacyDarkColors) theme.redStrong else theme.error,
                         onClick = onBlockUser,
                     )
                 )

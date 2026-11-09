@@ -87,7 +87,7 @@ class ProfileSearchCell(context: Context, private val theme: ThemeColors) : Base
         namePaint.set(theme.dialogNamePaint)
         namePaint.color = theme.onSurface
         statusPaint.set(theme.dialogMessagePaint)
-        statusPaint.color = theme.textDisabled
+        statusPaint.color = if (theme.usesLegacyDarkColors) theme.dialogMessagePaint.color else theme.textDisabled
         val name = m.displayName.ifEmpty { m.username }
         nameLayout = StaticLayout.Builder.obtain(name, 0, name.length, namePaint, textWidth)
             .setMaxLines(1)

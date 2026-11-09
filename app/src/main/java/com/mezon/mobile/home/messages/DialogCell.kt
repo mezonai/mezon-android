@@ -119,7 +119,11 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         val namePaint = if (isUnread) theme.dialogNameBoldPaint else theme.dialogNamePaint
         val previewPaint = if (isUnread) theme.dialogMessageBoldPaint else theme.dialogMessagePaint
         val timePaint = theme.dialogTimePaint
-        timeColor = if (isUnread) theme.onSurface else theme.onSurfaceVariant
+        timeColor = when {
+            !isUnread -> theme.onSurfaceVariant
+            theme.usesLegacyDarkColors -> theme.primary
+            else -> theme.onSurface
+        }
 
         val timeText = if (dm.lastSentMessageTs > 0) formatRelativeTime(dm.lastSentMessageTs) else ""
         timeLayout = StaticLayout.Builder.obtain(timeText, 0, timeText.length, timePaint, contentWidth)

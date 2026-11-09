@@ -243,9 +243,9 @@ class ClanSettingFragment : BaseFragment() {
                 themeColors,
                 getString(R.string.clan_settings_section_settings),
                 buildSettingsRows(ctx, perm),
-                cardColor = themeColors.surface,
-                separatorColor = themeColors.border,
-                titleColor = themeColors.textStrong
+                cardColor = if (themeColors.usesLegacyDarkColors) themeColors.channelPanelBg else themeColors.surface,
+                separatorColor = if (themeColors.usesLegacyDarkColors) themeColors.tertiary else themeColors.border,
+                titleColor = if (themeColors.usesLegacyDarkColors) themeColors.colorText else themeColors.textStrong
             ),
             LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, android.view.Gravity.NO_GRAVITY, 0f, 18f, 0f, 0f)
         )
@@ -256,9 +256,9 @@ class ClanSettingFragment : BaseFragment() {
                 themeColors,
                 getString(R.string.clan_settings_section_user_management),
                 buildUserRows(ctx, perm),
-                cardColor = themeColors.surface,
-                separatorColor = themeColors.border,
-                titleColor = themeColors.textStrong
+                cardColor = if (themeColors.usesLegacyDarkColors) themeColors.channelPanelBg else themeColors.surface,
+                separatorColor = if (themeColors.usesLegacyDarkColors) themeColors.tertiary else themeColors.border,
+                titleColor = if (themeColors.usesLegacyDarkColors) themeColors.colorText else themeColors.textStrong
             ),
             LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, android.view.Gravity.NO_GRAVITY, 0f, 18f, 0f, 0f)
         )

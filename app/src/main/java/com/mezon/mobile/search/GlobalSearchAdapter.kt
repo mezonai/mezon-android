@@ -107,7 +107,12 @@ class GlobalSearchAdapter(
             }
             is HeaderCell -> if (item is SectionHeader) {
                 view.setText(item.title)
-                view.textView.setTextColor(if (item.muted) themeColors.textDisabled else themeColors.onSurface)
+                val titleColor = when {
+                    themeColors.usesLegacyDarkColors -> themeColors.onSurfaceVariant
+                    item.muted -> themeColors.textDisabled
+                    else -> themeColors.onSurface
+                }
+                view.textView.setTextColor(titleColor)
                 if (item.muted) {
                     view.textView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
                     view.textView.letterSpacing = 0.06f

@@ -17,9 +17,12 @@ object CreateClanRnUiTokens {
 
     fun clanSettingsSectionTitleSp(): Float = LayoutHelper.sp(14f)
 
-    fun screenGradientColors(theme: ThemeColors): IntArray = intArrayOf(theme.background, theme.background)
+    fun screenGradientColors(theme: ThemeColors): IntArray {
+        val background = if (theme.usesLegacyDarkColors) theme.serverRailBg else theme.background
+        return intArrayOf(background, background)
+    }
 
-    fun menuItemBackground(theme: ThemeColors): Int = theme.surface
+    fun menuItemBackground(theme: ThemeColors): Int = if (theme.usesLegacyDarkColors) theme.channelPanelBg else theme.surface
 
     fun menuBorder(theme: ThemeColors): Int = theme.border
 
@@ -27,7 +30,7 @@ object CreateClanRnUiTokens {
 
     fun textStrong(theme: ThemeColors): Int = theme.textStrong
 
-    fun textDisabled(theme: ThemeColors): Int = theme.textDisabled
+    fun textDisabled(theme: ThemeColors): Int = if (theme.usesLegacyDarkColors) 0xFF7B7B83.toInt() else theme.textDisabled
 
     fun closeIcon(theme: ThemeColors): Int = menuText(theme)
 

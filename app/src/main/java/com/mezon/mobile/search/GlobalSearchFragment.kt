@@ -100,6 +100,9 @@ class GlobalSearchFragment : BaseFragment() {
         }
     }
 
+    private val secondaryTextColor: Int
+        get() = if (themeColors.usesLegacyDarkColors) themeColors.onSurfaceVariant else themeColors.textDisabled
+
     private lateinit var searchController: SearchController
     private var memberResolver: MemberResolver? = null
     private lateinit var dialogsController: DialogsController
@@ -333,7 +336,7 @@ class GlobalSearchFragment : BaseFragment() {
         })
 
         searchCell = SearchCell(context, themeColors).apply {
-            setPromptColor(themeColors.textDisabled)
+            setPromptColor(secondaryTextColor)
             setPlaceholder(context.getString(R.string.common_search))
             editText.setText(searchText)
             editText.setSelection(searchText.length)
@@ -433,7 +436,7 @@ class GlobalSearchFragment : BaseFragment() {
 
         emptyView = TextView(context).apply {
             text = getString(R.string.common_no_results_found)
-            setTextColor(themeColors.textDisabled)
+            setTextColor(secondaryTextColor)
             textSize = 15f
             gravity = Gravity.CENTER
             visibility = View.GONE
@@ -579,8 +582,8 @@ class GlobalSearchFragment : BaseFragment() {
         fragmentView?.setBackgroundColor(themeColors.surface)
         backButton.setColorFilter(themeColors.onSurface)
         searchCell.applyTheme(
-            promptColor = themeColors.textDisabled,
-            accentColor = MobileThemeColors.searchAccent
+            promptColor = secondaryTextColor,
+            accentColor = if (themeColors.usesLegacyDarkColors) themeColors.blurple else MobileThemeColors.searchAccent
         )
         tabHeader.applyTheme()
         filterButton?.setColorFilter(themeColors.onSurface)
@@ -588,7 +591,8 @@ class GlobalSearchFragment : BaseFragment() {
             setColor(android.content.res.ColorStateList.valueOf(themeColors.onSurface and 0x1A_FFFFFF))
             (getDrawable(0) as GradientDrawable).setColor(themeColors.surfaceVariant)
         }
-        emptyView.setTextColor(themeColors.textDisabled)
+        emptyView.setTextColor(secondaryTextColor)
+        emptyView.alpha = if (themeColors.usesLegacyDarkColors) 0.7f else 1f
     }
 
     private fun updateCurrentTab() {
@@ -802,8 +806,8 @@ class GlobalSearchFragment : BaseFragment() {
             orientation = LinearLayout.VERTICAL
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dpf(10f)
-                setColor(themeColors.background)
-                setStroke(LayoutHelper.dp(1f), ColorUtils.setAlphaComponent(themeColors.border, 77))
+                setColor(if (themeColors.usesLegacyDarkColors) themeColors.surface else themeColors.background)
+                setStroke(LayoutHelper.dp(1f), filterBorderColor(77))
             }
             clipToOutline = true
             outlineProvider = ViewOutlineProvider.BACKGROUND
@@ -894,7 +898,7 @@ class GlobalSearchFragment : BaseFragment() {
                 })
                 addView(TextView(context).apply {
                     text = description
-                    setTextColor(themeColors.textDisabled)
+                    setTextColor(secondaryTextColor)
                     textSize = 13f
                     includeFontPadding = false
                 }, LinearLayout.LayoutParams(
@@ -904,7 +908,7 @@ class GlobalSearchFragment : BaseFragment() {
             }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
 
             addView(ImageView(context).apply {
-                setImageDrawable(icon.getDrawable(context, themeColors.textDisabled))
+                setImageDrawable(icon.getDrawable(context, secondaryTextColor))
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
             }, LinearLayout.LayoutParams(LayoutHelper.dp(20f), LayoutHelper.dp(20f)))
         }.also {
@@ -915,9 +919,12 @@ class GlobalSearchFragment : BaseFragment() {
         }
     }
 
+    private fun filterBorderColor(alpha: Int): Int =
+        if (themeColors.usesLegacyDarkColors) themeColors.borderDim else ColorUtils.setAlphaComponent(themeColors.border, alpha)
+
     private fun createFilterDivider(context: Context, horizontalInset: Float = 0f, borderAlpha: Int = 77): View {
         return View(context).apply {
-            setBackgroundColor(ColorUtils.setAlphaComponent(themeColors.border, borderAlpha))
+            setBackgroundColor(filterBorderColor(borderAlpha))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LayoutHelper.dp(1f)

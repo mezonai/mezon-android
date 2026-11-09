@@ -100,7 +100,7 @@ enum class DesktopThemeToken {
     THREAD_SCROLL,
 }
 
-class DesktopThemePalette private constructor(
+class DesktopThemePalette internal constructor(
     private val colors: IntArray,
     val semantic: SemanticColors,
     val previewColor: Int,

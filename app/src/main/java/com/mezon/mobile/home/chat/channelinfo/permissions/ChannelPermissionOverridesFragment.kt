@@ -112,7 +112,7 @@ class ChannelPermissionOverridesFragment : BaseFragment() {
         }
         observe(NotificationCenter.themeChanged) { _, _, _ ->
             if (fragmentView != null) {
-                fragmentView?.setBackgroundColor(themeColors.background)
+                fragmentView?.setBackgroundColor(ClanRolesUiTheme.rnScreenBackground(themeColors))
                 actionBar?.let { ClanRolesUiTheme.applyPrimaryFlowActionBar(it, themeColors) }
                 configureActionBarTitle()
                 rebuildContent()
@@ -249,7 +249,7 @@ class ChannelPermissionOverridesFragment : BaseFragment() {
             orientation = LinearLayout.VERTICAL
             setPadding(LayoutHelper.dp(12f), LayoutHelper.dp(12f), LayoutHelper.dp(12f), LayoutHelper.dp(12f))
             background = GradientDrawable().apply {
-                setColor(themeColors.surface)
+                setColor(if (themeColors.usesLegacyDarkColors) themeColors.channelPanelBg else themeColors.surface)
                 cornerRadius = LayoutHelper.dpf(14f)
             }
         }
@@ -290,9 +290,16 @@ class ChannelPermissionOverridesFragment : BaseFragment() {
 
     private fun statusButton(context: Context, permissionId: Long, status: Int, icon: MezonIcon, color: Int): FrameLayout {
         val selected = currentStates[permissionId] == status
+        val legacyDark = themeColors.usesLegacyDarkColors
+        val inactiveBackground = if (legacyDark) themeColors.tertiary else themeColors.background
+        val iconColor = when {
+            selected -> 0xFFFFFFFF.toInt()
+            !legacyDark && status == CHANNEL_PERMISSION_STATUS_NONE -> themeColors.colorText
+            else -> color
+        }
         val button = FrameLayout(context).apply {
             background = GradientDrawable().apply {
-                setColor(if (selected) color else themeColors.background)
+                setColor(if (selected) color else inactiveBackground)
                 cornerRadius = LayoutHelper.dpf(8f)
             }
             isClickable = true
@@ -305,7 +312,7 @@ class ChannelPermissionOverridesFragment : BaseFragment() {
         button.addView(
             ImageView(context).apply {
                 setImageDrawable(icon.getDrawable(context).apply {
-                    colorFilter = PorterDuffColorFilter(if (selected) 0xFFFFFFFF.toInt() else if (status == CHANNEL_PERMISSION_STATUS_NONE) themeColors.colorText else color, PorterDuff.Mode.SRC_IN)
+                    colorFilter = PorterDuffColorFilter(iconColor, PorterDuff.Mode.SRC_IN)
                 })
             },
             LayoutHelper.createFrame(18, 18, Gravity.CENTER)

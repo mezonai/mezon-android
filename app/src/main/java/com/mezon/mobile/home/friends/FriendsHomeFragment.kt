@@ -125,7 +125,7 @@ class FriendsHomeFragment : BaseFragment() {
             minimumHeight = LayoutHelper.dp(40)
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(12f).toFloat()
-                setColor(themeColors.background)
+                setColor(friendScreenCardBackground(themeColors))
             }
             setPadding(LayoutHelper.dp(12), LayoutHelper.dp(10), LayoutHelper.dp(12), LayoutHelper.dp(10))
         }
@@ -199,7 +199,7 @@ class FriendsHomeFragment : BaseFragment() {
         contentFrame.addView(emptyText, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
         recyclerView.setEmptyView(emptyText)
 
-        adapter = FriendRelationAdapter(context, themeColors) { friend, action ->
+        adapter = FriendRelationAdapter(context, themeColors, useFriendScreenStyle = true) { friend, action ->
             handleAction(friend, action)
         }
         recyclerView.adapter = adapter
@@ -253,7 +253,7 @@ class FriendsHomeFragment : BaseFragment() {
             gravity = Gravity.CENTER_VERTICAL
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(12f).toFloat()
-                setColor(themeColors.background)
+                setColor(friendScreenCardBackground(themeColors))
             }
             setPadding(LayoutHelper.dp(12), LayoutHelper.dp(12), LayoutHelper.dp(12), LayoutHelper.dp(12))
             isClickable = true
@@ -302,14 +302,14 @@ class FriendsHomeFragment : BaseFragment() {
     private fun applyTheme() {
         contentLayout.background = friendListBackground(themeColors)
         fragmentView?.setBackgroundColor(themeColors.surface)
-        searchIcon.setColorFilter(themeColors.textDisabled)
-        searchInput.setHintTextColor(themeColors.textDisabled)
+        searchIcon.setColorFilter(if (themeColors.usesLegacyDarkColors) themeColors.onSurfaceVariant else themeColors.textDisabled)
+        searchInput.setHintTextColor(if (themeColors.usesLegacyDarkColors) themeColors.onSurfaceVariant else themeColors.textDisabled)
         requestRow.background = GradientDrawable().apply {
             cornerRadius = LayoutHelper.dp(12f).toFloat()
-            setColor(themeColors.background)
+            setColor(friendScreenCardBackground(themeColors))
         }
-        emptyText.setTextColor(themeColors.textDisabled)
-        requestCountText.setTextColor(themeColors.onSurface)
+        emptyText.setTextColor(if (themeColors.usesLegacyDarkColors) themeColors.onSurfaceVariant else themeColors.textDisabled)
+        requestCountText.setTextColor(if (themeColors.usesLegacyDarkColors) themeColors.onSurfaceVariant else themeColors.onSurface)
         if (::requestBadgeText.isInitialized) {
             requestBadgeText.updateFriendRequestBadge(friendController.pendingReceivedCount.value)
         }

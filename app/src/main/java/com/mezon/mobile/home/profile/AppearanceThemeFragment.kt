@@ -27,6 +27,7 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.core.theme.DesktopThemePalette
+import com.mezon.mobile.core.theme.appThemePalette
 import com.mezon.mobile.core.theme.DesktopThemeToken as Token
 import com.mezon.mobile.core.theme.ThemeGradient
 import com.mezon.mobile.core.theme.themeSurfaceShape
@@ -48,7 +49,7 @@ class AppearanceThemeFragment : BaseFragment() {
         private fun paletteForMode(mode: ThemeMode, context: Context): DesktopThemePalette {
             val theme = ThemeColors.instance
             if (mode == ThemeMode.SYSTEM && theme.currentMode == ThemeMode.SYSTEM) return theme.desktop
-            return DesktopThemePalette.forTheme(mode.resolve(isSystemDark(context)))
+            return appThemePalette(mode.resolve(isSystemDark(context)))
         }
 
         private fun isSystemDark(context: Context): Boolean =
@@ -411,17 +412,23 @@ class AppearanceThemeFragment : BaseFragment() {
     }
 
     private fun previewPalette(mode: ThemeMode): PreviewPalette {
-        val palette = paletteForMode(mode, requireContext())
+        val context = requireContext()
+        val palette = paletteForMode(mode, context)
+        val isLegacyDark = if (mode == ThemeMode.SYSTEM && themeColors.currentMode == ThemeMode.SYSTEM) {
+            themeColors.usesLegacyDarkColors
+        } else {
+            mode.resolve(isSystemDark(context)) == ThemeMode.DARK
+        }
         return PreviewPalette(
-            cardBackground = palette[Token.BG_THEME_DIRECT_MESSAGE],
+            cardBackground = if (isLegacyDark) 0xFF2B2B33.toInt() else palette[Token.BG_THEME_DIRECT_MESSAGE],
             cardGradient = palette.conversationGradient,
-            cardStroke = palette[Token.BG_THEME_DIRECT_MESSAGE],
+            cardStroke = if (isLegacyDark) 0xFF49454F.toInt() else palette[Token.BG_THEME_DIRECT_MESSAGE],
             onlineColor = palette.semantic.statusOnline,
             titleColor = palette.semantic.textPrimary,
             nameColor = palette.semantic.textPrimary,
-            messageColor = palette.semantic.textMuted,
-            timeColor = palette.semantic.textMuted,
-            hintColor = themeColors.textStrong,
+            messageColor = if (isLegacyDark) palette.semantic.textSecondary else palette.semantic.textMuted,
+            timeColor = if (isLegacyDark) palette.semantic.textSecondary else palette.semantic.textMuted,
+            hintColor = if (themeColors.usesLegacyDarkColors) themeColors.onSurfaceVariant else themeColors.textStrong,
             selectedLabelColor = themeColors.onSurface
         )
     }
@@ -510,11 +517,15 @@ class AppearanceThemeFragment : BaseFragment() {
                 palette.previewColor,
                 palette.previewGradient,
                 LayoutHelper.dp(SWATCH_FRAME_RADIUS_DP - SWATCH_INSET_DP).toFloat(),
-                palette[Token.BORDER_PRIMARY],
+                if (item.mode == ThemeMode.DARK) 0xFFE5E7EB.toInt() else palette[Token.BORDER_PRIMARY],
                 LayoutHelper.dp(1)
             )
             holder.swatchFrame.background = if (isSelected) {
-                val selectionColor = if (isSystemDark(context)) SWATCH_SELECTION_DARK else SWATCH_SELECTION_LIGHT
+                val selectionColor = when {
+                    item.mode == ThemeMode.DARK -> 0xFF4F46E5.toInt()
+                    isSystemDark(context) -> SWATCH_SELECTION_DARK
+                    else -> SWATCH_SELECTION_LIGHT
+                }
                 themeSurfaceShape(
                     Color.TRANSPARENT,
                     LayoutHelper.dp(SWATCH_FRAME_RADIUS_DP).toFloat(),

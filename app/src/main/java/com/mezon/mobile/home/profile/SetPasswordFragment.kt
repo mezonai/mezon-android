@@ -72,7 +72,7 @@ class SetPasswordFragment : BaseFragment() {
         descriptionText = TextView(context).apply {
             text = getString(R.string.set_password_description)
             textSize = 12f
-            setTextColor(themeColors.onSurface)
+            setTextColor(if (themeColors.usesLegacyDarkColors) themeColors.onSurfaceVariant else themeColors.onSurface)
         }
         content.addView(descriptionText, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, 0, 0f, 0f, 0f, 16f))
 
@@ -134,20 +134,24 @@ class SetPasswordFragment : BaseFragment() {
     private fun applyFormColors() {
         contentLayout.setBackgroundColor(themeColors.surface)
         fragmentView?.setBackgroundColor(themeColors.surface)
-        descriptionText.setTextColor(themeColors.onSurface)
+        val legacyDark = themeColors.usesLegacyDarkColors
+        val captionColor = if (legacyDark) themeColors.onSurfaceVariant else themeColors.onSurface
+        val hintColor = if (legacyDark) captionColor and 0x80FFFFFF.toInt()
+            else (captionColor and 0x00FFFFFF) or 0x80000000.toInt()
+        descriptionText.setTextColor(captionColor)
         for (cell in listOf(emailCell, currentPasswordCell, newPasswordCell, confirmPasswordCell)) {
-            cell.setCaptionColor(themeColors.onSurface)
+            cell.setCaptionColor(captionColor)
             cell.setLightInputAppearance(
-                fill = themeColors.background,
-                stroke = themeColors.mobile.borderDim,
+                fill = if (legacyDark) themeColors.surfaceVariant else themeColors.background,
+                stroke = if (legacyDark) themeColors.outlineVariant else themeColors.mobile.borderDim,
                 text = themeColors.onSurface,
-                hint = (themeColors.onSurface and 0x00FFFFFF) or 0x80000000.toInt(),
-                clearIcon = themeColors.onSurface,
+                hint = hintColor,
+                clearIcon = captionColor,
                 preserveError = true,
             )
         }
-        emailCell.setInputAlpha(1f)
-        emailCell.editText.alpha = 0.7f
+        emailCell.setInputAlpha(if (legacyDark) 0.55f else 1f)
+        emailCell.editText.alpha = if (legacyDark) 0.5f else 0.7f
         saveButton.invalidate()
     }
 

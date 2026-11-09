@@ -9,7 +9,6 @@ import android.text.TextPaint
 import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
-import com.mezon.mobile.core.theme.MobileThemeColors
 import com.mezon.mobile.home.messages.ChannelAvatarLoadState
 import com.mezon.mobile.home.messages.ChannelAvatarRequest
 import com.mezon.mobile.home.messages.DirectMessage
@@ -111,7 +110,7 @@ class UnreadDmCell(
         avatar.draw(canvas)
 
         if (dm.unreadCount > 0) {
-            badgeBgPaint.color = MobileThemeColors.unreadBadge
+            badgeBgPaint.color = themeColors.unreadBadge
             val textW = badgeTextPaint.measureText(badgeText)
             val badgeW = (textW + BADGE_PAD_H * 2).coerceAtLeast(BADGE_HEIGHT)
             val badgeRadius = BADGE_HEIGHT / 2f

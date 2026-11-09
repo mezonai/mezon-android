@@ -71,7 +71,7 @@ class ChannelMenuBottomSheet(
         fun buildRow(
             label: String,
             icon: MezonIcon,
-            labelColor: Int = theme.textStrong,
+            labelColor: Int = if (theme.usesLegacyDarkColors) theme.colorText else theme.textStrong,
             iconColor: Int = theme.textStrong,
             onClick: () -> Unit,
         ) = ClanSettingsUiHelpers.buildMezonMenuRow(
@@ -83,13 +83,17 @@ class ChannelMenuBottomSheet(
             iconColor,
             keepOriginalIconColors = icon in originalColorIcons,
             onPress = dismissAndRun(onClick),
-            rowBackgroundColor = theme.background,
+            rowBackgroundColor = if (theme.usesLegacyDarkColors) theme.border else theme.background,
         )
 
         fun addSection(parent: LinearLayout, rows: List<View>, topGap: Float = sectionGap) {
             if (rows.all { it.visibility == View.GONE }) return
             parent.addView(
-                ClanSettingsUiHelpers.buildMezonSection(context, theme, null, rows, cardColor = theme.background, separatorColor = theme.border),
+                ClanSettingsUiHelpers.buildMezonSection(
+                    context, theme, null, rows,
+                    cardColor = if (theme.usesLegacyDarkColors) theme.channelPanelBg else theme.background,
+                    separatorColor = if (theme.usesLegacyDarkColors) theme.tertiary else theme.border
+                ),
                 LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, topGap, 0f, 0f)
             )
         }
@@ -234,8 +238,8 @@ class ChannelMenuBottomSheet(
                     buildRow(
                         context.getString(R.string.channel_settings_menu_leave_thread),
                         MezonIcon.leaveGroupIcon,
-                        labelColor = theme.error,
-                        iconColor = theme.error,
+                        labelColor = if (theme.usesLegacyDarkColors) theme.redStrong else theme.error,
+                        iconColor = if (theme.usesLegacyDarkColors) theme.redStrong else theme.error,
                         onClick = onLeaveThread,
                     )
                 )
@@ -254,8 +258,8 @@ class ChannelMenuBottomSheet(
                     buildRow(
                         context.getString(deleteLabelRes),
                         MezonIcon.closeSmallBold,
-                        labelColor = theme.error,
-                        iconColor = theme.error,
+                        labelColor = if (theme.usesLegacyDarkColors) theme.redStrong else theme.error,
+                        iconColor = if (theme.usesLegacyDarkColors) theme.redStrong else theme.error,
                         onClick = onDeleteChannel,
                     )
                 )

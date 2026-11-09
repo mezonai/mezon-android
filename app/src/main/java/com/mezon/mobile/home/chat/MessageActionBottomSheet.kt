@@ -86,8 +86,11 @@ class MessageActionBottomSheet(
         }
     }
 
-    private val menuBackgroundColor: Int get() = theme.background
-    private val warningIconBackgroundColor: Int get() = theme.surface
+    private val menuBackgroundColor: Int
+        get() = if (theme.usesLegacyDarkColors) theme.border else theme.background
+
+    private val menuTextColor: Int
+        get() = if (theme.usesLegacyDarkColors) theme.colorText else theme.textStrong
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         setSnapPoints(0.5f, 1f, initialIndex = 0)
@@ -488,7 +491,7 @@ class MessageActionBottomSheet(
         val group = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             background = GradientDrawable().apply {
-                setColor(menuBackgroundColor)
+                setColor(if (theme.usesLegacyDarkColors) theme.channelPanelBg else menuBackgroundColor)
                 cornerRadius = LayoutHelper.dp(10).toFloat()
             }
             clipToOutline = true
@@ -515,8 +518,7 @@ class MessageActionBottomSheet(
             isFocusable = true
         }
 
-        val textColor = if (item.isWarning) theme.error else theme.textStrong
-        val iconColor = if (item.isWarning) theme.error else theme.textStrong
+        val warningColor = if (theme.usesLegacyDarkColors) theme.redStrong else theme.error
 
         // RN: MezonIconCDN renders at 20×20 (or 18×18 for warning/delete)
         val icon = ImageView(context).apply {
@@ -524,7 +526,7 @@ class MessageActionBottomSheet(
                 setImageResource(item.iconRes)
             } catch (_: Exception) {}
             if (item.applyIconTint) {
-                setColorFilter(iconColor)
+                setColorFilter(if (item.isWarning) warningColor else theme.textStrong)
             }
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
@@ -532,7 +534,7 @@ class MessageActionBottomSheet(
         // RN: actionText { fontSize: h8 = verticalScale(11) } ≈ 15sp on Android
         val title = TextView(context).apply {
             text = item.title
-            setTextColor(textColor)
+            setTextColor(if (item.isWarning) warningColor else menuTextColor)
             setTextSize(TypedValue.COMPLEX_UNIT_DIP, 15f)
             gravity = Gravity.CENTER_VERTICAL
             maxLines = 1
@@ -542,7 +544,7 @@ class MessageActionBottomSheet(
             // Warning icon uses the sheet surface inside the menu card.
             val iconBg = FrameLayout(context).apply {
                 background = GradientDrawable().apply {
-                    setColor(warningIconBackgroundColor)
+                    setColor(if (theme.usesLegacyDarkColors) theme.tertiary else sheetBackgroundColor)
                     cornerRadius = LayoutHelper.dp(16).toFloat()
                 }
             }
@@ -580,7 +582,7 @@ class MessageActionBottomSheet(
      */
     private fun buildDivider(): View {
         return View(context).apply {
-            setBackgroundColor(theme.border)
+            setBackgroundColor(if (theme.usesLegacyDarkColors) theme.tertiary else theme.border)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 1
             )

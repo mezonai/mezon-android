@@ -101,7 +101,7 @@ class CreateCategoryFragment : BaseFragment() {
 
         nameCell = InputCell(context, themeColors).apply {
             setLabel(null, false, false)
-            setCellBackgroundColor(themeColors.background)
+            if (!themeColors.usesLegacyDarkColors) setCellBackgroundColor(themeColors.background)
             setMaxCharacter(64)
             setHint(getString(R.string.category_creator_name_placeholder))
             onTextChanged = {

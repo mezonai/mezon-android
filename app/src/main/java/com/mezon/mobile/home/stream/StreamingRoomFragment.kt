@@ -139,15 +139,27 @@ class StreamingRoomFragment : BaseFragment() {
         return true
     }
 
+    private val videoBackground: Int
+        get() = if (themeColors.usesLegacyDarkColors) themeColors.serverRailBg else Color.BLACK
+
+    private val chromeBackground: Int
+        get() = if (themeColors.usesLegacyDarkColors) themeColors.serverRailBg else STREAM_CHROME_COLOR
+
+    private val headerTextColor: Int
+        get() = if (themeColors.usesLegacyDarkColors) themeColors.textStrong else Color.WHITE
+
+    private val viewerIconColor: Int
+        get() = if (themeColors.usesLegacyDarkColors) themeColors.onSurfaceVariant else Color.WHITE
+
     override fun createView(context: Context): View {
-        val root = FrameLayout(context).apply { setBackgroundColor(Color.BLACK) }
+        val root = FrameLayout(context).apply { setBackgroundColor(videoBackground) }
         viewport = StreamingVideoViewport(context).apply {
             onContentTap = { setControlsVisible(!controlsVisible) }
         }
         val picture = FrameLayout(context)
         viewport.addView(picture, FrameLayout.LayoutParams(-1, -1))
         root.addView(viewport, FrameLayout.LayoutParams(-1, -1))
-        playback = StreamingPlaybackView(context).apply { setBackgroundColor(Color.BLACK) }
+        playback = StreamingPlaybackView(context).apply { setBackgroundColor(videoBackground) }
         picture.addView(playback, FrameLayout.LayoutParams(-1, -1))
         poster = ImageView(context).apply { scaleType = ImageView.ScaleType.FIT_CENTER; setImageResource(R.drawable.mezon_stream_poster) }
         picture.addView(poster, FrameLayout.LayoutParams(-1, -1))
@@ -155,13 +167,13 @@ class StreamingRoomFragment : BaseFragment() {
         root.addView(spinner, FrameLayout.LayoutParams(LayoutHelper.dp(40), LayoutHelper.dp(40), Gravity.CENTER))
         header = LinearLayout(context).apply {
             gravity = Gravity.CENTER_VERTICAL
-            setBackgroundColor(STREAM_CHROME_COLOR)
+            setBackgroundColor(chromeBackground)
             setPadding(LayoutHelper.dp(6), 0, LayoutHelper.dp(6), 0)
         }
         minimizeButton = headerButton(context, MezonIcon.chevronDownSmallIcon, 18) { minimizeToOverlay() }
         header.addView(minimizeButton, LinearLayout.LayoutParams(LayoutHelper.dp(44), LayoutHelper.dp(44)))
         title = label(context, channelLabel, 16f).apply {
-            setTextColor(Color.WHITE)
+            setTextColor(headerTextColor)
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             maxLines = 2
             ellipsize = TextUtils.TruncateAt.END
@@ -178,12 +190,12 @@ class StreamingRoomFragment : BaseFragment() {
         }
         header.addView(live, LinearLayout.LayoutParams(LayoutHelper.dp(34), LayoutHelper.dp(18)))
         viewerCount = label(context, "", 12f).apply {
-            setTextColor(Color.WHITE)
+            setTextColor(headerTextColor)
             gravity = Gravity.CENTER_VERTICAL
             includeFontPadding = false
             setPadding(LayoutHelper.dp(12), 0, LayoutHelper.dp(4), 0)
             val eye = MezonIcon.eyeIcon.getDrawable(context).mutate().apply {
-                setTint(Color.WHITE)
+                setTint(viewerIconColor)
                 setBounds(0, 0, LayoutHelper.dp(14), LayoutHelper.dp(12))
             }
             setCompoundDrawablesRelative(eye, null, null, null)
@@ -205,7 +217,7 @@ class StreamingRoomFragment : BaseFragment() {
         root.addView(membersRow, FrameLayout.LayoutParams(-2, LayoutHelper.dp(40), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = LayoutHelper.dp(100) })
         footer = LinearLayout(context).apply {
             gravity = Gravity.CENTER_VERTICAL
-            setBackgroundColor(STREAM_CHROME_COLOR)
+            setBackgroundColor(chromeBackground)
         }
         speaker = button(context, MezonIcon.voiceWaveDoubleIcon) { session.toggleSpeakerOutput() }
         speakerIcon = speaker.getChildAt(0) as ImageView
@@ -317,7 +329,7 @@ class StreamingRoomFragment : BaseFragment() {
 
     private fun updateBottomChromeBackground() {
         val landscape = footer.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-        footer.setBackgroundColor(if (isFullscreen || landscape) Color.TRANSPARENT else STREAM_CHROME_COLOR)
+        footer.setBackgroundColor(if (isFullscreen || landscape) Color.TRANSPARENT else chromeBackground)
     }
 
     private fun setFullscreen(enabled: Boolean) {
@@ -385,9 +397,15 @@ class StreamingRoomFragment : BaseFragment() {
 
     fun applyTheme() {
         val root = fragmentView ?: return
-        root.setBackgroundColor(Color.BLACK)
-        playback.setBackgroundColor(Color.BLACK)
-        header.setBackgroundColor(STREAM_CHROME_COLOR)
+        root.setBackgroundColor(videoBackground)
+        playback.setBackgroundColor(videoBackground)
+        header.setBackgroundColor(chromeBackground)
+        title.setTextColor(headerTextColor)
+        viewerCount.setTextColor(headerTextColor)
+        viewerCount.compoundDrawablesRelative.forEach { it?.setTint(viewerIconColor) }
+        for (control in listOf(minimizeButton, fullscreenButton)) {
+            (control.getChildAt(0) as ImageView).setColorFilter(headerTextColor)
+        }
         updateBottomChromeBackground()
         spinner.indeterminateTintList = android.content.res.ColorStateList.valueOf(themeColors.primary)
         overflow.setTextColor(themeColors.textStrong)
@@ -505,7 +523,7 @@ class StreamingRoomFragment : BaseFragment() {
         button(context, icon, action).apply {
             background = null
             (getChildAt(0) as ImageView).apply {
-                setColorFilter(Color.WHITE)
+                setColorFilter(headerTextColor)
                 layoutParams = FrameLayout.LayoutParams(LayoutHelper.dp(iconSize), LayoutHelper.dp(iconSize), Gravity.CENTER)
             }
             applyVoiceButtonPressFeedback()

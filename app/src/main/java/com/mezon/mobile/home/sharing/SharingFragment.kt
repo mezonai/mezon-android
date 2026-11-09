@@ -432,7 +432,7 @@ class SharingFragment(
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             background = GradientDrawable().apply {
-                setColor(if (isForwardMode) themeColors.background else themeColors.mobile.charcoal)
+                setColor(if (themeColors.usesLegacyDarkColors) themeColors.surfaceVariant else if (isForwardMode) themeColors.background else themeColors.mobile.charcoal)
                 cornerRadius = LayoutHelper.dpf(20f)
             }
             setPadding(LayoutHelper.dp(12), LayoutHelper.dp(8), LayoutHelper.dp(12), LayoutHelper.dp(8))
@@ -627,7 +627,7 @@ class SharingFragment(
             setHintTextColor(themeColors.onSurfaceVariant)
             setTextColor(themeColors.onSurface)
             background = GradientDrawable().apply {
-                setColor(themeColors.background)
+                setColor(if (themeColors.usesLegacyDarkColors) themeColors.tertiary else themeColors.background)
                 cornerRadius = LayoutHelper.dpf(20f)
             }
             textSize = 14f
@@ -746,7 +746,7 @@ class SharingFragment(
             setHintTextColor(themeColors.onSurfaceVariant)
             setTextColor(themeColors.onSurface)
             background = GradientDrawable().apply {
-                setColor(themeColors.mobile.charcoal)
+                setColor(if (themeColors.usesLegacyDarkColors) themeColors.tertiary else themeColors.mobile.charcoal)
                 cornerRadius = LayoutHelper.dpf(20f)
             }
             textSize = 14f

@@ -160,7 +160,7 @@ def generate(revision, tokens_source, surfaces_source, semantic_source, presence
         *(f"    {field.upper()}," for field in fields),
         "}",
         "",
-        "class DesktopThemePalette private constructor(",
+        "class DesktopThemePalette internal constructor(",
         "    private val colors: IntArray,",
         "    val semantic: SemanticColors,",
         "    val previewColor: Int,",

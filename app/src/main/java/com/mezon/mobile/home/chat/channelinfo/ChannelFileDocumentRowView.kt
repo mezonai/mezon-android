@@ -53,7 +53,7 @@ class ChannelFileDocumentRowView(
     private fun updateBackground() {
         background = GradientDrawable().apply {
             cornerRadius = LayoutHelper.dpf(8f)
-            setColor(theme.background)
+            setColor(if (theme.usesLegacyDarkColors) theme.surfaceVariant else theme.background)
         }
     }
 

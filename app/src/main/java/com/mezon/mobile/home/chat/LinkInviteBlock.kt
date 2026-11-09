@@ -13,6 +13,8 @@ import android.view.View
 import com.mezon.mobile.R
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.core.theme.DesktopThemePalette
+import com.mezon.mobile.core.theme.DesktopThemeToken as Token
 import com.mezon.mobile.network.LinkInvitePreview
 import com.mezon.mobile.util.iconImgproxyUrl
 import com.mezon.mobile.util.parseInviteLinkMessageId
@@ -148,20 +150,21 @@ class LinkInviteBlock(
         } else if (state is LinkInviteUiState.Hidden) {
             state = LinkInviteUiState.Loading
         }
-        cardBgPaint.color = theme.channelPanelBg
-        joinBgPaint.color = theme.blurple
+        val palette = DesktopThemePalette.forTheme(theme.resolvedMode)
+        cardBgPaint.color = palette[Token.BG_THEME_DIRECT_MESSAGE]
+        joinBgPaint.color = palette[Token.BUTTON_THEME_PRIMARY]
         titleTextPaint.set(theme.chatTimePaint)
         titleTextPaint.textSize = LayoutHelper.dpf(CARD_TITLE_SP)
         titleTextPaint.typeface = Typeface.create(Typeface.DEFAULT, 600, false)
-        titleTextPaint.color = theme.textDisabled
+        titleTextPaint.color = palette.semantic.textMuted
         titleTextPaint.letterSpacing = letterSpacingEmFromRnHalf(titleTextPaint)
         clanTextPaint.set(theme.chatContentPaint)
         clanTextPaint.typeface = Typeface.create(Typeface.DEFAULT, 700, false)
-        clanTextPaint.color = theme.colorText
+        clanTextPaint.color = palette.semantic.textSecondary
         channelTextPaint.set(theme.chatTimePaint)
         channelTextPaint.textSize = LayoutHelper.dpf(CHANNEL_TEXT_SP)
         channelTextPaint.typeface = Typeface.create(Typeface.DEFAULT, 500, false)
-        channelTextPaint.color = theme.textDisabled
+        channelTextPaint.color = palette.semantic.textMuted
         channelTextPaint.letterSpacing = letterSpacingEmFromRnHalf(channelTextPaint)
         invalidTitlePaint.set(clanTextPaint)
         invalidTitlePaint.color = theme.error
@@ -171,9 +174,9 @@ class LinkInviteBlock(
         joinTextPaint.textSize = LayoutHelper.dpf(14f)
         joinTextPaint.typeface = Typeface.create(Typeface.DEFAULT, 600, false)
         joinTextPaint.letterSpacing = letterSpacingEmFromRnHalf(joinTextPaint)
-        loadingStrokePaint.color = theme.colorText
+        loadingStrokePaint.color = palette.semantic.textSecondary
         loadingStrokePaint.strokeWidth = LayoutHelper.dpf(2f)
-        invalidPhPaint.color = invalidPlaceholderBackground()
+        invalidPhPaint.color = if (theme.resolvedMode.isLight) 0xFFF0F0F0.toInt() else palette[Token.BG_SURFACE]
 
         if (loadLinkInvitePreview == null && state is LinkInviteUiState.Loading) {
             state = LinkInviteUiState.Ready(LinkInvitePreview("", "", ""))
@@ -298,9 +301,6 @@ class LinkInviteBlock(
         val rowH = max(AVATAR, colH)
         return Pair(rowH, joinBlockH)
     }
-
-    private fun invalidPlaceholderBackground(): Int =
-        if (theme.resolvedMode.isLight) 0xFFF0F0F0.toInt() else theme.secondaryLight
 
     private fun letterSpacingEmFromRnHalf(paint: TextPaint): Float {
         return LayoutHelper.dpf(0.5f) / paint.textSize.coerceAtLeast(1e-3f)
@@ -430,7 +430,7 @@ class LinkInviteBlock(
     }
 
     private fun drawDefaultClanInitial(canvas: Canvas, left: Float, top: Float, size: Float, clanName: String) {
-        defaultClanFillPaint.color = theme.blurple
+        defaultClanFillPaint.color = joinBgPaint.color
         tmpAvatarRect.set(left, top, left + size, top + size)
         canvas.drawRoundRect(tmpAvatarRect, defaultAvatarCorner, defaultAvatarCorner, defaultClanFillPaint)
         val initial = (clanName.firstOrNull { !it.isWhitespace() }?.uppercaseChar()?.toString()) ?: "?"

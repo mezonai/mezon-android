@@ -389,7 +389,7 @@ class ChannelInfoFragment : BaseFragment() {
             val viewPager = ViewPagerFixed(context)
             val tabsView = ViewPagerFixed.TabsView(context, viewPager).apply {
                 setIndicatorColor(MobileThemeColors.accent)
-                setTextColors(MobileThemeColors.accent, themeColors.onSurface)
+                if (!themeColors.usesLegacyDarkColors) setTextColors(MobileThemeColors.accent, themeColors.onSurface)
             }
 
             viewPager.setAdapter(object : ViewPagerFixed.Adapter() {
@@ -664,7 +664,7 @@ class ChannelInfoFragment : BaseFragment() {
         val circle = FrameLayout(context).apply {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(themeColors.background)
+                setColor(if (themeColors.usesLegacyDarkColors) themeColors.surfaceVariant else themeColors.background)
             }
         }
         val iconView = ImageView(context).apply {
@@ -752,8 +752,11 @@ class ChannelInfoFragment : BaseFragment() {
         }
 
         memberListAdapter = MemberListAdapter(themeColors, isDm, resolveMemberListOwnerId(), nameColor = { member ->
-            val roleColor = if (isDm) null else roleController.resolveHighestDisplayRole(clanId, member.userId)
-                ?.color?.takeIf { it != 0 }
+            val roleColor = if (isDm || themeColors.usesLegacyDarkColors) {
+                null
+            } else {
+                roleController.resolveHighestDisplayRole(clanId, member.userId)?.color?.takeIf { it != 0 }
+            }
             roleColor ?: themeColors.onSurface
         }) { userId ->
             !isDm && voiceController.isUserInVoice(userId)
@@ -781,7 +784,7 @@ class ChannelInfoFragment : BaseFragment() {
             val pad = LayoutHelper.dp(12)
             setPadding(pad, pad, pad, pad)
             background = GradientDrawable().apply {
-                setColor(themeColors.background)
+                setColor(if (themeColors.usesLegacyDarkColors) themeColors.surfaceVariant else themeColors.background)
                 cornerRadius = LayoutHelper.dpf(12f)
             }
         }

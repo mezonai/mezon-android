@@ -143,7 +143,7 @@ class MediaTabHelper(
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
             setPadding(LayoutHelper.dp(4f), LayoutHelper.dp(4f), LayoutHelper.dp(4f), LayoutHelper.dp(4f))
-            background = roundedBackground(themeColors.background, 12f)
+            background = roundedBackground(if (themeColors.usesLegacyDarkColors) themeColors.surfaceVariant else themeColors.background, 12f)
         }
         imageTab = buildMediaTypeTab(context, getString(R.string.channel_gallery_images), ChannelGalleryMediaType.IMAGE)
         videoTab = buildMediaTypeTab(context, getString(R.string.channel_gallery_videos), ChannelGalleryMediaType.VIDEO)
@@ -181,7 +181,7 @@ class MediaTabHelper(
             videoTab to ChannelGalleryMediaType.VIDEO
         ).forEach { (tab, mediaType) ->
             val selected = selectedMediaType == mediaType
-            tab?.setTextColor(if (selected) Color.WHITE else themeColors.onSurface)
+            tab?.setTextColor(if (selected) Color.WHITE else if (themeColors.usesLegacyDarkColors) themeColors.onSurfaceVariant else themeColors.onSurface)
             tab?.background = roundedBackground(
                 if (selected) com.mezon.mobile.core.theme.MobileThemeColors.accent else Color.TRANSPARENT,
                 9f

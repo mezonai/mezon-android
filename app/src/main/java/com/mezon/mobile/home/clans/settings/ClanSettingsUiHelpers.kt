@@ -48,7 +48,7 @@ object ClanSettingsUiHelpers {
         val circle = android.widget.FrameLayout(context).apply {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(theme.background)
+                setColor(if (theme.usesLegacyDarkColors) theme.border else theme.background)
                 setStroke(LayoutHelper.dp(1), theme.borderDim)
             }
         }
@@ -63,7 +63,7 @@ object ClanSettingsUiHelpers {
         val label = TextView(context).apply {
             text = title
             textSize = 10f
-            setTextColor(theme.textDisabled)
+            setTextColor(if (theme.usesLegacyDarkColors) theme.textStrong else theme.textDisabled)
             gravity = Gravity.CENTER
             maxLines = 1
         }
@@ -137,7 +137,7 @@ object ClanSettingsUiHelpers {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(LayoutHelper.dp(14f), LayoutHelper.dp(13f), LayoutHelper.dp(14f), LayoutHelper.dp(13f))
-            rowBackgroundColor?.let { setBackgroundColor(it) }
+            (rowBackgroundColor ?: theme.border.takeIf { theme.usesLegacyDarkColors })?.let { setBackgroundColor(it) }
         }
         val tint = iconTint ?: theme.textStrong
         val iconIv = ImageView(context).apply {
@@ -178,7 +178,7 @@ object ClanSettingsUiHelpers {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(LayoutHelper.dp(14f), LayoutHelper.dp(13f), LayoutHelper.dp(14f), LayoutHelper.dp(13f))
-            rowBackgroundColor?.let { setBackgroundColor(it) }
+            (rowBackgroundColor ?: theme.border.takeIf { theme.usesLegacyDarkColors })?.let { setBackgroundColor(it) }
         }
         row.addView(
             TextView(context).apply {
@@ -207,6 +207,7 @@ object ClanSettingsUiHelpers {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(LayoutHelper.dp(14f), LayoutHelper.dp(13f), LayoutHelper.dp(14f), LayoutHelper.dp(13f))
+            if (theme.usesLegacyDarkColors) setBackgroundColor(theme.border)
         }
         val iconIv = ImageView(context).apply {
             scaleType = ImageView.ScaleType.FIT_CENTER
@@ -221,7 +222,7 @@ object ClanSettingsUiHelpers {
             text = title
             textSize = 15f
             typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
-            setTextColor(textColor ?: theme.textStrong)
+            setTextColor(textColor ?: if (theme.usesLegacyDarkColors) theme.colorText else theme.textStrong)
         }
         row.addView(text, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.CENTER_VERTICAL))
 
@@ -250,12 +251,14 @@ object ClanSettingsUiHelpers {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(LayoutHelper.dp(14f), LayoutHelper.dp(13f), LayoutHelper.dp(14f), LayoutHelper.dp(13f))
+            if (theme.usesLegacyDarkColors) setBackgroundColor(theme.border)
         }
+        val iconColor = if (theme.usesLegacyDarkColors) theme.colorText else theme.textStrong
         val iconIv = ImageView(context).apply {
             scaleType = ImageView.ScaleType.FIT_CENTER
             val d = icon.getDrawable(context)
             d.mutate()
-            d.colorFilter = PorterDuffColorFilter(theme.textStrong, PorterDuff.Mode.SRC_IN)
+            d.colorFilter = PorterDuffColorFilter(iconColor, PorterDuff.Mode.SRC_IN)
             setImageDrawable(d)
         }
         row.addView(iconIv, LayoutHelper.createLinear(menuRowLeadingIconDp, menuRowLeadingIconDp, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, 10f, 0f))
@@ -268,7 +271,7 @@ object ClanSettingsUiHelpers {
                 text = title
                 textSize = 15f
                 typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
-                setTextColor(theme.textStrong)
+                setTextColor(if (theme.usesLegacyDarkColors) theme.colorText else theme.textStrong)
             },
             LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT)
         )
@@ -276,7 +279,7 @@ object ClanSettingsUiHelpers {
             TextView(context).apply {
                 text = subtitle
                 textSize = 12f
-                setTextColor(theme.textDisabled)
+                setTextColor(if (theme.usesLegacyDarkColors) CreateClanRnUiTokens.textDisabled(theme) else theme.textDisabled)
                 setPadding(0, LayoutHelper.dp(4f), 0, 0)
             },
             LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT)
@@ -285,7 +288,7 @@ object ClanSettingsUiHelpers {
 
         val chev = ImageView(context).apply {
             val d = MezonIcon.chevronSmallRightIcon.getDrawable(context)
-            d.colorFilter = PorterDuffColorFilter(theme.textStrong, PorterDuff.Mode.SRC_IN)
+            d.colorFilter = PorterDuffColorFilter(iconColor, PorterDuff.Mode.SRC_IN)
             setImageDrawable(d)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
         }
@@ -307,12 +310,13 @@ object ClanSettingsUiHelpers {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(LayoutHelper.dp(14f), LayoutHelper.dp(13f), LayoutHelper.dp(14f), LayoutHelper.dp(13f))
+            if (theme.usesLegacyDarkColors) setBackgroundColor(theme.border)
         }
         val text = TextView(context).apply {
             text = title
             textSize = 15f
             typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
-            setTextColor(textColor ?: theme.textStrong)
+            setTextColor(textColor ?: if (theme.usesLegacyDarkColors) theme.colorText else theme.textStrong)
         }
         row.addView(text, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.CENTER_VERTICAL))
 

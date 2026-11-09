@@ -110,9 +110,9 @@ class PinMessageCell(context: Context, private val theme: ThemeColors) : FrameLa
         d?.colorFilter = PorterDuffColorFilter(textColor(), PorterDuff.Mode.SRC_IN)
     }
 
-    private fun cellBgColor(): Int = theme.background
+    private fun cellBgColor(): Int = if (theme.usesLegacyDarkColors) theme.chatBackground else theme.background
 
-    private fun textColor(): Int = theme.onSurface
+    private fun textColor(): Int = if (theme.usesLegacyDarkColors) theme.colorText else theme.onSurface
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         super.onMeasure(widthMeasureSpec, heightMeasureSpec)

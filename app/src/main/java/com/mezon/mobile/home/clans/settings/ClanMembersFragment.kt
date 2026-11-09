@@ -94,13 +94,13 @@ class ClanMembersFragment : BaseFragment() {
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
         }
-        root.setBackgroundColor(themeColors.surface)
+        root.setBackgroundColor(if (themeColors.usesLegacyDarkColors) ClanRolesUiTheme.rnScreenBackground(themeColors) else themeColors.surface)
 
         actionBar = ActionBarView(context, themeColors).apply {
             setTitle(getString(R.string.clan_settings_members))
             setBackButtonImage(R.drawable.ic_arrow_back)
             setCenterTitle(true)
-            setBackgroundColor(themeColors.surface)
+            setBackgroundColor(if (themeColors.usesLegacyDarkColors) ClanRolesUiTheme.rnScreenBackground(themeColors) else themeColors.surface)
             setTitleColor(themeColors.textStrong)
             setItemsColor(themeColors.textStrong, false)
             setDrawDivider(false)
@@ -109,7 +109,7 @@ class ClanMembersFragment : BaseFragment() {
         root.addView(actionBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
         searchInput = SearchCell(context, themeColors, cornerRadiusDp = 12f).apply {
-            setPromptColor(themeColors.textDisabled)
+            setPromptColor(if (themeColors.usesLegacyDarkColors) themeColors.onSurfaceVariant else themeColors.textDisabled)
             setPlaceholder(getString(R.string.clan_roles_members_search))
             onTextChanged = {
                 val nextFilter = it.trim()
@@ -218,7 +218,7 @@ class ClanMembersFragment : BaseFragment() {
                 val emptyView = TextView(parent.context).apply {
                     text = getString(R.string.clan_roles_members_none)
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-                    setTextColor(themeColors.textDisabled)
+                    setTextColor(if (themeColors.usesLegacyDarkColors) themeColors.colorText else themeColors.textDisabled)
                     gravity = Gravity.CENTER
                     layoutParams = RecyclerView.LayoutParams(
                         RecyclerView.LayoutParams.MATCH_PARENT,
@@ -387,7 +387,7 @@ class ClanMembersFragment : BaseFragment() {
 
             usernameText = TextView(context).apply {
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-                setTextColor(themeColors.textDisabled)
+                setTextColor(if (themeColors.usesLegacyDarkColors) themeColors.colorText else themeColors.textDisabled)
                 includeFontPadding = false
                 maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END
@@ -451,7 +451,7 @@ class ClanMembersFragment : BaseFragment() {
                     }
                     chipView.addView(TextView(context).apply {
                         text = chip.title.uppercase(Locale.getDefault())
-                        setTextColor(themeColors.textStrong)
+                        setTextColor(if (themeColors.usesLegacyDarkColors) themeColors.colorText else themeColors.textStrong)
                         setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
                         setTypeface(Typeface.DEFAULT, Typeface.BOLD)
                         maxLines = 1

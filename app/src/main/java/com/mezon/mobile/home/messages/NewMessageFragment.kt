@@ -79,7 +79,7 @@ class NewMessageFragment : BaseFragment() {
         }
         observe(NotificationCenter.themeChanged) { _, _, _ ->
             if (isPaused || fragmentView == null) return@observe
-            fragmentView?.setBackgroundColor(themeColors.surface)
+            fragmentView?.setBackgroundColor(if (themeColors.usesLegacyDarkColors) themeColors.serverRailBg else themeColors.surface)
             if (::adapter.isInitialized) adapter.notifyDataSetChanged()
         }
         friendController.loadFriendRelations(noCache = true)
@@ -90,7 +90,7 @@ class NewMessageFragment : BaseFragment() {
         rootFrame = FrameLayout(context)
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(themeColors.surface)
+            setBackgroundColor(if (themeColors.usesLegacyDarkColors) themeColors.serverRailBg else themeColors.surface)
         }
         rootFrame.addView(root, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
@@ -98,9 +98,10 @@ class NewMessageFragment : BaseFragment() {
             setBackClickListener { finishFragment() }
             setTitle(getString(R.string.screen_header_new_message))
             setCenterTitle(true)
-            setTitleColor(themeColors.onSurface)
-            setItemsColor(themeColors.onSurface)
-            setBackgroundColor(themeColors.surface)
+            val headerColor = if (themeColors.usesLegacyDarkColors) themeColors.colorText else themeColors.onSurface
+            setTitleColor(headerColor)
+            setItemsColor(headerColor)
+            setBackgroundColor(if (themeColors.usesLegacyDarkColors) themeColors.serverRailBg else themeColors.surface)
         }
         root.addView(actionBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 56))
 
@@ -147,7 +148,7 @@ class NewMessageFragment : BaseFragment() {
 
         emptyView = TextView(context).apply {
             text = getString(R.string.dm_no_friends)
-            setTextColor(themeColors.textDisabled)
+            setTextColor(if (themeColors.usesLegacyDarkColors) themeColors.onSurfaceVariant else themeColors.textDisabled)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
             gravity = Gravity.CENTER
             visibility = View.GONE
@@ -175,11 +176,11 @@ class NewMessageFragment : BaseFragment() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(LayoutHelper.dp(12), 0, LayoutHelper.dp(12), 0)
-            background = roundedBg(themeColors.background, 40f)
+            background = roundedBg(if (themeColors.usesLegacyDarkColors) themeColors.secondaryInputBackground else themeColors.background, 40f)
         }
         val label = TextView(context).apply {
             text = getString(R.string.dm_new_message_to)
-            setTextColor(themeColors.onSurface)
+            setTextColor(if (themeColors.usesLegacyDarkColors) themeColors.colorText else themeColors.onSurface)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             includeFontPadding = false
             gravity = Gravity.CENTER_VERTICAL
@@ -188,7 +189,7 @@ class NewMessageFragment : BaseFragment() {
 
         val input = EditText(context).apply {
             hint = getString(R.string.common_search_placeholder)
-            setHintTextColor(themeColors.textDisabled)
+            setHintTextColor(if (themeColors.usesLegacyDarkColors) 0xFF7B7B83.toInt() else themeColors.textDisabled)
             setTextColor(themeColors.textStrong)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             background = null
@@ -221,7 +222,7 @@ class NewMessageFragment : BaseFragment() {
         val card = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             clipToOutline = true
-            background = roundedBg(themeColors.background, 12f)
+            background = roundedBg(if (themeColors.usesLegacyDarkColors) themeColors.secondaryInputBackground else themeColors.background, 12f)
         }
         card.addView(buildActionRow(
             context = context,
@@ -278,7 +279,7 @@ class NewMessageFragment : BaseFragment() {
 
         val titleView = TextView(context).apply {
             text = title
-            setTextColor(themeColors.onSurface)
+            setTextColor(if (themeColors.usesLegacyDarkColors) themeColors.colorText else themeColors.onSurface)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
@@ -289,7 +290,7 @@ class NewMessageFragment : BaseFragment() {
 
         val chevron = ImageView(context).apply {
             val d = MezonIcon.chevronSmallRightIcon.getDrawable(context)
-            d.colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
+            d.colorFilter = PorterDuffColorFilter(if (themeColors.usesLegacyDarkColors) themeColors.colorText else themeColors.onSurface, PorterDuff.Mode.SRC_IN)
             setImageDrawable(d)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
         }

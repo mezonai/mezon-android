@@ -38,7 +38,7 @@ class ServerChoiceBottomSheet(
         val titleText = TextView(context).apply {
             text = context.getString(R.string.profile_server)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
-            setTextColor(themeColors.textStrong)
+            setTextColor(if (themeColors.usesLegacyDarkColors) themeColors.onSurface else themeColors.textStrong)
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER_HORIZONTAL
         }
@@ -50,7 +50,7 @@ class ServerChoiceBottomSheet(
             orientation = LinearLayout.VERTICAL
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(12f).toFloat()
-                setColor(themeColors.background)
+                setColor(if (themeColors.usesLegacyDarkColors) themeColors.getColor(ThemeColors.key_sheetItemBackground) else themeColors.background)
             }
             setPadding(LayoutHelper.dp(8), LayoutHelper.dp(8), LayoutHelper.dp(8), LayoutHelper.dp(8))
         }
@@ -63,7 +63,7 @@ class ServerChoiceBottomSheet(
             optionsContainer.addView(createOptionRow(choice))
             if (index < choices.lastIndex) {
                 val separator = View(context).apply {
-                    setBackgroundColor(themeColors.border)
+                    setBackgroundColor(if (themeColors.usesLegacyDarkColors) themeColors.dividerColor else themeColors.border)
                 }
                 optionsContainer.addView(separator, LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LayoutHelper.dp(0.5f)
@@ -122,7 +122,7 @@ class ServerChoiceBottomSheet(
         val titleView = TextView(context).apply {
             text = choice.regionName ?: context.getString(R.string.profile_server_auto)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-            setTextColor(themeColors.textStrong)
+            setTextColor(if (themeColors.usesLegacyDarkColors) themeColors.onSurface else themeColors.textStrong)
             typeface = Typeface.DEFAULT_BOLD
         }
         textColumn.addView(titleView)

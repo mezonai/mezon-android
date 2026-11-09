@@ -60,7 +60,7 @@ class InvitePeopleBottomSheet(
         get() = theme.surface
 
     override val sheetHandleColor: Int
-        get() = ColorUtils.setAlphaComponent(theme.textDisabled, 0xB3)
+        get() = if (theme.usesLegacyDarkColors) super.sheetHandleColor else ColorUtils.setAlphaComponent(theme.textDisabled, 0xB3)
 
     companion object {
         private const val PAYLOAD_ACTION = "action"
@@ -109,7 +109,7 @@ class InvitePeopleBottomSheet(
             )
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(theme.textStrong)
+            setTextColor(if (theme.usesLegacyDarkColors) theme.colorText else theme.textStrong)
             gravity = Gravity.CENTER
         }, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
             topMargin = LayoutHelper.dp(12f)
@@ -150,7 +150,7 @@ class InvitePeopleBottomSheet(
         val textEndPad = clearInset + clearSize + textGap
 
         val searchWrap = FrameLayout(context).apply {
-            background = roundedFieldBg(theme.background)
+            background = roundedFieldBg(if (theme.usesLegacyDarkColors) theme.surfaceVariant else theme.background)
             clipChildren = true
         }
 
@@ -163,7 +163,7 @@ class InvitePeopleBottomSheet(
                 },
             )
             setHintTextColor(theme.textDisabled)
-            setTextColor(theme.textStrong)
+            setTextColor(if (theme.usesLegacyDarkColors) theme.colorText else theme.textStrong)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             setSingleLine(true)
             maxLines = 1
@@ -226,7 +226,7 @@ class InvitePeopleBottomSheet(
         listContainer = FrameLayout(context).apply {
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dpf(10f)
-                setColor(theme.background)
+                setColor(if (theme.usesLegacyDarkColors) android.graphics.Color.TRANSPARENT else theme.background)
             }
             clipToOutline = true
         }
@@ -301,11 +301,11 @@ class InvitePeopleBottomSheet(
             clipChildren = true
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(theme.background)
+                setColor(if (theme.usesLegacyDarkColors) theme.surfaceVariant else theme.background)
             }
         }
         val iconView = ImageView(context).apply {
-            setImageDrawable(icon.getDrawable(context, theme.textStrong))
+            setImageDrawable(icon.getDrawable(context, if (theme.usesLegacyDarkColors) theme.colorText else theme.textStrong))
             scaleType = ImageView.ScaleType.FIT_CENTER
             adjustViewBounds = true
         }
@@ -320,7 +320,7 @@ class InvitePeopleBottomSheet(
         column.addView(TextView(context).apply {
             text = label
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-            setTextColor(theme.textStrong)
+            setTextColor(if (theme.usesLegacyDarkColors) theme.colorText else theme.textStrong)
             gravity = Gravity.CENTER_HORIZONTAL
             maxLines = 2
             ellipsize = TextUtils.TruncateAt.END
@@ -598,7 +598,7 @@ class InvitePeopleBottomSheet(
 
             val titleTv = TextView(context).apply {
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-                setTextColor(theme.textStrong)
+                setTextColor(if (theme.usesLegacyDarkColors) theme.colorText else theme.textStrong)
                 maxLines = 1
                 ellipsize = TextUtils.TruncateAt.END
             }
@@ -612,7 +612,7 @@ class InvitePeopleBottomSheet(
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
                 typeface = Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER
-                setTextColor(theme.textStrong)
+                setTextColor(if (theme.usesLegacyDarkColors) theme.colorText else theme.textStrong)
             }
             val actionSpinner = ProgressBar(context).apply {
                 visibility = View.GONE
@@ -670,12 +670,22 @@ class InvitePeopleBottomSheet(
             val sent = sentIds.contains(target.rowId)
             val sending = sendingId == target.rowId
             holder.itemView.alpha = if (sent) 0.6f else 1f
+            val actionTextColor = when {
+                !theme.usesLegacyDarkColors -> theme.textStrong
+                sent -> theme.textDisabled
+                else -> theme.colorText
+            }
+            holder.actionLabel.setTextColor(actionTextColor)
             holder.actionBtn.setOnClickListener(null)
 
             holder.actionBtn.background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dpf(16f)
                 setColor(theme.tertiary)
-                setStroke(1, ColorUtils.setAlphaComponent(theme.border, 0xCC))
+                if (theme.usesLegacyDarkColors) {
+                    setStroke(LayoutHelper.dp(1f), theme.borderDim)
+                } else {
+                    setStroke(1, ColorUtils.setAlphaComponent(theme.border, 0xCC))
+                }
             }
 
             when {

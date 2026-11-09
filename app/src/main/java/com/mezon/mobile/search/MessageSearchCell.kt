@@ -87,9 +87,9 @@ class MessageSearchCell(context: Context, private val theme: ThemeColors) : Base
         senderPaint.set(theme.dialogNamePaint)
         senderPaint.color = theme.onSurface
         contentPaint.set(theme.dialogMessagePaint)
-        contentPaint.color = theme.onSurface
+        if (!theme.usesLegacyDarkColors) contentPaint.color = theme.onSurface
         channelPaint.set(theme.dialogMessagePaint)
-        channelPaint.color = theme.textDisabled
+        if (!theme.usesLegacyDarkColors) channelPaint.color = theme.textDisabled
         val sender = resolvedSenderName?.takeIf { it.isNotBlank() }
             ?: doc.displayName.ifEmpty { doc.username }
         senderLayout = StaticLayout.Builder.obtain(sender, 0, sender.length, senderPaint, textWidth)

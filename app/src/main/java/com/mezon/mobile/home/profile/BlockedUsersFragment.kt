@@ -53,7 +53,7 @@ class BlockedUsersFragment : BaseFragment() {
         observe(NotificationCenter.themeChanged) { _, _, _ ->
             if (fragmentView == null) return@observe
             fragmentView?.setBackgroundColor(themeColors.surface)
-            emptyView.setTextColor(themeColors.textDisabled)
+            emptyView.setTextColor(if (themeColors.usesLegacyDarkColors) themeColors.onSurfaceVariant else themeColors.textDisabled)
             listAdapter.notifyDataSetChanged()
         }
 
@@ -82,7 +82,7 @@ class BlockedUsersFragment : BaseFragment() {
         emptyView = TextView(context).apply {
             text = getString(R.string.blocked_users_empty)
             textSize = 15f
-            setTextColor(themeColors.textDisabled)
+            setTextColor(if (themeColors.usesLegacyDarkColors) themeColors.onSurfaceVariant else themeColors.textDisabled)
             gravity = Gravity.CENTER
             visibility = View.GONE
         }

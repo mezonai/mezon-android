@@ -88,11 +88,11 @@ class ClanMenuBottomSheet(
                 TextView(context).apply {
                     text = context.getString(R.string.discover_community)
                     textSize = 11f
-                    setTextColor(theme.textStrong)
+                    setTextColor(if (theme.usesLegacyDarkColors) theme.onPrimary else theme.textStrong)
                     setPadding(badgePadH, badgePadV, badgePadH, badgePadV)
                     background = GradientDrawable().apply {
                         cornerRadius = LayoutHelper.dp(6f).toFloat()
-                        setColor(theme.background)
+                        setColor(if (theme.usesLegacyDarkColors) theme.blurple else theme.background)
                     }
                 },
                 LinearLayout.LayoutParams(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT)
@@ -120,7 +120,7 @@ class ClanMenuBottomSheet(
                     TextView(context).apply {
                         text = label
                         textSize = 12f
-                        setTextColor(theme.textStrong)
+                        setTextColor(if (theme.usesLegacyDarkColors) theme.colorText else theme.textStrong)
                     },
                     LinearLayout.LayoutParams(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT).apply {
                         leftMargin = inlineGap
@@ -179,6 +179,9 @@ class ClanMenuBottomSheet(
         root.addView(actionRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
         val spacer = 14f
+        val legacyDark = theme.usesLegacyDarkColors
+        val cardColor = if (legacyDark) theme.channelPanelBg else theme.background
+        val separatorColor = if (legacyDark) theme.tertiary else theme.border
 
         root.addView(
             ClanSettingsUiHelpers.buildMezonSection(
@@ -205,8 +208,8 @@ class ClanMenuBottomSheet(
                         onCreateEvent,
                     )
                 ),
-                cardColor = theme.background,
-                separatorColor = theme.border
+                cardColor = cardColor,
+                separatorColor = separatorColor
             ),
             LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, spacer, 0f, spacer)
         )
@@ -246,8 +249,8 @@ class ClanMenuBottomSheet(
                         onDeleteClan,
                     ).apply { visibility = if (permissionState.isClanOwner) View.VISIBLE else View.GONE }
                 ),
-                cardColor = theme.background,
-                separatorColor = theme.border
+                cardColor = cardColor,
+                separatorColor = separatorColor
             ),
             LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 0f, 0f, spacer)
         )
@@ -257,12 +260,13 @@ class ClanMenuBottomSheet(
             gravity = Gravity.CENTER_VERTICAL
             val pad = LayoutHelper.dp(14)
             setPadding(pad, pad, pad, pad)
+            if (legacyDark) setBackgroundColor(theme.border)
         }
         swRow.addView(TextView(context).apply {
             text = context.getString(R.string.clan_menu_show_empty_categories)
             textSize = 15f
             typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
-            setTextColor(theme.textStrong)
+            setTextColor(if (legacyDark) theme.colorText else theme.textStrong)
         }, LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1f))
 
         swRow.addView(SwitchView(context, theme).apply {
@@ -272,7 +276,10 @@ class ClanMenuBottomSheet(
             }
         })
 
-        root.addView(ClanSettingsUiHelpers.buildMezonSection(context, theme, null, listOf(swRow), cardColor = theme.background), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+        root.addView(
+            ClanSettingsUiHelpers.buildMezonSection(context, theme, null, listOf(swRow), cardColor = cardColor),
+            LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT)
+        )
 
         setCustomView(root)
     }

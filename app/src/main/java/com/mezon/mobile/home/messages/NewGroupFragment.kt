@@ -122,7 +122,7 @@ class NewGroupFragment : BaseFragment() {
         }
         observe(NotificationCenter.themeChanged) { _, _, _ ->
             if (isPaused || fragmentView == null) return@observe
-            fragmentView?.setBackgroundColor(themeColors.surface)
+            fragmentView?.setBackgroundColor(if (themeColors.usesLegacyDarkColors) themeColors.serverRailBg else themeColors.surface)
             if (::adapter.isInitialized) adapter.notifyDataSetChanged()
         }
 
@@ -135,7 +135,7 @@ class NewGroupFragment : BaseFragment() {
         rootFrame = FrameLayout(context)
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(themeColors.surface)
+            setBackgroundColor(if (themeColors.usesLegacyDarkColors) themeColors.serverRailBg else themeColors.surface)
         }
         rootFrame.addView(root, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
         root.addView(buildHeader(context), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
@@ -181,7 +181,7 @@ class NewGroupFragment : BaseFragment() {
 
         emptyView = TextView(context).apply {
             text = getString(R.string.dm_no_friends)
-            setTextColor(themeColors.textDisabled)
+            setTextColor(if (themeColors.usesLegacyDarkColors) themeColors.onSurfaceVariant else themeColors.textDisabled)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
             gravity = Gravity.CENTER
             visibility = View.GONE
@@ -210,7 +210,7 @@ class NewGroupFragment : BaseFragment() {
         val container = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(0, AndroidUtilities.statusBarHeight, 0, 0)
-            setBackgroundColor(themeColors.surface)
+            setBackgroundColor(if (themeColors.usesLegacyDarkColors) themeColors.serverRailBg else themeColors.surface)
         }
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -231,7 +231,7 @@ class NewGroupFragment : BaseFragment() {
         }
         val backIcon = ImageView(context).apply {
             val d = MezonIcon.arrowLargeLeftIcon.getDrawable(context)
-            d.colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
+            d.colorFilter = PorterDuffColorFilter(if (themeColors.usesLegacyDarkColors) themeColors.colorText else themeColors.onSurface, PorterDuff.Mode.SRC_IN)
             setImageDrawable(d)
         }
         back.addView(backIcon, LayoutHelper.createFrame(20, 20, Gravity.CENTER_VERTICAL or Gravity.START))
@@ -243,7 +243,7 @@ class NewGroupFragment : BaseFragment() {
         }
         val title = TextView(context).apply {
             text = if (mode == MODE_ADD_MEMBERS) getString(R.string.dm_add_members) else getString(R.string.dm_new_group)
-            setTextColor(themeColors.onSurface)
+            setTextColor(if (themeColors.usesLegacyDarkColors) themeColors.colorText else themeColors.onSurface)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
             setTypeface(Typeface.DEFAULT, Typeface.BOLD)
             includeFontPadding = false
@@ -252,7 +252,7 @@ class NewGroupFragment : BaseFragment() {
         }
         titleColumn.addView(title, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT))
         subtitleText = TextView(context).apply {
-            setTextColor(themeColors.textDisabled)
+            setTextColor(if (themeColors.usesLegacyDarkColors) 0xFF7B7B83.toInt() else themeColors.textDisabled)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
             setTypeface(Typeface.DEFAULT, Typeface.BOLD)
             includeFontPadding = false
@@ -264,7 +264,7 @@ class NewGroupFragment : BaseFragment() {
         val actionWrap = FrameLayout(context)
         actionText = TextView(context).apply {
             text = if (mode == MODE_ADD_MEMBERS) getString(R.string.dm_add) else getString(R.string.dm_create)
-            setTextColor(MobileThemeColors.newConversation)
+            setTextColor(if (themeColors.usesLegacyDarkColors) themeColors.blurple else MobileThemeColors.newConversation)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             gravity = Gravity.CENTER or Gravity.END
             includeFontPadding = false
@@ -281,20 +281,21 @@ class NewGroupFragment : BaseFragment() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(LayoutHelper.dp(12), 0, LayoutHelper.dp(12), 0)
-            background = roundedBg(themeColors.background, 40f)
+            background = roundedBg(if (themeColors.usesLegacyDarkColors) themeColors.secondaryInputBackground else themeColors.background, 40f)
         }
         val searchIconSlot = FrameLayout(context)
         val searchIcon = ImageView(context).apply {
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             setImageResource(R.drawable.ic_magnifying)
-            colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
+            val iconColor = if (themeColors.usesLegacyDarkColors) themeColors.colorText else themeColors.onSurface
+            colorFilter = PorterDuffColorFilter(iconColor, PorterDuff.Mode.SRC_IN)
         }
         searchIconSlot.addView(searchIcon, LayoutHelper.createFrame(18, 18, Gravity.CENTER))
         row.addView(searchIconSlot, LayoutHelper.createLinear(18, LayoutHelper.MATCH_PARENT, rightMargin = 5f))
 
         val input = EditText(context).apply {
             hint = getString(R.string.common_search_placeholder)
-            setHintTextColor(themeColors.textDisabled)
+            setHintTextColor(if (themeColors.usesLegacyDarkColors) 0xFF7B7B83.toInt() else themeColors.textDisabled)
             setTextColor(themeColors.textStrong)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             background = null

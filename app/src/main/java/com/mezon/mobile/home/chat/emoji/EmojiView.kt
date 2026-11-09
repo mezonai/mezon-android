@@ -153,7 +153,7 @@ class EmojiView(
         tabBar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            setBackgroundColor((themeColors.surface and 0x00FFFFFF) or 0x99000000.toInt())
+            setBackgroundColor(if (themeColors.usesLegacyDarkColors) themeColors.surface else (themeColors.surface and 0x00FFFFFF) or 0x99000000.toInt())
             setPadding(0, LayoutHelper.dp(4f), 0, LayoutHelper.dp(4f))
         }
 
