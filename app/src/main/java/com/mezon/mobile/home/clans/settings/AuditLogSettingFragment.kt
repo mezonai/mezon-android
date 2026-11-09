@@ -168,7 +168,7 @@ class AuditLogSettingFragment : BaseFragment() {
             setPadding(LayoutHelper.dp(12f), LayoutHelper.dp(10f), LayoutHelper.dp(12f), LayoutHelper.dp(10f))
             background = android.graphics.drawable.GradientDrawable().apply {
                 cornerRadius = CreateClanRnUiTokens.clanSettingsMenuCornerPx()
-                setColor(if (themeColors.usesLegacyDarkColors) themeColors.surfaceVariant else themeColors.background)
+                setColor(themeColors.background)
             }
             isClickable = true
             isFocusable = true

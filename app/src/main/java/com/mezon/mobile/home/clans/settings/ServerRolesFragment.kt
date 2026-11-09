@@ -35,8 +35,6 @@ class ServerRolesFragment : BaseFragment() {
         private const val MENU_ADD_ROLE = 2
         private const val ROLE_ROW_ICON_DP = 32
         private const val ROLE_ICON_GAP_END_DP = 10
-        private const val LEGACY_EVERYONE_ICON_DP = 20
-        private const val LEGACY_EVERYONE_ICON_PADDING_DP = 8
         private const val MENU_PLUS_INSET_DP = 14
 
         fun newInstance(clanId: Long): ServerRolesFragment =
@@ -168,7 +166,7 @@ class ServerRolesFragment : BaseFragment() {
             TextView(content.context).apply {
                 text = getString(R.string.clan_roles_description)
                 textSize = 14f
-                setTextColor(if (themeColors.usesLegacyDarkColors) themeColors.colorText else themeColors.textDisabled)
+                setTextColor(themeColors.textDisabled)
                 gravity = Gravity.CENTER_HORIZONTAL
                 setPadding(0, LayoutHelper.dp(14f), 0, LayoutHelper.dp(14f))
             },
@@ -186,7 +184,7 @@ class ServerRolesFragment : BaseFragment() {
             TextView(content.context).apply {
                 text = getString(R.string.clan_roles_header_count, displayRoles.size)
                 textSize = 14f
-                setTextColor(if (themeColors.usesLegacyDarkColors) themeColors.colorText else themeColors.textStrong)
+                setTextColor(themeColors.textStrong)
             },
             LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 10f, 0f, 0f)
         )
@@ -196,11 +194,11 @@ class ServerRolesFragment : BaseFragment() {
                 TextView(content.context).apply {
                     text = getString(R.string.clan_roles_no_roles)
                     textSize = 14f
-                    setTextColor(if (themeColors.usesLegacyDarkColors) themeColors.colorText else themeColors.textDisabled)
-                    gravity = if (themeColors.usesLegacyDarkColors) Gravity.CENTER_HORIZONTAL else Gravity.START
+                    setTextColor(themeColors.textDisabled)
+                    gravity = Gravity.START
                     val padding = LayoutHelper.dp(12f)
                     setPadding(padding, padding, padding, padding)
-                    if (!themeColors.usesLegacyDarkColors) background = roleCardBackground(10f)
+                    background = roleCardBackground(10f)
                 },
                 LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 10f, 0f, 10f)
             )
@@ -221,9 +219,6 @@ class ServerRolesFragment : BaseFragment() {
             )
         }
     }
-
-    private val roleChevronColor: Int
-        get() = if (themeColors.usesLegacyDarkColors) themeColors.colorText else themeColors.textDisabled
 
     private fun roleCardBackground(radiusDp: Float) = GradientDrawable().apply {
         cornerRadius = LayoutHelper.dpf(radiusDp)
@@ -248,24 +243,13 @@ class ServerRolesFragment : BaseFragment() {
             gravity = Gravity.CENTER_VERTICAL
             layoutParams = LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1f)
         }
-        val legacyDark = themeColors.usesLegacyDarkColors
-        val iconColor = if (legacyDark) themeColors.colorText else themeColors.textStrong
-        val iconSize = if (legacyDark) LEGACY_EVERYONE_ICON_DP + 2 * LEGACY_EVERYONE_ICON_PADDING_DP else ROLE_ROW_ICON_DP
         val everyoneIcon = ImageView(context).apply {
-            setImageDrawable(MezonIcon.groupIcon.getDrawable(context, iconColor))
+            setImageDrawable(MezonIcon.groupIcon.getDrawable(context, themeColors.textStrong))
             scaleType = ImageView.ScaleType.FIT_CENTER
-            if (legacyDark) {
-                val padding = LayoutHelper.dp(LEGACY_EVERYONE_ICON_PADDING_DP)
-                setPadding(padding, padding, padding, padding)
-                background = GradientDrawable().apply {
-                    shape = GradientDrawable.OVAL
-                    setColor(themeColors.channelPanelBg)
-                }
-            }
         }
         lead.addView(
             everyoneIcon,
-            LayoutHelper.createLinear(iconSize, iconSize, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, ROLE_ICON_GAP_END_DP.toFloat(), 0f)
+            LayoutHelper.createLinear(ROLE_ROW_ICON_DP, ROLE_ROW_ICON_DP, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, ROLE_ICON_GAP_END_DP.toFloat(), 0f)
         )
         val texts = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -284,7 +268,7 @@ class ServerRolesFragment : BaseFragment() {
             TextView(context).apply {
                 text = getString(R.string.clan_roles_default_role)
                 textSize = 13f
-                setTextColor(if (themeColors.usesLegacyDarkColors) themeColors.colorText else themeColors.textDisabled)
+                setTextColor(themeColors.textDisabled)
                 maxLines = 1
                 ellipsize = TextUtils.TruncateAt.END
             },
@@ -305,7 +289,7 @@ class ServerRolesFragment : BaseFragment() {
         row.addView(
             ImageView(context).apply {
                 setImageDrawable(MezonIcon.chevronSmallRightIcon.getDrawable(context).apply {
-                    colorFilter = PorterDuffColorFilter(roleChevronColor, PorterDuff.Mode.SRC_IN)
+                    colorFilter = PorterDuffColorFilter(themeColors.textDisabled, PorterDuff.Mode.SRC_IN)
                 })
                 scaleType = ImageView.ScaleType.FIT_CENTER
             },
@@ -389,7 +373,7 @@ class ServerRolesFragment : BaseFragment() {
             TextView(context).apply {
                 text = sub
                 textSize = 13f
-                setTextColor(if (themeColors.usesLegacyDarkColors) themeColors.colorText else themeColors.textDisabled)
+                setTextColor(themeColors.textDisabled)
             },
             LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT)
         )
@@ -397,7 +381,7 @@ class ServerRolesFragment : BaseFragment() {
         row.addView(
             ImageView(context).apply {
                 setImageDrawable(MezonIcon.chevronSmallRightIcon.getDrawable(context).apply {
-                    colorFilter = PorterDuffColorFilter(roleChevronColor, PorterDuff.Mode.SRC_IN)
+                    colorFilter = PorterDuffColorFilter(themeColors.textDisabled, PorterDuff.Mode.SRC_IN)
                 })
                 scaleType = ImageView.ScaleType.FIT_CENTER
             },
@@ -406,7 +390,7 @@ class ServerRolesFragment : BaseFragment() {
         wrap.addView(row)
         if (showDivider) {
             val div = View(context).apply {
-                setBackgroundColor(if (themeColors.usesLegacyDarkColors) themeColors.borderDim else themeColors.border)
+                setBackgroundColor(themeColors.border)
             }
             wrap.addView(div, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.dp(1), 0f, Gravity.NO_GRAVITY, 12f, 0f, 12f, 0f))
         }

@@ -12,7 +12,6 @@ import com.mezon.mobile.R
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
-import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.session.SessionManager
@@ -97,12 +96,7 @@ class ChatSettingFragment : BaseFragment() {
             setPadding(LayoutHelper.dp(16), LayoutHelper.dp(12), LayoutHelper.dp(16), LayoutHelper.dp(12))
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(12f).toFloat()
-                val rowColor = if (themeColors.usesLegacyDarkColors) {
-                    themeColors.getColor(ThemeColors.key_sheetItemBackground)
-                } else {
-                    themeColors.background
-                }
-                setColor(rowColor)
+                setColor(themeColors.background)
             }
             setOnClickListener { if (switchView.isEnabled) switchView.performClick() }
         }
@@ -119,7 +113,7 @@ class ChatSettingFragment : BaseFragment() {
         val description = TextView(context).apply {
             text = getString(R.string.setting_chat_only_friends_description)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-            setTextColor(if (themeColors.usesLegacyDarkColors) themeColors.onSurfaceVariant else themeColors.onSurface)
+            setTextColor(themeColors.onSurface)
             setPadding(0, LayoutHelper.dp(8), 0, 0)
         }
         root.addView(description, LinearLayout.LayoutParams(

@@ -24,9 +24,9 @@ import android.widget.ScrollView
 import android.widget.TextView
 import com.mezon.mobile.R
 import com.mezon.mobile.core.AdjustPanLayoutHelper
+import com.mezon.mobile.core.AlertDialog
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BaseFragment
-import com.mezon.mobile.core.BottomSheet
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.chat.EmojiController
@@ -83,12 +83,12 @@ class CreatePollFragment : BaseFragment() {
     private val postRadiusPx by lazy { LayoutHelper.dpf(10f) }
 
     private val colorScreen get() = themeColors.chatBackground
-    private val colorField get() = if (themeColors.usesLegacyDarkColors) themeColors.tertiary else themeColors.background
+    private val colorField get() = themeColors.background
     private val colorLabel get() = themeColors.onSurfaceVariant
     private val colorText get() = themeColors.onSurface
-    private val colorHint get() = if (themeColors.usesLegacyDarkColors) themeColors.onSurfaceVariant else themeColors.textDisabled
+    private val colorHint get() = themeColors.textDisabled
     private val colorLink get() = MobileThemeColors.accent
-    private val colorPostDisabled get() = if (themeColors.usesLegacyDarkColors) themeColors.tertiary else (themeColors.textDisabled and 0x00FFFFFF) or 0x66000000
+    private val colorPostDisabled get() = (themeColors.textDisabled and 0x00FFFFFF) or 0x66000000
 
     private data class AnswerRow(
         val root: LinearLayout,
@@ -476,71 +476,18 @@ class CreatePollFragment : BaseFragment() {
 
     private fun showDurationPicker() {
         val activity = getParentActivity() ?: return
-        val sheet = BottomSheet(activity).apply {
-            setTitle(getString(R.string.poll_duration), big = true)
-            fixNavigationBar()
-        }
-        val ripple = TypedValue()
-        activity.theme.resolveAttribute(android.R.attr.selectableItemBackground, ripple, true)
-        val rowPadding = LayoutHelper.dp(16)
-        val rowMinHeight = LayoutHelper.dp(48)
-        val verticalPadding = LayoutHelper.dp(10)
-        val options = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-            background = GradientDrawable().apply {
-                setColor(colorField)
-                cornerRadius = fieldRadiusPx
+        val labels: Array<CharSequence> = POLL_DURATION_OPTIONS
+            .map { getString(it.second) as CharSequence }
+            .toTypedArray()
+        val currentIdx = POLL_DURATION_OPTIONS.indexOfFirst { it.first == formState.duration }.coerceAtLeast(0)
+        AlertDialog.Builder(activity)
+            .setTitle(getString(R.string.poll_duration))
+            .setSingleChoiceItems(labels, currentIdx) { which ->
+                formState = formState.copy(duration = POLL_DURATION_OPTIONS[which].first)
+                updateDurationLabel()
             }
-            clipToOutline = true
-        }
-        for ((duration, labelRes) in POLL_DURATION_OPTIONS) {
-            val selected = duration == formState.duration
-            val row = TextView(activity).apply {
-                text = getString(labelRes)
-                textSize = 16f
-                setTextColor(colorText)
-                gravity = Gravity.CENTER_VERTICAL or Gravity.START
-                minHeight = rowMinHeight
-                setPaddingRelative(rowPadding, verticalPadding, rowPadding, verticalPadding)
-                if (ripple.resourceId != 0) foreground = activity.getDrawable(ripple.resourceId)
-                isFocusable = true
-                isSelected = selected
-                if (selected) {
-                    typeface = Typeface.DEFAULT_BOLD
-                    val checkSize = LayoutHelper.dp(18)
-                    val check = MezonIcon.checkmarkSmallIcon.getDrawable(activity, colorLink).apply {
-                        setBounds(0, 0, checkSize, checkSize)
-                    }
-                    compoundDrawablePadding = LayoutHelper.dp(12)
-                    setCompoundDrawablesRelative(null, null, check, null)
-                }
-                setOnClickListener {
-                    formState = formState.copy(duration = duration)
-                    updateDurationLabel()
-                    sheet.dismiss()
-                }
-            }
-            options.addView(row, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
-        }
-
-        val content = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(rowPadding, 0, rowPadding, LayoutHelper.dp(8))
-            addView(options, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
-        }
-        sheet.setCustomView(object : ScrollView(activity) {
-            init {
-                overScrollMode = View.OVER_SCROLL_NEVER
-                addView(content, LayoutHelper.createScroll(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
-            }
-
-            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-                // The sheet draws behind the navigation bar, so reserve its inset for the last row.
-                setPadding(0, 0, 0, sheet.bottomInset)
-                super.onMeasure(widthMeasureSpec, heightMeasureSpec)
-            }
-        })
-        showDialog(sheet)
+            .setNegativeButton(getString(android.R.string.cancel), null)
+            .show()
     }
 
     private fun updateDurationLabel() {
@@ -675,7 +622,6 @@ class CreatePollFragment : BaseFragment() {
 
     private fun fieldBackground(): GradientDrawable = GradientDrawable().apply {
         setColor(colorField)
-        if (themeColors.usesLegacyDarkColors) setStroke(LayoutHelper.dp(1), themeColors.outlineVariant)
         cornerRadius = fieldRadiusPx
     }
 

@@ -86,7 +86,7 @@ class CreateClanCustomizeFragment : BaseFragment() {
         val root = FrameLayout(context).apply {
             background = GradientDrawable(
                 GradientDrawable.Orientation.LEFT_RIGHT,
-                if (themeColors.usesLegacyDarkColors) CreateClanRnUiTokens.screenGradientColors(themeColors) else intArrayOf(themeColors.surface, themeColors.surface)
+                intArrayOf(themeColors.surface, themeColors.surface)
             )
         }
         baseTopPadding = LayoutHelper.dp(20)
@@ -318,7 +318,7 @@ class CreateClanCustomizeFragment : BaseFragment() {
             bottomMargin = LayoutHelper.dp(10)
         })
         val fakeInputBg = GradientDrawable().apply {
-            setColor(if (themeColors.usesLegacyDarkColors) themeColors.secondaryInputBackground else themeColors.background)
+            setColor(themeColors.background)
             cornerRadius = LayoutHelper.dp(10).toFloat()
             setStroke(LayoutHelper.dp(1), themeColors.border)
         }

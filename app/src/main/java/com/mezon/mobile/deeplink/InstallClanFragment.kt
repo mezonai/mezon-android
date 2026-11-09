@@ -180,7 +180,7 @@ class InstallClanFragment : BaseFragment() {
         )
 
         val accessRequest = TextView(context).apply {
-            setTextColor(if (themeColors.usesLegacyDarkColors) themeColors.onSurfaceVariant else themeColors.onSurface)
+            setTextColor(themeColors.onSurface)
             textSize = 14f
             gravity = Gravity.CENTER
         }
@@ -196,9 +196,7 @@ class InstallClanFragment : BaseFragment() {
             LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 16f, 0f, 0f)
         )
 
-        card.addView(formLabel(context, getString(R.string.deeplink_install_add_to_clan)).apply {
-            if (!themeColors.usesLegacyDarkColors) setTextColor(themeColors.textDisabled)
-        }, fieldLabelMargin())
+        card.addView(formLabel(context, getString(R.string.deeplink_install_add_to_clan)).apply { setTextColor(themeColors.textDisabled) }, fieldLabelMargin())
 
         val clanPickerRow = buildPickerRow(context) { showClanPicker() }
         val clanPickerValue = TextView(context).apply {

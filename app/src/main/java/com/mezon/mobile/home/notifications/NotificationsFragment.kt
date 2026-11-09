@@ -176,7 +176,7 @@ class NotificationsFragment : BaseFragment() {
         observe(NotificationCenter.themeChanged) { _, _, _ ->
             if (fragmentView == null) return@observe
             root.setBackgroundColor(themeColors.background)
-            emptyView.setTextColor(if (themeColors.usesLegacyDarkColors) themeColors.onSurfaceVariant else themeColors.textStrong)
+            emptyView.setTextColor(themeColors.textStrong)
             rebuildTabChipColors()
             adapter.notifyDataSetChanged()
             topicAdapter.notifyDataSetChanged()
@@ -237,7 +237,7 @@ class NotificationsFragment : BaseFragment() {
 
         emptyView = TextView(context).apply {
             text = getString(R.string.notif_empty)
-            setTextColor(if (themeColors.usesLegacyDarkColors) themeColors.onSurfaceVariant else themeColors.textStrong)
+            setTextColor(themeColors.textStrong)
             textSize = 16f
             gravity = Gravity.CENTER
             visibility = View.GONE
@@ -669,24 +669,14 @@ class NotificationsFragment : BaseFragment() {
                 ellipsize = TextUtils.TruncateAt.END
                 gravity = Gravity.CENTER_VERTICAL
                 includeFontPadding = false
-                setTextColor(chipLabelColor(active))
+                setTextColor(if (active) android.graphics.Color.WHITE else themeColors.textDisabled)
             }, LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1f))
         }
     }
 
-    private fun chipLabelColor(active: Boolean): Int = when {
-        active -> android.graphics.Color.WHITE
-        themeColors.usesLegacyDarkColors -> themeColors.onSurface
-        else -> themeColors.textDisabled
-    }
-
     private fun buildChipBackground(active: Boolean): android.graphics.drawable.Drawable {
         val fill = if (active) MobileThemeColors.accent else themeColors.mobile.secondaryLight
-        val stroke = when {
-            active -> MobileThemeColors.accent
-            themeColors.usesLegacyDarkColors -> themeColors.outlineVariant
-            else -> themeColors.mobile.borderDim
-        }
+        val stroke = if (active) MobileThemeColors.accent else themeColors.mobile.borderDim
         val bg = android.graphics.drawable.GradientDrawable().apply {
             shape = android.graphics.drawable.GradientDrawable.RECTANGLE
             cornerRadius = LayoutHelper.dp(8).toFloat()
@@ -766,7 +756,7 @@ class NotificationsFragment : BaseFragment() {
             val active = tab.category == currentCategory
             chip.background = buildChipBackground(active)
             val labelTv = chip.getChildAt(1) as TextView
-            labelTv.setTextColor(chipLabelColor(active))
+            labelTv.setTextColor(if (active) android.graphics.Color.WHITE else themeColors.textDisabled)
         }
     }
 

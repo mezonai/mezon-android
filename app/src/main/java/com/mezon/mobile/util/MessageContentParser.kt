@@ -288,7 +288,7 @@ fun formatEmbedRichText(raw: String, theme: ThemeColors): CharSequence {
     if (raw.isEmpty()) return ""
     val sb = SpannableStringBuilder()
     appendRichMarkdownWithFences(sb, raw, theme)
-    applyAutoDetectedHttpLinks(sb, if (theme.usesLegacyDarkColors) theme.blurple else theme.desktop[DesktopThemeToken.MENTION_COLOR])
+    applyAutoDetectedHttpLinks(sb, theme.desktop[DesktopThemeToken.MENTION_COLOR])
     trimTrailingNewlines(sb)
     return sb
 }

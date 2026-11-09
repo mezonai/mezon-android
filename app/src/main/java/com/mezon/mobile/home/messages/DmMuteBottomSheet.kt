@@ -84,8 +84,8 @@ class DmMuteBottomSheet(
                         onDurationSelected(value, SET_MUTE_ACTIVE_UNMUTE)
                     }
                 },
-                textColor = if (theme.usesLegacyDarkColors) theme.colorText else theme.textStrong,
-                rowBackgroundColor = if (theme.usesLegacyDarkColors) theme.border else theme.background,
+                textColor = theme.textStrong,
+                rowBackgroundColor = theme.background,
             )
         }
 
@@ -94,11 +94,7 @@ class DmMuteBottomSheet(
             setPadding(LayoutHelper.dp(20), 0, LayoutHelper.dp(20), LayoutHelper.dp(20))
             addView(header, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
             addView(
-                ClanSettingsUiHelpers.buildMezonSection(
-                    context, theme, null, durationRows,
-                    cardColor = if (theme.usesLegacyDarkColors) theme.channelPanelBg else theme.background,
-                    separatorColor = if (theme.usesLegacyDarkColors) theme.tertiary else theme.border
-                ),
+                ClanSettingsUiHelpers.buildMezonSection(context, theme, null, durationRows, cardColor = theme.background, separatorColor = theme.border),
                 LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT)
             )
         }

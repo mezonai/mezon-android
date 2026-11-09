@@ -150,7 +150,7 @@ class ChannelSearchCell(context: Context, private val theme: ThemeColors) : Base
             ColorStateList.valueOf((theme.primary and 0x00FFFFFF) or 0x26000000)
         )
         clanLinePaint.textSize = theme.dialogNamePaint.textSize
-        clanLinePaint.color = if (theme.usesLegacyDarkColors) theme.dialogNamePaint.color else theme.textDisabled
+        clanLinePaint.color = theme.textDisabled
         requestLayout()
         invalidate()
     }

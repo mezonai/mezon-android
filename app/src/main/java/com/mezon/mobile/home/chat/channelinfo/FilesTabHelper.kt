@@ -122,7 +122,7 @@ class FilesTabHelper(
             minimumHeight = LayoutHelper.dp(40f)
             setPadding(pad, 0, pad, 0)
             background = GradientDrawable().apply {
-                setColor(if (themeColors.usesLegacyDarkColors) themeColors.surfaceVariant else themeColors.background)
+                setColor(themeColors.background)
                 cornerRadius = LayoutHelper.dpf(10f)
             }
         }
@@ -180,7 +180,7 @@ class FilesTabHelper(
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
             setPadding(LayoutHelper.dp(4f), LayoutHelper.dp(4f), LayoutHelper.dp(4f), LayoutHelper.dp(4f))
-            background = roundedBackground(if (themeColors.usesLegacyDarkColors) themeColors.surfaceVariant else themeColors.background, 12f)
+            background = roundedBackground(themeColors.background, 12f)
         }
         docsTab = buildFilesTypeTab(context, getString(R.string.channel_files_docs), ChannelFilesType.DOC)
         audiosTab = buildFilesTypeTab(context, getString(R.string.channel_files_audios), ChannelFilesType.AUDIO)
@@ -217,7 +217,7 @@ class FilesTabHelper(
             audiosTab to ChannelFilesType.AUDIO
         ).forEach { (tab, filesType) ->
             val selected = selectedFilesType == filesType
-            tab?.setTextColor(if (selected) Color.WHITE else if (themeColors.usesLegacyDarkColors) themeColors.onSurfaceVariant else themeColors.onSurface)
+            tab?.setTextColor(if (selected) Color.WHITE else themeColors.onSurface)
             tab?.background = roundedBackground(
                 if (selected) com.mezon.mobile.core.theme.MobileThemeColors.accent else Color.TRANSPARENT,
                 9f

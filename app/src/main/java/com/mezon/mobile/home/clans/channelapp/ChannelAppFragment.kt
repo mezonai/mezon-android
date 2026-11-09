@@ -73,7 +73,7 @@ class ChannelAppFragment : BaseFragment() {
     private val statusBarInset: Int
         get() = AndroidUtilities.statusBarHeight.coerceAtLeast(0)
     private val headerPrimaryColor: Int
-        get() = if (themeColors.usesLegacyDarkColors) themeColors.serverRailBg else themeColors.surface
+        get() = themeColors.surface
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
         api = entryPoint.mezonApi()

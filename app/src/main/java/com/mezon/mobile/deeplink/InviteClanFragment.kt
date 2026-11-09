@@ -313,7 +313,7 @@ class InviteClanFragment : BaseFragment() {
                 android.content.res.ColorStateList.valueOf(0x22000000),
                 GradientDrawable().apply {
                     cornerRadius = radius
-                    setColor(if (themeColors.usesLegacyDarkColors) themeColors.surfaceVariant else themeColors.surface)
+                    setColor(themeColors.surface)
                 },
                 null
             )

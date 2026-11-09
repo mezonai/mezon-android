@@ -417,6 +417,20 @@ class ThemeColors @Inject constructor() {
 
     val channelPanelBg: Int get() = if (usesLegacyDarkColors) chatBackground else desktop[Token.BG_THEME_DIRECT_MESSAGE]
 
+    internal val channelDocumentBackground: Int get() = if (usesLegacyDarkColors) surfaceVariant else background
+
+    internal fun channelListIconTint(desktopTint: Int, channelNameTint: Int): Int =
+        if (usesLegacyDarkColors) channelNameTint else desktopTint
+
+    internal val messageMenuItemBackground: Int get() = if (usesLegacyDarkColors) border else background
+    internal val messageMenuGroupBackground: Int get() = if (usesLegacyDarkColors) channelPanelBg else background
+    internal val messageMenuText: Int get() = if (usesLegacyDarkColors) colorText else textStrong
+    internal val messageMenuWarning: Int get() = if (usesLegacyDarkColors) redStrong else error
+    internal val messageMenuDivider: Int get() = if (usesLegacyDarkColors) tertiary else border
+
+    internal fun messageMenuWarningBackground(sheetBackground: Int): Int =
+        if (usesLegacyDarkColors) tertiary else sheetBackground
+
     val serverRailBg: Int get() = if (usesLegacyDarkColors) 0xFF121218.toInt() else desktop[Token.BG_PRIMARY]
 
     val profileSheetAvatarRingColor: Int get() = if (usesLegacyDarkColors) serverRailBg else surface

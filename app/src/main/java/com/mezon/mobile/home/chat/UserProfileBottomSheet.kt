@@ -82,7 +82,7 @@ class UserProfileBottomSheet(
     private val theme: ThemeColors = ThemeColors.instance
 
     private val rnProfileSectionTitleColor: Int
-        get() = if (theme.usesLegacyDarkColors) 0xFFFFFFFF.toInt() else theme.textStrong
+        get() = theme.textStrong
 
     init {
         if (voiceParticipantExtras != null) {
@@ -92,11 +92,11 @@ class UserProfileBottomSheet(
 
     // RN color mappings
     private val primaryColor: Int
-        get() = if (theme.usesLegacyDarkColors) theme.serverRailBg else theme.surface
+        get() = theme.surface
     private val textStrongColor: Int
         get() = theme.textStrong
     private val textColor: Int
-        get() = if (theme.usesLegacyDarkColors) theme.colorText else theme.onSurface
+        get() = theme.onSurface
 
     private var backdropColorView: View? = null
     private var profileAvatarView: ImageView? = null

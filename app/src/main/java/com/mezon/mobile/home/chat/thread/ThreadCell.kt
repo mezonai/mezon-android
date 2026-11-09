@@ -32,7 +32,7 @@ class ThreadCell(context: Context, private val theme: ThemeColors) : BaseCell(co
     private var chevronDrawable: Drawable? = null
 
     private val borderPaint = Paint().apply {
-        color = if (theme.usesLegacyDarkColors) theme.outlineVariant else theme.mobile.borderDim
+        color = theme.mobile.borderDim
     }
 
     private val namePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -66,7 +66,7 @@ class ThreadCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         threadInfo = info
         senderName = resolvedSenderName
         showDivider = !isFirst
-        cardBackground.setColor(if (theme.usesLegacyDarkColors) theme.serverRailBg else theme.background)
+        cardBackground.setColor(theme.background)
         val top = if (isFirst) CARD_RADIUS else 0f
         val bottom = if (isLast) CARD_RADIUS else 0f
         cardBackground.cornerRadii = floatArrayOf(top, top, top, top, bottom, bottom, bottom, bottom)

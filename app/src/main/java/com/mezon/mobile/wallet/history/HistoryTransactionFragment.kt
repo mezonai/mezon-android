@@ -99,23 +99,14 @@ class HistoryTransactionFragment : BaseFragment() {
 
         val themeColors = com.mezon.mobile.core.ThemeColors.instance
         view.setBackgroundColor(themeColors.surface)
-        val legacyDark = themeColors.usesLegacyDarkColors
-        val cardGradient = if (legacyDark) {
-            android.graphics.drawable.GradientDrawable(
-                android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
-                intArrayOf(themeColors.primaryContainer, themeColors.surfaceVariant, themeColors.secondaryLight)
+        view.findViewById<android.view.View>(R.id.walletCard).background = android.graphics.drawable.GradientDrawable(
+            android.graphics.drawable.GradientDrawable.Orientation.RIGHT_LEFT,
+            intArrayOf(
+                themeColors.desktop.conversationGradient?.startColor ?: themeColors.surface,
+                themeColors.mobile.secondaryLight,
+                ColorUtils.setAlphaComponent(themeColors.background, 128)
             )
-        } else {
-            android.graphics.drawable.GradientDrawable(
-                android.graphics.drawable.GradientDrawable.Orientation.RIGHT_LEFT,
-                intArrayOf(
-                    themeColors.desktop.conversationGradient?.startColor ?: themeColors.surface,
-                    themeColors.mobile.secondaryLight,
-                    ColorUtils.setAlphaComponent(themeColors.background, 128)
-                )
-            )
-        }
-        view.findViewById<android.view.View>(R.id.walletCard).background = cardGradient.apply {
+        ).apply {
             cornerRadius = com.mezon.mobile.core.LayoutHelper.dp(16f).toFloat()
         }
         view.findViewById<android.view.View>(R.id.tabContainer).background = android.graphics.drawable.GradientDrawable().apply {

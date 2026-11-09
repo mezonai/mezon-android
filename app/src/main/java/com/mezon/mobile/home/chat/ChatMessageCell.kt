@@ -1,6 +1,5 @@
 package com.mezon.mobile.home.chat
 
-import com.mezon.mobile.core.theme.DesktopThemePalette
 import com.mezon.mobile.core.theme.DesktopThemeToken
 import android.app.DatePickerDialog
 import android.content.Context
@@ -1684,9 +1683,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         return if (hasText) {
             val contentToParse = if (hasActualText) msg.content else ""
             val parsedToParse = if (hasActualText) parsedContent else ""
-            val linkColor = if (theme.usesLegacyDarkColors) theme.blurple else theme.desktop[DesktopThemeToken.MENTION_COLOR]
+            val linkColor = theme.desktop[DesktopThemeToken.MENTION_COLOR]
             val mentionColors = MentionColors(
-                if (theme.usesLegacyDarkColors) theme.textLink else linkColor,
+                linkColor,
                 theme.midnightBlue,
                 theme.textRoleLink,
                 theme.darkMossGreen
@@ -4147,7 +4146,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             (ogpTitleLayout?.let { it.height + GAP_V_INNER } ?: 0) +
             (ogpDescLayout?.let { it.height + GAP_V_INNER } ?: 0) +
             ogpImageH
-        ogpCardPaint.color = if (theme.usesLegacyDarkColors) theme.border else theme.secondaryLight
+        ogpCardPaint.color = theme.secondaryLight
         ogpAccentPaint.color = theme.blurple
         ogpCardRect.set(left, top, cardRight, cardBottom)
         canvas.drawRoundRect(ogpCardRect, OGP_CARD_RADIUS, OGP_CARD_RADIUS, ogpCardPaint)
@@ -4319,7 +4318,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     private fun drawBrokenImagePlaceholder(canvas: Canvas, x: Float, y: Float, w: Float, h: Float, radius: Float) {
         tmpRect.set(x, y, x + w, y + h)
-        BROKEN_IMAGE_BG_PAINT.color = if (theme.usesLegacyDarkColors) theme.border else theme.background
+        BROKEN_IMAGE_BG_PAINT.color = theme.background
         if (radius > 0f) {
             canvas.drawRoundRect(tmpRect, radius, radius, BROKEN_IMAGE_BG_PAINT)
         } else {
@@ -4327,7 +4326,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
         val size = min(BROKEN_IMAGE_ICON_SIZE, (min(w, h) * 0.45f).toInt())
         if (size < BROKEN_IMAGE_ICON_MIN) return
-        val tint = if (theme.usesLegacyDarkColors) theme.outline else theme.onSurfaceVariant
+        val tint = theme.onSurfaceVariant
         var icon = brokenImageDrawable
         if (icon == null || brokenImageDrawableTint != tint) {
             icon = MezonIcon.imageIcon.getDrawable(context, tint)
@@ -4535,7 +4534,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             groups[i].senders.any { it.senderId == currentUserId && it.count > 0 }
         }
 
-        REACTION_COUNT_PAINT.color = if (theme.usesLegacyDarkColors) theme.onSurface else theme.textThemePrimary
+        REACTION_COUNT_PAINT.color = theme.textThemePrimary
         val countLayouts = Array<StaticLayout?>(groups.size) { i ->
             val txt = groups[i].totalCount.toString()
             StaticLayout.Builder.obtain(txt, 0, txt.length, REACTION_COUNT_PAINT, LayoutHelper.dp(60))
@@ -4639,7 +4638,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 val countY = chipY + (REACTION_CHIP_H - countLayout.height) / 2f
                 canvas.save()
                 canvas.translate(countX, countY)
-                REACTION_COUNT_PAINT.color = if (theme.usesLegacyDarkColors) theme.onSurface else theme.textThemePrimary
+                REACTION_COUNT_PAINT.color = theme.textThemePrimary
                 countLayout.draw(canvas)
                 canvas.restore()
             }
@@ -4660,15 +4659,12 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
     }
 
-    private val embedFieldBorderColor: Int
-        get() = if (theme.usesLegacyDarkColors) theme.outline else ColorUtils.setAlphaComponent(theme.outline, 128)
-
     private fun refreshEmbedInteractiveChrome() {
         embedSelectBackground.cornerRadius = LayoutHelper.dpf(4f)
         embedSelectBackground.setColor(theme.surface)
-        embedSelectBackground.setStroke(LayoutHelper.dp(1), embedFieldBorderColor)
+        embedSelectBackground.setStroke(LayoutHelper.dp(1), ColorUtils.setAlphaComponent(theme.outline, 128))
         embedSelectChevronDrawable.colorFilter =
-            PorterDuffColorFilter(if (theme.usesLegacyDarkColors) theme.onSurfaceVariant else theme.onSurface, PorterDuff.Mode.SRC_IN)
+            PorterDuffColorFilter(theme.onSurface, PorterDuff.Mode.SRC_IN)
     }
 
     private fun embedSelectRowForeground(): Drawable? {
@@ -4997,7 +4993,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 rippleInstalled = true
             }
 
-            if (standalone && !theme.usesLegacyDarkColors) {
+            if (standalone) {
                 standaloneBackground.cornerRadius = LayoutHelper.dpf(4f)
                 standaloneBackground.setColor(Color.TRANSPARENT)
                 standaloneBackground.setStroke(LayoutHelper.dp(1), ColorUtils.setAlphaComponent(theme.onSurface, 89))
@@ -5016,7 +5012,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 label.maxLines = 1
                 note.setPadding(LayoutHelper.dp(12), LayoutHelper.dp(2), LayoutHelper.dp(12), LayoutHelper.dp(12))
                 note.text = embedSelectPlaceholder(spec, "")
-                note.setTextColor(if (theme.usesLegacyDarkColors) theme.onSurfaceVariant else ColorUtils.setAlphaComponent(theme.onSurface, 179))
+                note.setTextColor(ColorUtils.setAlphaComponent(theme.onSurface, 179))
                 note.visibility = View.VISIBLE
             } else {
                 label.setPadding(LayoutHelper.dp(10), LayoutHelper.dp(9), LayoutHelper.dp(10), LayoutHelper.dp(9))
@@ -5040,12 +5036,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 formatEmbedSelectLabel(spec, messageId, componentId, fieldName)
             }
             val hasValue = !EmbedFormUtil.isComponentEmpty(messageId, componentId)
-            label.setTextColor(when {
-                    hasValue -> theme.onSurface
-                    theme.usesLegacyDarkColors -> theme.onSurfaceVariant
-                    standalone -> theme.onSurface
-                    else -> theme.textDisabled
-                })
+            label.setTextColor(if (standalone || hasValue) theme.onSurface else theme.textDisabled)
 
             val sheetTitle: CharSequence = if (standalone) {
                 placeholder.ifEmpty { embedSelectPlaceholder(spec, "") }
@@ -5074,15 +5065,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         private var suppressRadioCb = false
 
         fun bind(messageId: Long, componentId: String, spec: EmbedRadioSpec) {
-            container.background = if (theme.usesLegacyDarkColors) {
-                null
-            } else {
-                background.apply {
-                    cornerRadius = LayoutHelper.dpf(8f)
-                    setColor(theme.surface)
-                    setStroke(LayoutHelper.dp(1), embedFieldBorderColor)
-                }
-            }
+            background.cornerRadius = LayoutHelper.dpf(8f)
+            background.setColor(theme.surface)
+            background.setStroke(LayoutHelper.dp(1), ColorUtils.setAlphaComponent(theme.outline, 128))
+            container.background = background
             val identityChanged =
                 boundMessageId != messageId ||
                     boundComponentId != componentId ||
@@ -5300,10 +5286,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             edit.tag = componentId
 
             inputBackground.cornerRadius = LayoutHelper.dpf(12f)
-            inputBackground.setColor(if (theme.usesLegacyDarkColors) theme.secondaryLight else theme.surface)
-            inputBackground.setStroke(LayoutHelper.dp(1), embedFieldBorderColor)
+            inputBackground.setColor(theme.surface)
+            inputBackground.setStroke(LayoutHelper.dp(1), ColorUtils.setAlphaComponent(theme.outline, 128))
             edit.background = inputBackground
-            edit.setHintTextColor(if (theme.usesLegacyDarkColors) theme.onSurfaceVariant else theme.textDisabled)
+            edit.setHintTextColor(theme.textDisabled)
             edit.setTextColor(theme.onSurface)
             edit.hint = spec.placeholder.takeIf { it.isNotEmpty() }
             edit.isEnabled = !spec.disabled

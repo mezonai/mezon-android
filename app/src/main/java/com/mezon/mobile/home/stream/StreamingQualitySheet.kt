@@ -22,8 +22,8 @@ class StreamingQualitySheet(
 ) : BottomSheet(context) {
     private val accent = themeColors.primary
     init {
-        setBackgroundColor(if (themeColors.usesLegacyDarkColors) themeColors.channelPanelBg else themeColors.surface)
-        setNavigationBarColor(if (themeColors.usesLegacyDarkColors) themeColors.channelPanelBg else themeColors.surface)
+        setBackgroundColor(themeColors.surface)
+        setNavigationBarColor(themeColors.surface)
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(8), dp(20), dp(20))
@@ -32,7 +32,7 @@ class StreamingQualitySheet(
             text = value; textSize = size; setTextColor(color)
             if (bold) typeface = Typeface.DEFAULT_BOLD
         }
-        val handle = View(context).apply { background = rounded(if (themeColors.usesLegacyDarkColors) themeColors.textDisabled else themeColors.outline, 2) }
+        val handle = View(context).apply { background = rounded(themeColors.outline, 2) }
         content.addView(handle, LinearLayout.LayoutParams(dp(36), dp(4)).apply { gravity = Gravity.CENTER_HORIZONTAL; bottomMargin = dp(18) })
         val header = LinearLayout(context).apply { gravity = Gravity.CENTER_VERTICAL }
         val heading = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
@@ -51,7 +51,7 @@ class StreamingQualitySheet(
                 gravity = Gravity.CENTER_VERTICAL
                 minimumHeight = dp(60)
                 setPadding(dp(12), dp(10), dp(14), dp(10))
-                background = rounded(if (selected) themeColors.primaryContainer else if (themeColors.usesLegacyDarkColors) themeColors.serverRailBg else themeColors.background, 12, if (selected) accent else 0)
+                background = rounded(if (selected) themeColors.primaryContainer else themeColors.background, 12, if (selected) accent else 0)
                 isSelected = selected
                 contentDescription = context.getString(quality.titleRes) + ", " + context.getString(quality.detailRes)
                 setOnClickListener { session.setQuality(quality); dismiss() }
@@ -69,7 +69,7 @@ class StreamingQualitySheet(
         val isDefault = session.quality == session.defaultQuality
         val save = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            background = rounded(if (themeColors.usesLegacyDarkColors) themeColors.tertiary else themeColors.background, 14)
+            background = rounded(themeColors.background, 14)
             setPadding(dp(16), dp(14), dp(16), dp(14))
             isEnabled = !isDefault
             setOnClickListener { session.setDefaultQuality(session.quality); dismiss() }

@@ -6,7 +6,7 @@ import com.mezon.mobile.ui.cells.ActionBarView
 
 object ClanRolesUiTheme {
 
-    fun rnScreenBackground(theme: ThemeColors): Int = if (theme.usesLegacyDarkColors) theme.serverRailBg else theme.background
+    fun rnScreenBackground(theme: ThemeColors): Int = theme.background
 
     fun applyPrimaryFlowRoot(root: LinearLayout, theme: ThemeColors) {
         root.setBackgroundColor(rnScreenBackground(theme))
@@ -21,5 +21,5 @@ object ClanRolesUiTheme {
 
     fun textOnScreenMuted(theme: ThemeColors): Int = theme.colorText
 
-    fun secondaryCardTitleColor(theme: ThemeColors): Int = if (theme.usesLegacyDarkColors) theme.onPrimary else theme.textStrong
+    fun secondaryCardTitleColor(theme: ThemeColors): Int = theme.textStrong
 }

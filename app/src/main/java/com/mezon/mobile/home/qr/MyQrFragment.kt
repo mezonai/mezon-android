@@ -202,7 +202,7 @@ class MyQrFragment : BaseFragment() {
             gravity = Gravity.CENTER
             val bg = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(24f).toFloat()
-                setColor(if (themeColors.usesLegacyDarkColors) themeColors.surfaceVariant else themeColors.background)
+                setColor(themeColors.background)
             }
             background = bg
             setPadding(LayoutHelper.dp(4), LayoutHelper.dp(4), LayoutHelper.dp(4), LayoutHelper.dp(4))
@@ -501,7 +501,7 @@ class MyQrFragment : BaseFragment() {
             tab.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         } else {
             tab.background = null
-            tab.setTextColor(if (themeColors.usesLegacyDarkColors) themeColors.onSurfaceVariant else themeColors.textDisabled)
+            tab.setTextColor(themeColors.textDisabled)
             tab.typeface = Typeface.DEFAULT
         }
     }

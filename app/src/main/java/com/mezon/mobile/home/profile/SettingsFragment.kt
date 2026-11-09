@@ -391,13 +391,12 @@ class SettingsFragment : BaseFragment() {
             setPadding(LayoutHelper.dp(ICON_TEXT_GAP_DP), 0, 0, 0)
         }
         row.addView(label, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        val detailColor = if (themeColors.usesLegacyDarkColors) themeColors.onSurfaceVariant else themeColors.onSurface
         val valueText = item.value
         if (valueText != null) {
             val valueView = TextView(context).apply {
                 text = valueText
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, VALUE_TEXT_SP)
-                setTextColor(detailColor)
+                setTextColor(themeColors.onSurface)
             }
             row.addView(valueView, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -407,7 +406,7 @@ class SettingsFragment : BaseFragment() {
         if (item.showChevron) {
             val chevron = ImageView(context).apply {
                 setImageResource(MezonIcon.chevronSmallRightIcon.resId)
-                colorFilter = PorterDuffColorFilter(detailColor, PorterDuff.Mode.SRC_IN)
+                colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
             }
             row.addView(chevron, LinearLayout.LayoutParams(LayoutHelper.dp(18), LayoutHelper.dp(18)).apply {

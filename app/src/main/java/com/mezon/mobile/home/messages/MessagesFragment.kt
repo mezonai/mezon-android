@@ -105,7 +105,7 @@ class MessagesFragment : BaseFragment() {
             if (::addMessageFab.isInitialized) {
                 addMessageFab.background = android.graphics.drawable.GradientDrawable().apply {
                     shape = android.graphics.drawable.GradientDrawable.OVAL
-                    setColor(if (themeColors.usesLegacyDarkColors) themeColors.blurple else MobileThemeColors.newConversation)
+                    setColor(MobileThemeColors.newConversation)
                 }
                 addMessageIcon.setImageDrawable(MezonIcon.messagePlusIcon.getDrawable(fragmentView!!.context).apply {
                     colorFilter = PorterDuffColorFilter(Color.WHITE, PorterDuff.Mode.SRC_IN)
@@ -266,7 +266,7 @@ class MessagesFragment : BaseFragment() {
         addMessageFab = FrameLayout(context).apply {
             background = android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.OVAL
-                setColor(if (themeColors.usesLegacyDarkColors) themeColors.blurple else MobileThemeColors.newConversation)
+                setColor(MobileThemeColors.newConversation)
             }
             isClickable = true
             isFocusable = true

@@ -121,7 +121,7 @@ class MemberListAdapter(
         return when (viewType) {
             VIEW_TYPE_HEADER -> {
                 val tv = TextView(parent.context).apply {
-                    setTextColor(if (theme.usesLegacyDarkColors) theme.onSurfaceVariant else theme.textDisabled)
+                    setTextColor(theme.textDisabled)
                     textSize = 13f
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                     val pad = LayoutHelper.dp(16)
@@ -149,7 +149,7 @@ class MemberListAdapter(
         when (val item = rows[position]) {
             is SectionHeader -> (holder.itemView as TextView).apply {
                 text = item.title
-                setTextColor(if (theme.usesLegacyDarkColors) theme.onSurfaceVariant else theme.textDisabled)
+                setTextColor(theme.textDisabled)
             }
             is ClanMember -> {
                 val cell = holder.itemView as MemberCell

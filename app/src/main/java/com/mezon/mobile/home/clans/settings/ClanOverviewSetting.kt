@@ -368,12 +368,10 @@ class ClanOverviewSettingFragment : BaseFragment() {
 
         nameInput = InputCell(context, themeColors).apply {
             setLabel(context.getString(R.string.clan_overview_name_label))
-            setCellBackgroundColor(if (themeColors.usesLegacyDarkColors) themeColors.surfaceVariant else themeColors.surface)
-            setCellStrokeColor(if (themeColors.usesLegacyDarkColors) android.graphics.Color.TRANSPARENT else themeColors.border)
+            setCellBackgroundColor(themeColors.surface)
+            setCellStrokeColor(themeColors.border)
             editText.setOnFocusChangeListener { _, focused ->
-                if (!themeColors.usesLegacyDarkColors) {
-                    setCellStrokeColor(if (focused) themeColors.primary else themeColors.border)
-                }
+                setCellStrokeColor(if (focused) themeColors.primary else themeColors.border)
             }
             editText.filters = arrayOf(InputFilter.LengthFilter(CLAN_OVERVIEW_NAME_MAX_LENGTH))
             setText(draftName)
@@ -442,8 +440,8 @@ class ClanOverviewSettingFragment : BaseFragment() {
                 welcomeStickerCell,
                 auditLogCell,
             ),
-            cardColor = if (themeColors.usesLegacyDarkColors) themeColors.channelPanelBg else themeColors.surface,
-            separatorColor = if (themeColors.usesLegacyDarkColors) themeColors.tertiary else themeColors.mobile.borderDim
+            cardColor = themeColors.surface,
+            separatorColor = themeColors.mobile.borderDim
         )
         sysSection.addView(sysCard, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
         scrollContent.addView(sysSection, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 18f, 0f, 0f))
@@ -468,8 +466,8 @@ class ClanOverviewSettingFragment : BaseFragment() {
                 themeColors,
                 null,
                 listOf(anonymousCell),
-                cardColor = if (themeColors.usesLegacyDarkColors) themeColors.channelPanelBg else themeColors.surface,
-                separatorColor = if (themeColors.usesLegacyDarkColors) themeColors.tertiary else themeColors.mobile.borderDim
+                cardColor = themeColors.surface,
+                separatorColor = themeColors.mobile.borderDim
             ),
             LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT),
         )
@@ -503,8 +501,8 @@ class ClanOverviewSettingFragment : BaseFragment() {
                 themeColors,
                 null,
                 listOf(notifPickerRow(context)),
-                cardColor = if (themeColors.usesLegacyDarkColors) themeColors.channelPanelBg else themeColors.surface,
-                separatorColor = if (themeColors.usesLegacyDarkColors) themeColors.tertiary else themeColors.mobile.borderDim
+                cardColor = themeColors.surface,
+                separatorColor = themeColors.mobile.borderDim
             ),
             LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT),
         )
@@ -516,7 +514,6 @@ class ClanOverviewSettingFragment : BaseFragment() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(LayoutHelper.dp(14f), LayoutHelper.dp(13f), LayoutHelper.dp(14f), LayoutHelper.dp(13f))
-            if (themeColors.usesLegacyDarkColors) setBackgroundColor(themeColors.border)
             isClickable = true
             setOnClickListener { openChannelPicker() }
             val titles = LinearLayout(context).apply {
@@ -549,7 +546,6 @@ class ClanOverviewSettingFragment : BaseFragment() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(LayoutHelper.dp(14f), LayoutHelper.dp(13f), LayoutHelper.dp(14f), LayoutHelper.dp(13f))
-            if (themeColors.usesLegacyDarkColors) setBackgroundColor(themeColors.border)
             isClickable = true
             setOnClickListener { openNotifPicker() }
             val col = LinearLayout(context).apply {
@@ -757,12 +753,8 @@ class ClanOverviewSettingFragment : BaseFragment() {
         val dirty = (clanFieldsDirty() || systemMessageDirty()) && isClanNameValid(draftName)
         val canSave = dirty && canEditClanFields() && !isBannerUploading
         saveButton?.apply {
-            alpha = if (canSave) 1f else if (themeColors.usesLegacyDarkColors) 0.45f else 0.5f
-            setTextColor(when {
-                themeColors.usesLegacyDarkColors -> themeColors.primary
-                canSave -> MobileThemeColors.accent
-                else -> themeColors.textDisabled
-            })
+            alpha = if (canSave) 1f else 0.5f
+            setTextColor(if (canSave) MobileThemeColors.accent else themeColors.textDisabled)
         }
     }
 

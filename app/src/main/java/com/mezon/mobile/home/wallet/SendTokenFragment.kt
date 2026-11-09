@@ -346,7 +346,7 @@ class SendTokenFragment : BaseFragment() {
             filters = arrayOf(InputFilter.LengthFilter(MAX_NOTE_LENGTH))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, if (qr) 13f else 12f)
             setTextColor(themeColors.onSurface)
-            setHintTextColor(if (qr && !themeColors.usesLegacyDarkColors) themeColors.textDisabled else themeColors.onSurfaceVariant)
+            setHintTextColor(if (qr) themeColors.textDisabled else themeColors.onSurfaceVariant)
             hint = getString(R.string.send_token_note_hint)
             setText(defaultNote)
             minLines = 2
@@ -367,7 +367,7 @@ class SendTokenFragment : BaseFragment() {
         noteField = note
         val counter = TextView(context).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-            setTextColor(if (qr && themeColors.usesLegacyDarkColors) themeColors.onSurfaceVariant else themeColors.textDisabled)
+            setTextColor(themeColors.textDisabled)
             gravity = Gravity.END
         }
         noteCounter = counter
@@ -410,7 +410,7 @@ class SendTokenFragment : BaseFragment() {
         val sendBtn = TextView(context).apply {
             val bg = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(if (qr) 16f else 14f).toFloat()
-                setColor(if (qr && !themeColors.usesLegacyDarkColors) QR_TRANSFER_SEND_COLOR else themeColors.blurple)
+                setColor(if (qr) QR_TRANSFER_SEND_COLOR else themeColors.blurple)
             }
             background = bg
             gravity = Gravity.CENTER
@@ -527,8 +527,8 @@ class SendTokenFragment : BaseFragment() {
 
     private fun createQrTransferInputBackground(): GradientDrawable = GradientDrawable().apply {
         cornerRadius = LayoutHelper.dp(12f).toFloat()
-        setColor(if (themeColors.usesLegacyDarkColors) themeColors.surface else themeColors.background)
-        setStroke(LayoutHelper.dp(1f), if (themeColors.usesLegacyDarkColors) themeColors.outlineVariant else themeColors.border)
+        setColor(themeColors.background)
+        setStroke(LayoutHelper.dp(1f), themeColors.border)
     }
 
     /**
@@ -567,20 +567,12 @@ class SendTokenFragment : BaseFragment() {
         balance: String,
         symbol: String
     ): View {
-        val legacyDark = themeColors.usesLegacyDarkColors
-        val gr = if (legacyDark) {
-            GradientDrawable(
-                GradientDrawable.Orientation.RIGHT_LEFT,
-                intArrayOf(themeColors.secondaryLight, themeColors.colorAvatarDefault)
-            )
-        } else {
-            GradientDrawable(
-                GradientDrawable.Orientation.LEFT_RIGHT,
-                intArrayOf(themeColors.mobile.secondaryLight, themeColors.background)
-            )
-        }
+        val gr = GradientDrawable(
+            GradientDrawable.Orientation.LEFT_RIGHT,
+            intArrayOf(themeColors.mobile.secondaryLight, themeColors.background)
+        )
         gr.cornerRadius = LayoutHelper.dp(10f).toFloat()
-        gr.setStroke(1, if (legacyDark) themeColors.textDisabled else themeColors.border)
+        gr.setStroke(1, themeColors.border)
         val box = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             background = gr
@@ -623,14 +615,12 @@ class SendTokenFragment : BaseFragment() {
         balance: String,
         symbol: String
     ): View {
-        val legacyDark = themeColors.usesLegacyDarkColors
         val gr = GradientDrawable(
             GradientDrawable.Orientation.LEFT_RIGHT,
-            if (legacyDark) intArrayOf(themeColors.surfaceVariant, themeColors.surface)
-            else intArrayOf(themeColors.mobile.secondaryLight, themeColors.background)
+            intArrayOf(themeColors.mobile.secondaryLight, themeColors.background)
         )
         gr.cornerRadius = LayoutHelper.dp(16f).toFloat()
-        gr.setStroke(LayoutHelper.dp(1f), if (legacyDark) themeColors.outlineVariant else themeColors.border)
+        gr.setStroke(LayoutHelper.dp(1f), themeColors.border)
         val box = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             background = gr
@@ -1430,8 +1420,8 @@ class SendTokenFragment : BaseFragment() {
 
     private fun createTextFieldBackground(): GradientDrawable = GradientDrawable().apply {
         cornerRadius = LayoutHelper.dp(6f).toFloat()
-        setColor(if (themeColors.usesLegacyDarkColors) themeColors.secondaryLight else themeColors.background)
-        setStroke(1, if (themeColors.usesLegacyDarkColors) themeColors.textDisabled else themeColors.border)
+        setColor(themeColors.background)
+        setStroke(1, themeColors.border)
     }
 
     private fun wrapAmountField(

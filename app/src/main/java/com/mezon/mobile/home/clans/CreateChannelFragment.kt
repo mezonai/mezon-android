@@ -133,7 +133,7 @@ class CreateChannelFragment : BaseFragment() {
 
         nameCell = InputCell(context, themeColors).apply {
             setLabel(null, false, false)
-            if (!themeColors.usesLegacyDarkColors) setCellBackgroundColor(themeColors.background)
+            setCellBackgroundColor(themeColors.background)
             setMaxCharacter(64)
             setHint(getString(R.string.channel_creator_channel_name_placeholder))
             onTextChanged = {
@@ -151,7 +151,7 @@ class CreateChannelFragment : BaseFragment() {
         val typeBox = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             background = GradientDrawable().apply {
-                setColor(if (themeColors.usesLegacyDarkColors) themeColors.surfaceVariant else themeColors.background)
+                setColor(themeColors.background)
                 cornerRadius = cardRadius
             }
         }
@@ -215,7 +215,7 @@ class CreateChannelFragment : BaseFragment() {
         }
 
         val bodyRoot = FrameLayout(context).apply {
-            setBackgroundColor(if (themeColors.usesLegacyDarkColors) themeColors.background else themeColors.desktop[DesktopThemeToken.THEME_SETTING_PRIMARY])
+            setBackgroundColor(themeColors.desktop[DesktopThemeToken.THEME_SETTING_PRIMARY])
             addView(scroll, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
             addView(loadingOverlay, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
         }
@@ -253,7 +253,7 @@ class CreateChannelFragment : BaseFragment() {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(rowPad, rowPad, rowPad, rowPad)
             background = GradientDrawable().apply {
-                setColor(if (themeColors.usesLegacyDarkColors) themeColors.surfaceVariant else themeColors.background)
+                setColor(themeColors.background)
                 cornerRadius = cardRadius
             }
             addView(lock, LayoutHelper.createLinear(22, 22).apply { rightMargin = LayoutHelper.dp(12) })

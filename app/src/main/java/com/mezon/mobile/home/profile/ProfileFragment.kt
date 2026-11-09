@@ -110,10 +110,8 @@ class ProfileFragment : BaseFragment() {
     private lateinit var bannerView: View
     private var bannerAvatarUrl: String? = null
     private var bannerColor: Int? = null
-    private val profileSecondaryTextColor: Int
-        get() = if (themeColors.usesLegacyDarkColors) themeColors.onSurfaceVariant else themeColors.onSurface
-    private val statusBubblePalette get() = DesktopThemePalette.forTheme(themeColors.resolvedMode)
     private var bannerLoad: MezonImageLoader.Cancellable? = null
+    private val statusBubblePalette get() = DesktopThemePalette.forTheme(themeColors.resolvedMode)
     private lateinit var avatarView: AvatarView
     private lateinit var displayNameText: TextView
     private lateinit var usernameText: TextView
@@ -424,7 +422,7 @@ class ProfileFragment : BaseFragment() {
 
         usernameText = TextView(context).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-            setTextColor(profileSecondaryTextColor)
+            setTextColor(themeColors.onSurface)
             maxLines = 1
         }
         infoCol.addView(usernameText, LinearLayout.LayoutParams(
@@ -495,7 +493,7 @@ class ProfileFragment : BaseFragment() {
 
         aboutMeValueText = TextView(context).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-            setTextColor(profileSecondaryTextColor)
+            setTextColor(themeColors.onSurface)
             setPadding(0, LayoutHelper.dp(4), 0, 0)
         }
         aboutMeContainer.addView(aboutMeValueText)
@@ -517,7 +515,7 @@ class ProfileFragment : BaseFragment() {
 
         memberSinceText = TextView(context).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-            setTextColor(profileSecondaryTextColor)
+            setTextColor(themeColors.onSurface)
             setPadding(0, LayoutHelper.dp(4), 0, 0)
         }
         memberSinceContainer.addView(memberSinceText)
@@ -673,7 +671,7 @@ class ProfileFragment : BaseFragment() {
         }
         row.addView(iconView, LinearLayout.LayoutParams(LayoutHelper.dp(24), LayoutHelper.dp(24)))
         val label = TextView(context).apply {
-            this.text = text; setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f); setTextColor(profileSecondaryTextColor)
+            this.text = text; setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f); setTextColor(themeColors.onSurface)
             setPadding(LayoutHelper.dp(16), LayoutHelper.dp(8), 0, LayoutHelper.dp(8))
         }
         row.addView(label, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
@@ -683,7 +681,7 @@ class ProfileFragment : BaseFragment() {
 
     private fun createEditProfileButton(context: Context): FrameLayout {
         val container = FrameLayout(context).apply {
-            val bg = GradientDrawable().apply { cornerRadius = LayoutHelper.dp(50f).toFloat(); setColor(if (themeColors.usesLegacyDarkColors) 0xFF4F46E5.toInt() else MobileThemeColors.accent) }
+            val bg = GradientDrawable().apply { cornerRadius = LayoutHelper.dp(50f).toFloat(); setColor(MobileThemeColors.accent) }
             background = bg; isClickable = true; isFocusable = true; setOnClickListener { navigateToProfileSetting() }
         }
         val inner = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }

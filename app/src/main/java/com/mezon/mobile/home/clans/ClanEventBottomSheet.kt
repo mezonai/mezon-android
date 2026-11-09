@@ -65,7 +65,7 @@ class ClanEventBottomSheet(
     }
 
     private val eventBorderColor: Int
-        get() = if (theme.usesLegacyDarkColors) theme.outlineVariant else ColorUtils.setAlphaComponent(theme.border, 0x66)
+        get() = ColorUtils.setAlphaComponent(theme.border, 0x66)
 
     var onJoinExternalMeeting: ((ExternalMeetingRoom) -> Unit)? = null
     private val logoLoadTokens = ArrayList<MezonImageLoader.Cancellable>()
@@ -315,7 +315,7 @@ class ClanEventBottomSheet(
                 setPadding(createPadH, createPadV, createPadH, createPadV)
                 background = GradientDrawable().apply {
                     cornerRadius = LayoutHelper.dp(8f).toFloat()
-                    setColor(if (theme.usesLegacyDarkColors) theme.blurple else CREATE_BUTTON_COLOR)
+                    setColor(CREATE_BUTTON_COLOR)
                 }
                 isClickable = true
                 isFocusable = true
@@ -363,7 +363,7 @@ class ClanEventBottomSheet(
             TextView(context).apply {
                 text = context.getString(R.string.clan_event_empty_title)
                 textSize = 16f
-                setTextColor(if (theme.usesLegacyDarkColors) theme.colorText else theme.textStrong)
+                setTextColor(theme.textStrong)
                 typeface = Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER
             },
@@ -372,7 +372,7 @@ class ClanEventBottomSheet(
             TextView(context).apply {
                 text = context.getString(R.string.clan_event_empty_desc)
                 textSize = 13f
-                setTextColor(if (theme.usesLegacyDarkColors) theme.onSurfaceVariant else theme.textDisabled)
+                setTextColor(theme.textDisabled)
                 gravity = Gravity.CENTER
                 setPadding(LayoutHelper.dp(12), LayoutHelper.dp(6), LayoutHelper.dp(12), 0)
             },
@@ -512,14 +512,13 @@ class ClanEventBottomSheet(
         } else {
             val label = voiceChannel?.channelLabel?.takeIf { it.isNotBlank() }
                 ?: context.getString(R.string.clan_event_private_room)
-            val color = if (theme.usesLegacyDarkColors && voiceChannel != null) theme.blurple else theme.textStrong
             val row = buildInlineInfoRow(
                 context,
                 theme,
                 MezonIcon.channelVoice,
                 label,
-                iconColor = color,
-                textColor = color,
+                iconColor = theme.textStrong,
+                textColor = theme.textStrong,
                 topMarginDp = topMarginDp,
             )
             if (voiceChannel != null && onChannelClick != null) {
@@ -542,7 +541,7 @@ class ClanEventBottomSheet(
         return TextView(context).apply {
             text = context.getString(R.string.clan_event_channel_in, linkedChannel.channelLabel)
             textSize = 12f
-            setTextColor(if (theme.usesLegacyDarkColors) theme.blurple else theme.textDisabled)
+            setTextColor(theme.textDisabled)
             if (onChannelClick != null) {
                 isClickable = true
                 isFocusable = true
@@ -606,18 +605,17 @@ class ClanEventBottomSheet(
             val padV = LayoutHelper.dp(10)
             val padH = LayoutHelper.dp(12)
             setPadding(padH, padV, padH, padV)
-            val labelColor = if (theme.usesLegacyDarkColors) theme.colorText else theme.textStrong
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(10f).toFloat()
-                setColor(if (theme.usesLegacyDarkColors) theme.border else theme.background)
-                if (!theme.usesLegacyDarkColors) setStroke(LayoutHelper.dp(1), eventBorderColor)
+                setColor(theme.background)
+                setStroke(LayoutHelper.dp(1), eventBorderColor)
             }
             isClickable = true
             isFocusable = true
             setOnClickListener { onClick() }
             addView(
                 ImageView(context).apply {
-                    setImageDrawable(icon.getDrawable(context, labelColor))
+                    setImageDrawable(icon.getDrawable(context, theme.textStrong))
                 },
                 LinearLayout.LayoutParams(LayoutHelper.dp(18), LayoutHelper.dp(18)),
             )
@@ -626,7 +624,7 @@ class ClanEventBottomSheet(
                     TextView(context).apply {
                         text = label
                         textSize = 13f
-                        setTextColor(labelColor)
+                        setTextColor(theme.textStrong)
                         typeface = Typeface.DEFAULT_BOLD
                         setPadding(LayoutHelper.dp(8), 0, 0, 0)
                     },
@@ -730,14 +728,14 @@ class ClanEventBottomSheet(
         return TextView(context).apply {
             text = label
             textSize = 13f
-            setTextColor(if (theme.usesLegacyDarkColors) theme.textLink else theme.textStrong)
+            setTextColor(theme.textStrong)
             gravity = Gravity.CENTER
             maxLines = 2
             minHeight = LayoutHelper.dp(40)
             setPadding(LayoutHelper.dp(4), LayoutHelper.dp(4), LayoutHelper.dp(4), LayoutHelper.dp(4))
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dpf(8f)
-                if (!theme.usesLegacyDarkColors) setColor(theme.background)
+                setColor(theme.background)
                 setStroke(LayoutHelper.dp(1), eventBorderColor)
             }
             isClickable = true
@@ -767,7 +765,7 @@ class ClanEventBottomSheet(
             orientation = LinearLayout.VERTICAL
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dpf(12f)
-                setColor(if (theme.usesLegacyDarkColors) theme.secondaryLight else theme.background)
+                setColor(theme.background)
                 setStroke(LayoutHelper.dp(1), eventBorderColor)
             }
         }
@@ -785,10 +783,9 @@ class ClanEventBottomSheet(
             setOnClickListener(openClick)
         }
         val status = event.displayStatus()
-        val activeColor = if (theme.usesLegacyDarkColors) 0xFF16A34A.toInt() else ACTIVE_EVENT_COLOR
         val statusColor = when (status) {
-            ClanEventStatus.UPCOMING -> if (theme.usesLegacyDarkColors) theme.blurple else UPCOMING_EVENT_COLOR
-            ClanEventStatus.ONGOING -> activeColor
+            ClanEventStatus.UPCOMING -> UPCOMING_EVENT_COLOR
+            ClanEventStatus.ONGOING -> ACTIVE_EVENT_COLOR
             else -> theme.textStrong
         }
         val statusText = when (status) {
@@ -808,7 +805,7 @@ class ClanEventBottomSheet(
                     setPadding(badgePadH, badgePadV, badgePadH, badgePadV)
                     background = GradientDrawable().apply {
                         cornerRadius = LayoutHelper.dp(4f).toFloat()
-                        setColor(activeColor)
+                        setColor(ACTIVE_EVENT_COLOR)
                     }
                 },
                 LinearLayout.LayoutParams(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT).apply {
@@ -836,7 +833,6 @@ class ClanEventBottomSheet(
             LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1f),
         )
     
-        val metaColor = if (theme.usesLegacyDarkColors) theme.colorText else theme.textStrong
         val rightMeta = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -851,7 +847,7 @@ class ClanEventBottomSheet(
         )
         rightMeta.addView(
             ImageView(context).apply {
-                setImageDrawable(MezonIcon.groupIcon.getDrawable(context, metaColor))
+                setImageDrawable(MezonIcon.groupIcon.getDrawable(context, theme.textStrong))
                 scaleType = ImageView.ScaleType.FIT_CENTER
             },
             LinearLayout.LayoutParams(LayoutHelper.dp(12), LayoutHelper.dp(12)).apply {
@@ -863,14 +859,14 @@ class ClanEventBottomSheet(
             TextView(context).apply {
                 text = event.interestedCount.toString()
                 textSize = 12f
-                setTextColor(metaColor)
+                setTextColor(theme.textStrong)
             },
         )
         topRow.addView(rightMeta)
         topRow.addView(
             ImageView(context).apply {
                 setImageResource(R.drawable.ic_more_vertical_24)
-                setColorFilter(metaColor)
+                setColorFilter(theme.textStrong)
                 scaleType = ImageView.ScaleType.CENTER
                 contentDescription = context.getString(R.string.clan_event_menu_content_desc)
                 isClickable = true
@@ -918,7 +914,7 @@ class ClanEventBottomSheet(
                 TextView(context).apply {
                     text = event.description
                     textSize = 13f
-                    setTextColor(if (theme.usesLegacyDarkColors) theme.onSurfaceVariant else theme.textStrong)
+                    setTextColor(theme.textStrong)
                     maxLines = 2
                 },
                 LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.START, 0f, 4f, 0f, 0f),

@@ -162,9 +162,7 @@ class TopicNotificationCell(
         if (contentWidth <= 0) return
 
         val timeText = convertTimestampToTimeAgo(context, item.createTimeSeconds)
-        val timePaint = TextPaint(theme.dialogTimePaint).apply {
-            if (!theme.usesLegacyDarkColors) color = theme.textDisabled
-        }
+        val timePaint = TextPaint(theme.dialogTimePaint).apply { color = theme.textDisabled }
         timeLayout = StaticLayout.Builder
             .obtain(timeText, 0, timeText.length, timePaint, contentWidth)
             .setMaxLines(1)
@@ -182,11 +180,8 @@ class TopicNotificationCell(
 
         val repliedPrefix = context.getString(R.string.notif_original_message)
         val repliedText = "$repliedPrefix ${localizedRootMessagePreview(item.rootMessagePreview)}"
-        val previewPaint = TextPaint(theme.dialogMessagePaint).apply {
-            if (!theme.usesLegacyDarkColors) color = theme.onSurface
-        }
         repliedToLayout = StaticLayout.Builder
-            .obtain(repliedText, 0, repliedText.length, previewPaint, contentWidth)
+            .obtain(repliedText, 0, repliedText.length, TextPaint(theme.dialogMessagePaint).apply { color = theme.onSurface }, contentWidth)
             .setMaxLines(2)
             .setEllipsize(TextUtils.TruncateAt.END)
             .build()

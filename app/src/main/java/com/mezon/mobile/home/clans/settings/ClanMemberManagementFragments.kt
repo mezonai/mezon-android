@@ -84,10 +84,10 @@ class ClanMemberManageFragment : BaseFragment() {
     override fun createView(context: Context): View {
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(if (themeColors.usesLegacyDarkColors) ClanRolesUiTheme.rnScreenBackground(themeColors) else themeColors.surface)
+            setBackgroundColor(themeColors.surface)
         }
         actionBar = simpleActionBar(context, getString(R.string.clan_member_edit_title)).apply {
-            setBackgroundColor(if (themeColors.usesLegacyDarkColors) ClanRolesUiTheme.rnScreenBackground(themeColors) else themeColors.surface)
+            setBackgroundColor(themeColors.surface)
         }
         root.addView(actionBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
@@ -145,7 +145,7 @@ class ClanMemberManageFragment : BaseFragment() {
         }, LayoutHelper.createLinear(40, 40, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, 12f, 0f))
         val labels = LinearLayout(requireContext()).apply { orientation = LinearLayout.VERTICAL }
         labels.addView(managementLabel(displayName, 15f, themeColors.textStrong, true))
-        labels.addView(managementLabel(member.username, 13f, if (themeColors.usesLegacyDarkColors) themeColors.colorText else themeColors.textDisabled, false))
+        labels.addView(managementLabel(member.username, 13f, themeColors.textDisabled, false))
         row.addView(labels, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.CENTER_VERTICAL))
         return row
     }
@@ -188,14 +188,13 @@ class ClanMemberManageFragment : BaseFragment() {
                     rebuildContent()
                 }
             },
-            textColor = if (themeColors.usesLegacyDarkColors) themeColors.colorText else themeColors.desktop[DesktopThemeToken.BG_BUTTON_PRIMARY],
-            rowBackgroundColor = legacyActionRowBackground,
+            textColor = themeColors.desktop[DesktopThemeToken.BG_BUTTON_PRIMARY],
         ))
         return ClanSettingsUiHelpers.buildMezonSection(
             requireContext(), themeColors, getString(R.string.clan_member_roles), rows,
             cardColor = memberCardColor,
-            separatorColor = if (themeColors.usesLegacyDarkColors) themeColors.tertiary else themeColors.border,
-            titleColor = if (themeColors.usesLegacyDarkColors) themeColors.colorText else themeColors.textStrong,
+            separatorColor = themeColors.border,
+            titleColor = themeColors.textStrong,
         )
     }
 
@@ -258,32 +257,27 @@ class ClanMemberManageFragment : BaseFragment() {
             rows.add(ClanSettingsUiHelpers.buildMezonMenuRow(
                 requireContext(), themeColors, MezonIcon.transferOwnershipIcon,
                 getString(R.string.clan_member_transfer_ownership), destructiveRed, destructiveRed,
-                Runnable { presentFragment(ClanTransferOwnershipFragment.newInstance(clanId, member.userId)) },
-                rowBackgroundColor = legacyActionRowBackground,
+                Runnable { presentFragment(ClanTransferOwnershipFragment.newInstance(clanId, member.userId)) }
             ))
         }
         if (!isSelf && member.userId != clanOwnerId && (permission.isClanOwner || permission.hasAdminPermission)) {
             rows.add(ClanSettingsUiHelpers.buildMezonMenuRow(
                 requireContext(), themeColors, MezonIcon.removeFriend,
                 getString(R.string.clan_member_kick), destructiveRed, destructiveRed,
-                Runnable { presentFragment(ClanKickMemberFragment.newInstance(clanId, member.userId)) },
-                rowBackgroundColor = legacyActionRowBackground,
+                Runnable { presentFragment(ClanKickMemberFragment.newInstance(clanId, member.userId)) }
             ))
         }
         if (rows.isEmpty()) return null
         return ClanSettingsUiHelpers.buildMezonSection(
             requireContext(), themeColors, getString(R.string.clan_member_actions), rows,
             cardColor = memberCardColor,
-            separatorColor = if (themeColors.usesLegacyDarkColors) themeColors.tertiary else themeColors.border,
-            titleColor = if (themeColors.usesLegacyDarkColors) themeColors.colorText else themeColors.textStrong,
+            separatorColor = themeColors.border,
+            titleColor = themeColors.textStrong,
         )
     }
 
-    private val legacyActionRowBackground: Int?
-        get() = themeColors.channelPanelBg.takeIf { themeColors.usesLegacyDarkColors }
-
     private val memberCardColor: Int
-        get() = if (themeColors.usesLegacyDarkColors) themeColors.channelPanelBg else if (themeColors.resolvedMode.isLight) themeColors.background else themeColors.tertiary
+        get() = if (themeColors.resolvedMode.isLight) themeColors.background else themeColors.tertiary
 
     private fun cardBackground() = GradientDrawable().apply {
         setColor(memberCardColor)

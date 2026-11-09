@@ -28,7 +28,7 @@ class QuickMenuPickerBottomSheet(
     private val theme: ThemeColors = ThemeColors.instance
     private var selectionHandled = false
 
-    private val groupColor: Int get() = if (theme.usesLegacyDarkColors) theme.channelPanelBg else theme.background
+    private val groupColor: Int get() = theme.background
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         val scrollView = ScrollView(context).apply {
@@ -75,7 +75,7 @@ class QuickMenuPickerBottomSheet(
         val header = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
         header.addView(TextView(context).apply {
             text = context.getString(R.string.action_quick_menu)
-            setTextColor(if (theme.usesLegacyDarkColors) theme.onSurface else theme.textStrong)
+            setTextColor(theme.textStrong)
             setTextSize(TypedValue.COMPLEX_UNIT_DIP, 17f)
             typeface = Typeface.DEFAULT_BOLD
             maxLines = 1
@@ -105,7 +105,7 @@ class QuickMenuPickerBottomSheet(
             group.addView(buildMenuRow(name))
             if (index < menuNames.size - 1) {
                 group.addView(View(context).apply {
-                    setBackgroundColor(if (theme.usesLegacyDarkColors) theme.dividerColor else theme.border)
+                    setBackgroundColor(theme.border)
                     layoutParams = LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT, 1
                     ).apply { leftMargin = LayoutHelper.dp(54) }
@@ -127,14 +127,14 @@ class QuickMenuPickerBottomSheet(
 
         val iconBg = FrameLayout(context).apply {
             background = GradientDrawable().apply {
-                setColor(if (theme.usesLegacyDarkColors) 0x2E3B82F6 else theme.surface)
+                setColor(theme.surface)
                 cornerRadius = LayoutHelper.dp(16).toFloat()
             }
         }
         iconBg.addView(
             ImageView(context).apply {
                 setImageResource(MezonIcon.quickAction.resId)
-                setColorFilter(if (theme.usesLegacyDarkColors) 0xFF60A5FA.toInt() else theme.textStrong)
+                setColorFilter(theme.textStrong)
                 scaleType = ImageView.ScaleType.FIT_CENTER
             },
             LayoutHelper.createFrame(16, 16, Gravity.CENTER)
@@ -145,7 +145,7 @@ class QuickMenuPickerBottomSheet(
         row.addView(
             TextView(context).apply {
                 text = name
-                setTextColor(if (theme.usesLegacyDarkColors) theme.onSurface else theme.textStrong)
+                setTextColor(theme.textStrong)
                 setTextSize(TypedValue.COMPLEX_UNIT_DIP, 15f)
                 gravity = Gravity.CENTER_VERTICAL
                 maxLines = 1

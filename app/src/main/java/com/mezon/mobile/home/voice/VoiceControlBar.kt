@@ -104,10 +104,8 @@ class VoiceControlBar(
     private val pttChatIcon: ImageView
     private val pttBottomRow: LinearLayout
 
-    private val controlIconTint: Int get() = if (themeColors.usesLegacyDarkColors) themeColors.tabLabelActive else themeColors.textStrong
-    private val controlBorderColor: Int get() = if (themeColors.usesLegacyDarkColors) themeColors.textDisabled else ColorUtils.setAlphaComponent(themeColors.textDisabled, 0x99)
-    private val chatButtonIcon: MezonIcon
-        get() = if (themeColors.usesLegacyDarkColors) MezonIcon.notificationTabMessages else MezonIcon.chatIcon
+    private val controlIconTint: Int get() = themeColors.textStrong
+    private val controlBorderColor: Int get() = ColorUtils.setAlphaComponent(themeColors.textDisabled, 0x99)
     private val defaultMicIconSize = VoiceStyleCircleButton.defaultIconSizePx(context)
 
     private var microphoneAvailable = true
@@ -198,8 +196,7 @@ class VoiceControlBar(
         }
         micButton.addView(micWeakDot, LayoutParams(WEAK_DOT_SIZE, WEAK_DOT_SIZE, Gravity.TOP or Gravity.END))
 
-        chatButton = VoiceStyleCircleButton(context, chatButtonIcon, themeColors.tertiary, btnBorder, defaultTint).apply {
-            setApplyTint(!themeColors.usesLegacyDarkColors)
+        chatButton = VoiceStyleCircleButton(context, MezonIcon.chatIcon, themeColors.tertiary, btnBorder, defaultTint).apply {
             setOnClickListener { onChatClick?.invoke() }
         }
         addButton(row, chatButton, true)
@@ -219,7 +216,7 @@ class VoiceControlBar(
         endCallButton = VoiceStyleCircleButton(
             context,
             MezonIcon.callCancelIcon,
-            if (themeColors.usesLegacyDarkColors) VoiceChrome.RED_STRONG else LEAVE_ROOM_COLOR,
+            LEAVE_ROOM_COLOR,
             0,
             0xFFFFFFFF.toInt(),
             VoiceStyleCircleButton.endCallIconSizePx(context)
@@ -291,7 +288,7 @@ class VoiceControlBar(
             }
         }
 
-        val endPill = makePttPill(MezonIcon.callEndMeetIcon, if (themeColors.usesLegacyDarkColors) VoiceChrome.RED_STRONG else LEAVE_ROOM_COLOR, 0xFFFFFFFF.toInt(), PTT_END_ICON)
+        val endPill = makePttPill(MezonIcon.callEndMeetIcon, LEAVE_ROOM_COLOR, 0xFFFFFFFF.toInt(), PTT_END_ICON)
         endPill.first.setOnClickListener { onEndCallClick?.invoke() }
 
         val raisePillPair = makePttPill(MezonIcon.raiseHandIcon, themeColors.tertiary, defaultTint, PTT_RAISE_ICON)
@@ -333,8 +330,6 @@ class VoiceControlBar(
 
     fun applyTheme() {
         (row.background as? GradientDrawable)?.setColor(themeColors.channelPanelBg)
-        chatButton.setApplyTint(!themeColors.usesLegacyDarkColors)
-        chatButton.updateIcon(chatButtonIcon)
         for (button in listOf(cameraButton, micButton, chatButton, screenShareButton)) {
             button.updateBgColor(themeColors.tertiary)
             button.updateBorderColor(controlBorderColor)

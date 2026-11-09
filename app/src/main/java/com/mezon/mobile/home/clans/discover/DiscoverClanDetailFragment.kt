@@ -325,7 +325,7 @@ class DiscoverClanDetailFragment : BaseFragment() {
                 setTextColor(themeColors.onSurface)
                 setPadding(LayoutHelper.dp(12), LayoutHelper.dp(6), LayoutHelper.dp(12), LayoutHelper.dp(6))
                 background = GradientDrawable().apply {
-                    setColor(if (themeColors.usesLegacyDarkColors) themeColors.secondaryLight else themeColors.mobile.secondaryWeight)
+                    setColor(themeColors.mobile.secondaryWeight)
                     cornerRadius = LayoutHelper.dp(16f).toFloat()
                     setStroke(LayoutHelper.dp(1), themeColors.mobile.borderDim)
                 }
@@ -410,7 +410,7 @@ class DiscoverClanDetailFragment : BaseFragment() {
             }
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(if (themeColors.usesLegacyDarkColors) themeColors.secondaryLight else themeColors.mobile.borderDim)
+                setColor(themeColors.mobile.borderDim)
             }
         }
         val icon = ImageView(context).apply {

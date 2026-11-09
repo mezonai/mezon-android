@@ -127,7 +127,7 @@ class ChannelThreadCell(
         val th = thread ?: return
         val cy = height / 2f
 
-        connectorPaint.color = if (themeColors.usesLegacyDarkColors) 0xFF535353.toInt() else themeColors.textDisabled
+        connectorPaint.color = themeColors.textDisabled
         connectorPaint.strokeWidth = connectorStrokePx
 
         val verticalBottom = if (isLast) cy - cornerRadius else height.toFloat()

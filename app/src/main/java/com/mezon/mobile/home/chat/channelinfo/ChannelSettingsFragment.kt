@@ -147,12 +147,12 @@ class ChannelSettingsFragment : BaseFragment() {
         return true
     }
 
-    override fun getStatusBarColor(): Int = if (themeColors.usesLegacyDarkColors) super.getStatusBarColor() else themeColors.background
+    override fun getStatusBarColor(): Int = themeColors.background
 
     override fun createView(context: Context): View {
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(if (themeColors.usesLegacyDarkColors) themeColors.serverRailBg else themeColors.background)
+            setBackgroundColor(themeColors.background)
         }
 
         root.addView(
@@ -234,8 +234,7 @@ class ChannelSettingsFragment : BaseFragment() {
             content.addView(
                 ClanSettingsUiHelpers.buildMezonSection(
                     context, themeColors, null, topRows,
-                    cardColor = if (themeColors.usesLegacyDarkColors) themeColors.channelPanelBg else themeColors.surface,
-                    separatorColor = if (themeColors.usesLegacyDarkColors) themeColors.tertiary else themeColors.border
+                    cardColor = themeColors.surface, separatorColor = themeColors.border
                 ),
                 LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 0f, 0f, 20f)
             )
@@ -259,8 +258,7 @@ class ChannelSettingsFragment : BaseFragment() {
             content.addView(
                 ClanSettingsUiHelpers.buildMezonSection(
                     context, themeColors, null, bottomRows,
-                    cardColor = if (themeColors.usesLegacyDarkColors) themeColors.channelPanelBg else themeColors.surface,
-                    separatorColor = if (themeColors.usesLegacyDarkColors) themeColors.tertiary else themeColors.border
+                    cardColor = themeColors.surface, separatorColor = themeColors.border
                 ),
                 LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT)
             )
@@ -270,7 +268,7 @@ class ChannelSettingsFragment : BaseFragment() {
     private fun buildHeader(context: Context): FrameLayout {
         val titleRes = if (isThread) R.string.channel_settings_title_thread else R.string.channel_settings_title
         return FrameLayout(context).apply {
-            setBackgroundColor(if (themeColors.usesLegacyDarkColors) themeColors.serverRailBg else themeColors.background)
+            setBackgroundColor(themeColors.background)
 
             addView(
                 iconButton(context, MezonIcon.closeIcon) { finishFragment() },
@@ -348,8 +346,8 @@ class ChannelSettingsFragment : BaseFragment() {
             textSize = 16f
             typeface = Typeface.DEFAULT_BOLD
             includeFontPadding = false
-            background = rounded(if (themeColors.usesLegacyDarkColors) themeColors.channelPanelBg else themeColors.surface, 16f).apply {
-                if (!themeColors.usesLegacyDarkColors) setStroke(LayoutHelper.dp(1), themeColors.border)
+            background = rounded(themeColors.surface, 16f).apply {
+                setStroke(LayoutHelper.dp(1), themeColors.border)
             }
             setPadding(LayoutHelper.dp(14f), LayoutHelper.dp(12f), LayoutHelper.dp(14f), LayoutHelper.dp(12f))
             isSingleLine = !multiline
@@ -775,10 +773,8 @@ class ChannelSettingsFragment : BaseFragment() {
             ageRestrictedDraft != originalAgeRestricted
         val canSave = changed && nameValidationError == null && !isDuplicateName && !saving
         saveText?.isEnabled = canSave
-        saveText?.alpha = if (canSave || themeColors.usesLegacyDarkColors) 1f else 0.5f
-        saveText?.setTextColor(if (canSave) {
-            if (themeColors.usesLegacyDarkColors) themeColors.blurple else themeColors.textLink
-        } else themeColors.textDisabled)
+        saveText?.alpha = if (canSave) 1f else 0.5f
+        saveText?.setTextColor(if (canSave) themeColors.textLink else themeColors.textDisabled)
     }
 
     private fun topicDraftValue(): String =
