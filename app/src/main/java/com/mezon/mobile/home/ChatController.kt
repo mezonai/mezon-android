@@ -3048,7 +3048,7 @@ class ChatController @Inject constructor(
         )
         val presigned = AttachmentUploader.presignAttachmentFromFile(
             api, apiUrl, token, uploadFilename, item.mimeType, fileSize,
-            item.width, item.height, cdnBaseUrl, channelId, allowIngest,
+            item.width, item.height, cdnBaseUrl, channelId, allowIngest, file = file,
         )
         val attachment = messageAttachment {
             this.filename = item.filename
