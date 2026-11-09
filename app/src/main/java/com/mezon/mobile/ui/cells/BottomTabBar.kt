@@ -168,8 +168,8 @@ class BottomTabBar(context: Context, private val themeColors: ThemeColors) : Vie
             val centerX = tabCenters[i]
 
             val primaryColor = if (isSelected) themeColors.tabIconActivePrimary else themeColors.tabIconPrimary
-            val detailColor = if (isSelected) themeColors.tabIconActiveDetail else themeColors.tabIconDetail
-            val labelColor = if (isSelected) themeColors.tabLabelActive else themeColors.tabLabelInactive
+            val detailColor = if (isSelected) themeColors.tabIconActiveDetail else themeColors.bottomTabIconDetail
+            val labelColor = if (isSelected) themeColors.bottomTabLabelActive else themeColors.bottomTabLabelInactive
 
             val iconLeft = (centerX - iconSize / 2f).toInt()
             tmpIconBounds.set(iconLeft, iconTopPx, iconLeft + iconSize, iconTopPx + iconSize)

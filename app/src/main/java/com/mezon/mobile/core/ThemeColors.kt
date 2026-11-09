@@ -395,21 +395,24 @@ class ThemeColors @Inject constructor() {
     val qrBrandAccent: Int get() = 0xFFE91E8C.toInt()
     val qrAvatarBackground: Int get() = Color.WHITE
 
-    // Bottom tab icon primary (outer shape)
-    val tabIconPrimary: Int get() = (desktop[Token.BG_ICON_THEME] and 0x00FFFFFF) or 0x99000000.toInt()
+    val tabIconPrimary: Int get() = 0xFFCECECE.toInt()
 
-    // Bottom tab icon detail uses the full theme icon color.
+    val tabIconActivePrimary: Int get() = 0xFF939BF6.toInt()
+
+    val tabIconActiveDetail: Int get() = 0xFF5F66C9.toInt()
+
+    internal val bottomTabIconDetail: Int get() = 0xFF6B6B6B.toInt()
+
+    internal val bottomTabLabelActive: Int
+        get() = if (resolvedMode.isLight) 0xFF070709.toInt() else 0xFFDFE0E4.toInt()
+
+    internal val bottomTabLabelInactive: Int
+        get() = if (resolvedMode.isLight) 0xFF6C7077.toInt() else 0xFFAEAEAE.toInt()
+
     val tabIconDetail: Int get() = desktop[Token.BG_ICON_THEME]
 
-    val tabIconActivePrimary: Int get() = desktop[Token.COLOR_TEXT_ACTIVE_BUTTON]
-
-    // Cutout matches the bottom bar surface.
-    val tabIconActiveDetail: Int get() = surface
-
-    // Active labels use the desktop navigation text token.
     val tabLabelActive: Int get() = desktop[Token.TEXT_SECONDARY]
 
-    // Inactive labels use secondary semantic text.
     val tabLabelInactive: Int get() = desktop.semantic.textSecondary
 
     val channelPanelBg: Int get() = desktop[Token.BG_THEME_DIRECT_MESSAGE]
