@@ -155,7 +155,7 @@ class ChannelInfoFragment : BaseFragment() {
     private var canvasTab: CanvasTabHelper? = null
 
     private val isDm get() = channelType == CHANNEL_TYPE_DM || channelType == CHANNEL_TYPE_GROUP
-    private val hasMembersTab get() = channelType != CHANNEL_TYPE_DM
+    private val hasMembersTab by lazy { !isSelfDm }
     private val isSelfDm: Boolean
         get() {
             if (channelType != CHANNEL_TYPE_DM) return false
@@ -745,11 +745,9 @@ class ChannelInfoFragment : BaseFragment() {
             orientation = LinearLayout.VERTICAL
         }
 
-        if (channelType != CHANNEL_TYPE_DM) {
-            container.addView(buildInviteRow(context), LayoutHelper.createLinear(
-                LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT
-            ))
-        }
+        container.addView(buildInviteRow(context), LayoutHelper.createLinear(
+            LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT
+        ))
 
         memberListAdapter = MemberListAdapter(themeColors, isDm, resolveMemberListOwnerId(), nameColor = { member ->
             val roleColor = if (isDm) null else roleController.resolveHighestDisplayRole(clanId, member.userId)
@@ -820,9 +818,8 @@ class ChannelInfoFragment : BaseFragment() {
 
         val wrapper = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            val marginH = LayoutHelper.dp(12)
-            val marginV = LayoutHelper.dp(6)
-            setPadding(marginH, marginV, marginH, marginV)
+            val marginH = LayoutHelper.dp(16)
+            setPadding(marginH, LayoutHelper.dp(16), marginH, 0)
         }
         wrapper.addView(row, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
         wrapper.setOnClickListener {
@@ -831,6 +828,8 @@ class ChannelInfoFragment : BaseFragment() {
                 showDialog(sheet)
             } else if (channelType == CHANNEL_TYPE_GROUP) {
                 presentFragment(NewGroupFragment.newAddMembers(channelId, channelName))
+            } else if (channelType == CHANNEL_TYPE_DM) {
+                presentFragment(NewGroupFragment.newFromDirectMessage(channelId, channelName))
             } else {
                 Toast.makeText(context, "Coming soon", Toast.LENGTH_SHORT).show()
             }
@@ -847,6 +846,7 @@ class ChannelInfoFragment : BaseFragment() {
             channelType = channelType,
             themeColors = themeColors,
             channelFilesController = channelFilesController,
+            channelGalleryController = channelGalleryController,
             memberResolver = memberResolver,
             hostActivity = act,
             hostFragment = this,
@@ -1064,7 +1064,7 @@ class ChannelInfoFragment : BaseFragment() {
         if (isDm) {
             refreshDmHeader()
             reloadMembers()
-            if (channelType == CHANNEL_TYPE_GROUP) {
+            if (hasMembersTab) {
                 dialogsController.loadDmParticipants(channelId, force = true)
             }
         } else {
@@ -1161,7 +1161,7 @@ class ChannelInfoFragment : BaseFragment() {
     private fun triggerMemberLoad() {
         if (clanId != 0L) {
             userClanController.loadClanMembers(clanId)
-        } else if (channelType == CHANNEL_TYPE_GROUP) {
+        } else if (isDm) {
             dialogsController.loadDmParticipants(channelId)
         }
     }

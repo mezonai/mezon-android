@@ -1866,7 +1866,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
         if (!isCombined && msg.senderId == ANONYMOUS_USER_ID) applyAnonymousSenderBadge()
 
-        buildReplyLayouts(textWidth)
+        buildReplyLayouts(bubbleMaxW)
         buildFileLayouts(msg, textWidth)
         buildAudioLayouts(msg)
         buildEphemeralLayout(msg, textWidth)
@@ -1990,7 +1990,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             hasCodeFence -> textWidth.toFloat()
             else -> contentLayout?.let { maxLineWidth(it) } ?: 0f
         }
-        val replyW = if (hasReply) cachedReplyNameW + cachedReplyTextW + REPLY_AVATAR_SIZE + REPLY_H_GAP * 2 else 0f
+        val replyW = replyRowWidth()
         val ogpW = if (ogpData != null) maxOf(cachedOgpTitleW, cachedOgpDescW, ogpImageW.toFloat()) + OGP_ACCENT_W + OGP_PADDING * 2 else 0f
         val fileW = if (drawFileAttachment) fileRowWidth.toFloat() else 0f
         val audioW = if (drawAudioAttachment) audioPillWidth.toFloat() else 0f
@@ -2601,6 +2601,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var replyBlockBottom = 0f
     private val replyAvatarDrawable = AvatarDrawable().also { it.attachToView(this) }
     private var replyAvatarCancellable: MezonImageLoader.Cancellable? = null
+
+    private fun replyRowWidth(): Float =
+        if (hasReply) cachedReplyNameW + cachedReplyTextW + REPLY_AVATAR_SIZE + REPLY_H_GAP * 2 else 0f
 
     private fun buildReplyLayouts(textWidth: Int) {
         if (!hasReply) {
@@ -4377,7 +4380,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val rowH = REPLY_ROW_HEIGHT.toFloat()
         replyBlockLeft = contentLeft
         replyBlockTop = y
-        replyBlockRight = contentLeft + cachedInnerWidth
+        replyBlockRight = contentLeft + maxOf(cachedInnerWidth.toFloat(), replyRowWidth())
         replyBlockBottom = y + rowH
 
         val centerY = y + rowH / 2f

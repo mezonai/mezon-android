@@ -74,7 +74,7 @@ class ChannelFileDocumentRowView(
         nameView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14f)
         nameView.maxLines = 1
         nameView.ellipsize = TextUtils.TruncateAt.END
-        sharedView.text = sharedFooterText
+        setSharedByLine(sharedFooterText)
         sharedView.setTextColor(theme.onSurface)
         sharedView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 12f)
         sharedView.maxLines = 1
@@ -82,5 +82,9 @@ class ChannelFileDocumentRowView(
         timeView.text = timeLabel
         timeView.setTextColor(theme.textDisabled)
         timeView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 12f)
+    }
+
+    fun setSharedByLine(text: String) {
+        sharedView.text = text
     }
 }

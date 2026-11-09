@@ -7,6 +7,7 @@ import com.mezon.mobile.data.db.MessageDao
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.home.chat.AttachmentInfo
+import com.mezon.mobile.home.chat.DEFAULT_ANONYMOUS_SENDER_NAME
 import com.mezon.mobile.home.chat.MessageEntity
 import com.mezon.mobile.home.chat.MEDIA_ANONYMOUS_USER_ID
 import com.mezon.mobile.home.chat.MediaViewerSender
@@ -88,44 +89,63 @@ class ChannelGalleryController @Inject constructor(
     private val mutexByGallery = HashMap<ChannelGalleryKey, Mutex>()
     private val loadingGalleries = Collections.synchronizedSet(HashSet<ChannelGalleryKey>())
     private val anonymousSenders = Collections.synchronizedMap(HashMap<Pair<Long, Long>, MediaViewerSender>())
+    private val anonymousSenderRequestMutex = Mutex()
 
     suspend fun loadAnonymousSenderInfo(channelId: Long, clanId: Long, messageId: Long): MediaViewerSender? =
         withContext(ioDispatcher) {
             if (channelId == 0L || messageId == 0L) return@withContext null
             val key = channelId to messageId
             anonymousSenders[key]?.let { return@withContext it }
-            val cached = messageDao.getById(channelId, messageId)
-            if (cached?.senderId == MEDIA_ANONYMOUS_USER_ID) {
-                return@withContext rememberAnonymousSender(cached)
-            }
+            var cachedSender: MediaViewerSender? = null
             try {
-                sessionManager.withAutoRefresh { session ->
-                    val response = api.listChannelMessages(
-                        apiUrl = session.apiUrl,
-                        token = session.token,
-                        channelId = channelId,
-                        clanId = clanId,
-                        messageId = messageId,
-                        direction = 2,
-                        limit = 25
-                    )
-                    response.messagesList
-                        .filter { it.channelId == channelId && it.senderId == MEDIA_ANONYMOUS_USER_ID }
-                        .forEach { rememberAnonymousSender(it.toMessageEntity(0L)) }
-                    anonymousSenders[key]
+                val cached = messageDao.getById(channelId, messageId)
+                if (cached?.senderId == MEDIA_ANONYMOUS_USER_ID) {
+                    cachedSender = rememberAnonymousSender(cached)
+                    if (cachedSender.name != DEFAULT_ANONYMOUS_SENDER_NAME) return@withContext cachedSender
+                }
+                anonymousSenderRequestMutex.withLock {
+                    anonymousSenders[key]?.let { return@withLock it }
+                    sessionManager.withAutoRefresh { session ->
+                        val response = api.listChannelMessages(
+                            apiUrl = session.apiUrl,
+                            token = session.token,
+                            channelId = channelId,
+                            clanId = clanId,
+                            messageId = messageId,
+                            direction = 2,
+                            limit = 25
+                        )
+                        response.messagesList
+                            .filter { it.channelId == channelId && it.senderId == MEDIA_ANONYMOUS_USER_ID }
+                            .forEach { rememberAnonymousSender(it.toMessageEntity(0L), cacheFallback = true) }
+                        anonymousSenders[key] ?: cachedSender
+                    }
                 }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
                 Log.w(TAG, "Unable to load media sender for message $messageId", error)
-                null
+                anonymousSenders[key] ?: cachedSender
             }
         }
 
-    private fun rememberAnonymousSender(message: MessageEntity): MediaViewerSender {
-        val sender = resolveMediaViewerSender(message.senderId, message.senderName, message.senderAvatar)
-        anonymousSenders[message.channelId to message.id] = sender
-        return sender
+    private fun rememberAnonymousSender(message: MessageEntity, cacheFallback: Boolean = false): MediaViewerSender {
+        val sender = resolveMediaViewerSender(
+            message.senderId,
+            message.senderName.ifBlank { message.senderUsername },
+            message.senderAvatar
+        )
+        val key = message.channelId to message.id
+        return synchronized(anonymousSenders) {
+            if (sender.name != DEFAULT_ANONYMOUS_SENDER_NAME) {
+                anonymousSenders[key] = sender
+                sender
+            } else if (cacheFallback) {
+                anonymousSenders.getOrPut(key) { sender }
+            } else {
+                anonymousSenders[key] ?: sender
+            }
+        }
     }
 
     private val messageObserver = object : NotificationCenter.NotificationCenterDelegate {
@@ -518,6 +538,7 @@ class ChannelGalleryController @Inject constructor(
         synchronized(loadingGalleries) {
             loadingGalleries.clear()
         }
+        anonymousSenders.clear()
     }
 }
 

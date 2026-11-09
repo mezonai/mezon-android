@@ -6,8 +6,11 @@ import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.home.chat.AttachmentInfo
+import com.mezon.mobile.home.chat.DEFAULT_ANONYMOUS_SENDER_NAME
+import com.mezon.mobile.home.chat.MEDIA_ANONYMOUS_USER_ID
 import com.mezon.mobile.home.chat.MessageEntity
 import com.mezon.mobile.home.chat.isAudioAttachmentType
+import com.mezon.mobile.home.chat.resolveMediaViewerSender
 import com.mezon.mobile.home.chat.channelinfo.ChannelDocumentItem
 import com.mezon.mobile.network.ApiCacheTracker
 import com.mezon.mobile.network.MezonApi
@@ -184,14 +187,25 @@ class ChannelFilesController @Inject constructor(
                 return
             }
 
+            val previousSharerName = if (replaceExisting && message.senderId == MEDIA_ANONYMOUS_USER_ID) {
+                current.firstOrNull { it.messageId == message.id && it.anonymousSharerName != null }
+                    ?.anonymousSharerName
+            } else null
             if (replaceExisting) {
                 changed = current.removeAll { it.messageId == message.id } || changed
             }
 
-            val existingIds = current.mapTo(HashSet(current.size)) { it.stableId }
+            val existingIndices = HashMap<String, Int>(current.size)
+            current.forEachIndexed { index, item -> existingIndices[item.stableId] = index }
             newItems.forEach { item ->
-                if (existingIds.add(item.stableId)) {
-                    current.add(item)
+                val index = existingIndices[item.stableId]
+                val sharerName = item.anonymousSharerName ?: previousSharerName
+                if (index == null) {
+                    existingIndices[item.stableId] = current.size
+                    current.add(item.copy(anonymousSharerName = sharerName))
+                    changed = true
+                } else if (sharerName != null && current[index].anonymousSharerName != sharerName) {
+                    current[index] = current[index].copy(uploader = item.uploader, anonymousSharerName = sharerName)
                     changed = true
                 }
             }
@@ -235,6 +249,13 @@ private fun AttachmentInfo.toChannelDocumentItem(
     val urlStr = url.trim()
     if (urlStr.isEmpty() || urlStr.startsWith("content://") || urlStr.startsWith("file://")) return null
 
+    val anonymousSharerName = if (message.senderId == MEDIA_ANONYMOUS_USER_ID) {
+        resolveMediaViewerSender(
+            message.senderId,
+            message.senderName.ifBlank { message.senderUsername },
+            avatarUrl = null
+        ).name.takeUnless { it == DEFAULT_ANONYMOUS_SENDER_NAME }
+    } else null
     return ChannelDocumentItem(
         stableId = "${message.id}_$urlStr",
         filename = filename.ifBlank { "File" },
@@ -242,7 +263,8 @@ private fun AttachmentInfo.toChannelDocumentItem(
         url = urlStr,
         uploader = message.senderId,
         createTimeSeconds = message.timestampSeconds.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
-        messageId = message.id
+        messageId = message.id,
+        anonymousSharerName = anonymousSharerName
     )
 }
 
