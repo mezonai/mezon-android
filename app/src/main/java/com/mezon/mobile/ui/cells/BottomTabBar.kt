@@ -15,9 +15,6 @@ import com.mezon.mobile.R
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.SharedConfig
 import com.mezon.mobile.core.ThemeColors
-import com.mezon.mobile.core.theme.DesktopThemePalette
-import com.mezon.mobile.core.theme.DesktopThemeToken as Token
-import com.mezon.mobile.ui.theme.ThemeMode
 
 class BottomTabBar(context: Context, private val themeColors: ThemeColors) : View(context) {
 
@@ -25,73 +22,6 @@ class BottomTabBar(context: Context, private val themeColors: ThemeColors) : Vie
 
     interface OnTabSelectedListener {
         fun onTabSelected(index: Int)
-    }
-
-    private data class ItemColors(
-        val activeIcon: Int,
-        val inactiveIcon: Int,
-        val inactiveDetail: Int = 0xFFCACAD2.toInt(),
-        val inactiveLabel: Int = 0xFFAEAEAE.toInt(),
-        val activeLabel: Int = 0xFFDFE0E4.toInt(),
-        val activeDetail: Int = activeLabel,
-    )
-
-    companion object {
-        internal fun containerColor(mode: ThemeMode): Int =
-            DesktopThemePalette.forTheme(mode)[Token.BG_SECONDARY]
-
-        // Match the iOS tab items without changing the colors shared by other screens.
-        private fun itemColors(mode: ThemeMode): ItemColors = when (mode) {
-            ThemeMode.DARK -> ItemColors(
-                activeIcon = 0xFF5A62F4.toInt(),
-                inactiveIcon = 0xFF7B7B83.toInt(),
-                inactiveDetail = 0xFFDADADA.toInt(),
-            )
-            ThemeMode.LIGHT -> ItemColors(
-                activeIcon = 0xFFC0C8F2.toInt(),
-                inactiveIcon = 0xFFCECECE.toInt(),
-                inactiveDetail = 0xFF4D4D54.toInt(),
-                inactiveLabel = 0xFF6C7077.toInt(),
-                activeLabel = 0xFF070709.toInt(),
-                activeDetail = 0xFF475ED9.toInt(),
-            )
-            ThemeMode.SUNRISE -> ItemColors(
-                activeIcon = 0xFFEC5A6B.toInt(),
-                inactiveIcon = 0xFFB13B3D.toInt(),
-                inactiveDetail = 0xFF4D4D54.toInt(),
-                inactiveLabel = 0xFF6C7077.toInt(),
-                activeLabel = 0xFF070709.toInt(),
-            )
-            ThemeMode.RED_DARK -> ItemColors(0xFFD62940.toInt(), 0xFFD23331.toInt())
-            ThemeMode.PURPLE_HAZE -> ItemColors(
-                activeIcon = 0xFFA78BFA.toInt(),
-                inactiveIcon = 0xFF7D7582.toInt(),
-                inactiveLabel = 0xFFA9ACB7.toInt(),
-            )
-            ThemeMode.ABYSS -> ItemColors(0xFF5A48FB.toInt(), 0xFF5331D2.toInt())
-            ThemeMode.SUNSET -> ItemColors(0xFFFF873C.toInt(), 0xFFFF7E30.toInt())
-            ThemeMode.CISHER -> {
-                val palette = DesktopThemePalette.forTheme(mode)
-                ItemColors(
-                    activeIcon = palette[Token.COLOR_TEXT_ACTIVE_BUTTON],
-                    inactiveIcon = 0xFF606065.toInt(),
-                    inactiveDetail = 0xFF4D4D54.toInt(),
-                    inactiveLabel = 0xFF6C7077.toInt(),
-                    activeLabel = palette[Token.TEXT_SECONDARY],
-                    activeDetail = palette[Token.BG_SURFACE],
-                )
-            }
-            ThemeMode.BERRYNADE -> {
-                val palette = DesktopThemePalette.forTheme(mode)
-                ItemColors(
-                    activeIcon = palette[Token.COLOR_TEXT_ACTIVE_BUTTON],
-                    inactiveIcon = 0xFF7B7B83.toInt(),
-                    inactiveDetail = 0xFFDADADA.toInt(),
-                    activeLabel = palette[Token.TEXT_SECONDARY],
-                )
-            }
-            ThemeMode.SYSTEM -> error("Resolve System appearance before styling the bottom bar")
-        }
     }
 
     private val tabs = listOf(
@@ -113,7 +43,6 @@ class BottomTabBar(context: Context, private val themeColors: ThemeColors) : Vie
     }
 
     private var selectedIndex = 0
-    private var colors = itemColors(themeColors.resolvedMode)
     var onTabSelected: OnTabSelectedListener? = null
     var badgeCounts = IntArray(tabs.size)
         private set
@@ -200,7 +129,6 @@ class BottomTabBar(context: Context, private val themeColors: ThemeColors) : Vie
     }
 
     fun applyTheme() {
-        colors = itemColors(themeColors.resolvedMode)
         for (i in cachedPrimaryTint.indices) {
             cachedPrimaryTint[i] = 0
             cachedDetailTint[i] = 0
@@ -230,19 +158,18 @@ class BottomTabBar(context: Context, private val themeColors: ThemeColors) : Vie
     override fun onDraw(canvas: Canvas) {
         val w = width.toFloat()
 
-        val mode = themeColors.resolvedMode
-        canvas.drawColor(containerColor(mode))
+        canvas.drawColor(themeColors.surface)
 
-        borderPaint.color = DesktopThemePalette.forTheme(mode)[Token.BORDER_PRIMARY]
+        borderPaint.color = themeColors.outlineVariant
         canvas.drawLine(0f, 0f, w, 0f, borderPaint)
 
         for (i in tabs.indices) {
             val isSelected = i == selectedIndex
             val centerX = tabCenters[i]
 
-            val primaryColor = if (isSelected) colors.activeIcon else colors.inactiveIcon
-            val detailColor = if (isSelected) colors.activeDetail else colors.inactiveDetail
-            val labelColor = if (isSelected) colors.activeLabel else colors.inactiveLabel
+            val primaryColor = if (isSelected) themeColors.tabIconActivePrimary else themeColors.tabIconPrimary
+            val detailColor = if (isSelected) themeColors.tabIconActiveDetail else themeColors.tabIconDetail
+            val labelColor = if (isSelected) themeColors.tabLabelActive else themeColors.tabLabelInactive
 
             val iconLeft = (centerX - iconSize / 2f).toInt()
             tmpIconBounds.set(iconLeft, iconTopPx, iconLeft + iconSize, iconTopPx + iconSize)

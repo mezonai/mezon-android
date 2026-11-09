@@ -205,10 +205,9 @@ class ChannelItemCell(
             } else {
                 DesktopThemeToken.BG_ICON_THEME
             }
-            val desktopTint = themeColors.desktop[token].let {
+            val iconColor = themeColors.desktop[token].let {
                 if (isMutedVisual) withAlpha(it, MUTED_CONTENT_ALPHA) else it
             }
-            val iconColor = themeColors.channelListIconTint(desktopTint, textColor)
             if (cachedIconColorFilter == null || cachedIconColor != iconColor) {
                 cachedIconColor = iconColor
                 cachedIconColorFilter = PorterDuffColorFilter(iconColor, PorterDuff.Mode.SRC_IN)

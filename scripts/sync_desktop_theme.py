@@ -20,6 +20,41 @@ THEMES = {
     "cisher": "cisher",
     "berrynade": "berrynade",
 }
+
+# Android Black keeps the pre-sync Android values for the shared palette keys.
+ANDROID_DARK_COLORS = {
+    "bg_active_friend_list": 0xFF4F378B,
+    "bg_active_member_channel": 0xFF4F378B,
+    "bg_button_primary": 0xFF5A62F4,
+    "bg_icon_theme": 0xFF334155,
+    "bg_input_secondary": 0xFF1C1D23,
+    "bg_markdown_code": 0xFF383A43,
+    "bg_mention_evryone": 0xFF3C4C43,
+    "bg_primary": 0xFF383A43,
+    "bg_secondary": 0xFF1C1B1F,
+    "bg_surface": 0xFF26272F,
+    "bg_theme_direct_message": 0xFF1C1B1F,
+    "border_primary": 0xFF2A2D31,
+    "button_theme_primary": 0xFF5A62F4,
+    "color_mention_evryone": 0xFF009C67,
+    "color_mention_hover": 0xFF3297FF,
+    "color_text_active_button": 0xFF939BF6,
+    "mention_color": 0xFF3297FF,
+    "mention_primary": 0xFF3B426E,
+    "text_secondary": 0xFFE6E1E5,
+    "text_theme_message": 0xFFE6E1E5,
+    "text_theme_primary": 0xFFCAC4D0,
+    "theme_setting_nav": 0xFF212122,
+    "theme_setting_primary": 0xFF26272F,
+}
+ANDROID_DARK_SEMANTIC = {
+    "textPrimary": 0xFFE6E1E5,
+    "textSecondary": 0xFFCAC4D0,
+    "textMuted": 0xFF6B6B6B,
+    "statusOnline": 0xFF43B581,
+    "mentionBadge": 0xFFD30E0E,
+}
+
 NUMBER = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
 RGBA = r"Rgba \{\s*" + r"\s*".join(fr"{key}: ({NUMBER})," for key in "rgba") + r"\s*\}"
 STOPS = re.compile(fr"GradientStop \{{\s*color: {RGBA},\s*position: ({NUMBER}),\s*\}}")
@@ -160,7 +195,7 @@ def generate(revision, tokens_source, surfaces_source, semantic_source, presence
         *(f"    {field.upper()}," for field in fields),
         "}",
         "",
-        "class DesktopThemePalette internal constructor(",
+        "class DesktopThemePalette private constructor(",
         "    private val colors: IntArray,",
         "    val semantic: SemanticColors,",
         "    val previewColor: Int,",
@@ -168,7 +203,8 @@ def generate(revision, tokens_source, surfaces_source, semantic_source, presence
         "    val conversationGradient: ThemeGradient?,",
         "    val chatGradient: ThemeGradient?,",
         "    val composerGradient: ThemeGradient?,",
-        "    val primaryFillGradient: ThemeGradient?",
+        "    val primaryFillGradient: ThemeGradient?,",
+        "    internal val pollFieldBackground: Int = colors[DesktopThemeToken.BG_THEME_DIRECT_MESSAGE.ordinal],",
         ") {",
         "    operator fun get(token: DesktopThemeToken): Int = colors[token.ordinal]",
         "",
@@ -203,8 +239,38 @@ def generate(revision, tokens_source, surfaces_source, semantic_source, presence
             "        )",
             "",
         ]
+    assert ANDROID_DARK_COLORS.keys() <= set(fields)
+    assert ANDROID_DARK_SEMANTIC.keys() == set(semantic_fields.values())
+    lines += [
+        "        // Keep the desktop palette available for surfaces that match desktop.",
+        "        private val androidDark = DesktopThemePalette(",
+        "            colors = dark.colors.copyOf().apply {",
+        *(
+            f"                this[DesktopThemeToken.{field.upper()}.ordinal] = 0x{color:08X}.toInt()"
+            for field, color in ANDROID_DARK_COLORS.items()
+        ),
+        "            },",
+        "            semantic = SemanticColors(",
+        *(f"                {field} = 0x{color:08X}.toInt()," for field, color in ANDROID_DARK_SEMANTIC.items()),
+        "            ),",
+        "            previewColor = 0xFF111827.toInt(),",
+        "            previewGradient = null,",
+        "            conversationGradient = null,",
+        "            chatGradient = null,",
+        "            composerGradient = null,",
+        "            primaryFillGradient = null,",
+        f"            pollFieldBackground = 0x{ANDROID_DARK_COLORS['bg_primary']:08X}.toInt(),",
+        "        )",
+        "",
+        "        internal fun forDesktopTheme(mode: ThemeMode): DesktopThemePalette = when (mode) {",
+        "            ThemeMode.DARK -> dark",
+        "            else -> forTheme(mode)",
+        "        }",
+        "",
+    ]
     lines += ["        fun forTheme(mode: ThemeMode): DesktopThemePalette = when (mode) {"]
-    lines += [f"            ThemeMode.{MODES[name]} -> {swift}" for name, swift in THEMES.items()]
+    lines += ["            ThemeMode.DARK -> androidDark"]
+    lines += [f"            ThemeMode.{MODES[name]} -> {swift}" for name, swift in THEMES.items() if name != "dark"]
     lines += [
         '            ThemeMode.SYSTEM -> error("Resolve System appearance before selecting a palette")',
         "        }",

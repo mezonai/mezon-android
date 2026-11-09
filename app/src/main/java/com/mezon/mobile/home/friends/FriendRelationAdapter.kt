@@ -55,7 +55,6 @@ enum class FriendRowAction {
 class FriendRelationAdapter(
     private val context: Context,
     private val themeColors: ThemeColors,
-    private val useFriendScreenStyle: Boolean = false,
     private val onAction: (friend: Friend, action: FriendRowAction) -> Unit
 ) : RecyclerView.Adapter<FriendRelationAdapter.FriendHolder>() {
 
@@ -90,7 +89,7 @@ class FriendRelationAdapter(
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): FriendHolder {
-        val cell = FriendRowCell(context, themeColors, useFriendScreenStyle, onAction)
+        val cell = FriendRowCell(context, themeColors, onAction)
         return FriendHolder(cell)
     }
 
@@ -130,7 +129,6 @@ class FriendRelationAdapter(
 class FriendRowCell(
     context: Context,
     private val themeColors: ThemeColors,
-    private val useFriendScreenStyle: Boolean,
     private val onAction: (friend: Friend, action: FriendRowAction) -> Unit
 ) : FrameLayout(context) {
     private val avatarView: AvatarView
@@ -162,7 +160,7 @@ class FriendRowCell(
             isBaselineAligned = false
             gravity = Gravity.CENTER_VERTICAL
             setPadding(LayoutHelper.dp(10), LayoutHelper.dp(8), LayoutHelper.dp(10), LayoutHelper.dp(8))
-            background = rowBackground.apply { color = themeColors.friendScreenCardBackground }
+            background = rowBackground.apply { color = themeColors.background }
         }
         addView(row, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
 
@@ -267,11 +265,8 @@ class FriendRowCell(
 
     fun bind(friend: Friend, divider: Boolean) {
         currentFriend = friend
-        rowBackground.color = themeColors.friendScreenCardBackground
+        rowBackground.color = themeColors.background
         displayNameText.setTextColor(themeColors.onSurface)
-        val actionBackground = themeColors.friendActionBackground(useFriendScreenStyle)
-        (callButton.background as GradientDrawable).setColor(actionBackground)
-        (messageButton.background as GradientDrawable).setColor(actionBackground)
         callButton.setColorFilter(themeColors.onSurface)
         messageButton.setColorFilter(themeColors.onSurface)
         drawDivider = divider
@@ -286,7 +281,7 @@ class FriendRowCell(
         displayNameText.visibility = if (showsUsernameAsSubtitle) View.VISIBLE else View.GONE
         displayNameText.text = user.displayName
         usernameText.text = if (showsUsernameAsSubtitle) user.username else displayName
-        usernameText.setTextColor(if (showsUsernameAsSubtitle) themeColors.friendScreenHint else themeColors.onSurface)
+        usernameText.setTextColor(if (showsUsernameAsSubtitle) themeColors.textDisabled else themeColors.onSurface)
 
         val isOnline = user.online
         statusDot.visibility = if (state == FRIEND_STATE_FRIEND && isOnline) View.VISIBLE else View.GONE
@@ -303,14 +298,15 @@ class FriendRowCell(
         invalidate()
     }
 
-    private fun createActionButton(iconRes: Int): ImageView {
+    private fun createActionButton(iconRes: Int, withPrimaryBackground: Boolean = false): ImageView {
         return ImageView(context).apply {
+            val iconColor = if (withPrimaryBackground) themeColors.onPrimary else themeColors.onSurface
             setImageResource(iconRes)
-            colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
+            colorFilter = PorterDuffColorFilter(iconColor, PorterDuff.Mode.SRC_IN)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             val touchBg = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(themeColors.friendActionBackground(useFriendScreenStyle))
+                setColor(if (withPrimaryBackground) themeColors.primary else themeColors.background)
             }
             background = touchBg
             val pad = LayoutHelper.dp(6)
@@ -345,7 +341,7 @@ class FriendRowCell(
 
     override fun dispatchDraw(canvas: android.graphics.Canvas) {
         super.dispatchDraw(canvas)
-        if (!drawDivider || (useFriendScreenStyle && !themeColors.friendScreenShowsDividers)) return
+        if (!drawDivider) return
         dividerPaint.color = themeColors.border
         val leftPad = 0f
         val y = (height - 1).toFloat()

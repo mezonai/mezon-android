@@ -61,7 +61,6 @@ class FriendsHomeFragment : BaseFragment() {
     private lateinit var contentLayout: LinearLayout
     private lateinit var searchIcon: ImageView
     private lateinit var searchInput: EditText
-    private lateinit var searchRow: LinearLayout
     private lateinit var requestRow: LinearLayout
     private lateinit var requestCountText: TextView
     private lateinit var requestBadgeText: TextView
@@ -120,13 +119,13 @@ class FriendsHomeFragment : BaseFragment() {
         }
 
         contentLayout = root
-        searchRow = LinearLayout(context).apply {
+        val searchRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             minimumHeight = LayoutHelper.dp(40)
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(12f).toFloat()
-                setColor(themeColors.friendScreenCardBackground)
+                setColor(themeColors.background)
             }
             setPadding(LayoutHelper.dp(12), LayoutHelper.dp(10), LayoutHelper.dp(12), LayoutHelper.dp(10))
         }
@@ -200,7 +199,7 @@ class FriendsHomeFragment : BaseFragment() {
         contentFrame.addView(emptyText, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
         recyclerView.setEmptyView(emptyText)
 
-        adapter = FriendRelationAdapter(context, themeColors, useFriendScreenStyle = true) { friend, action ->
+        adapter = FriendRelationAdapter(context, themeColors) { friend, action ->
             handleAction(friend, action)
         }
         recyclerView.adapter = adapter
@@ -254,7 +253,7 @@ class FriendsHomeFragment : BaseFragment() {
             gravity = Gravity.CENTER_VERTICAL
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(12f).toFloat()
-                setColor(themeColors.friendScreenCardBackground)
+                setColor(themeColors.background)
             }
             setPadding(LayoutHelper.dp(12), LayoutHelper.dp(12), LayoutHelper.dp(12), LayoutHelper.dp(12))
             isClickable = true
@@ -303,13 +302,14 @@ class FriendsHomeFragment : BaseFragment() {
     private fun applyTheme() {
         contentLayout.background = friendListBackground(themeColors)
         fragmentView?.setBackgroundColor(themeColors.surface)
-        searchIcon.setColorFilter(themeColors.friendScreenHint)
-        searchInput.setHintTextColor(themeColors.friendScreenHint)
-        val cardColor = themeColors.friendScreenCardBackground
-        (searchRow.background as GradientDrawable).setColor(cardColor)
-        (requestRow.background as GradientDrawable).setColor(cardColor)
-        emptyText.setTextColor(themeColors.friendScreenHint)
-        requestCountText.setTextColor(themeColors.friendRequestCountText)
+        searchIcon.setColorFilter(themeColors.textDisabled)
+        searchInput.setHintTextColor(themeColors.textDisabled)
+        requestRow.background = GradientDrawable().apply {
+            cornerRadius = LayoutHelper.dp(12f).toFloat()
+            setColor(themeColors.background)
+        }
+        emptyText.setTextColor(themeColors.textDisabled)
+        requestCountText.setTextColor(themeColors.onSurface)
         if (::requestBadgeText.isInitialized) {
             requestBadgeText.updateFriendRequestBadge(friendController.pendingReceivedCount.value)
         }

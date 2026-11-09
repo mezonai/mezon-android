@@ -52,7 +52,7 @@ class PollDetailModal(
     private val parentChannelId: Long
 ) : Dialog(context), NotificationCenter.NotificationCenterDelegate {
 
-    private val palette get() = DesktopThemePalette.forTheme(themeColors.resolvedMode)
+    private val palette get() = DesktopThemePalette.forDesktopTheme(themeColors.resolvedMode)
 
     private lateinit var titleView: TextView
     private lateinit var subtitleView: TextView
@@ -372,7 +372,7 @@ class PollDetailModal(
         }
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VoterHolder {
-            val palette = DesktopThemePalette.forTheme(theme.resolvedMode)
+            val palette = DesktopThemePalette.forDesktopTheme(theme.resolvedMode)
             val row = LinearLayout(parent.context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL

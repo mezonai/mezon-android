@@ -32,8 +32,6 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.theme.MobileThemeColors
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
-import com.mezon.mobile.core.theme.DesktopThemePalette
-import com.mezon.mobile.core.theme.DesktopThemeToken
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.ConnectionController
 import com.mezon.mobile.home.friends.FriendController
@@ -111,7 +109,6 @@ class ProfileFragment : BaseFragment() {
     private var bannerAvatarUrl: String? = null
     private var bannerColor: Int? = null
     private var bannerLoad: MezonImageLoader.Cancellable? = null
-    private val statusBubblePalette get() = DesktopThemePalette.forTheme(themeColors.resolvedMode)
     private lateinit var avatarView: AvatarView
     private lateinit var displayNameText: TextView
     private lateinit var usernameText: TextView
@@ -325,7 +322,7 @@ class ProfileFragment : BaseFragment() {
                         path.arcTo(0f, 0f, 2 * r, 2 * r, 180f, 90f, false)
                         path.close()
                     }
-                    paint.color = statusBubblePalette[DesktopThemeToken.BG_THEME_DIRECT_MESSAGE]
+                    paint.color = themeColors.background
                     canvas.drawPath(path, paint)
                 }
                 override fun setAlpha(alpha: Int) { paint.alpha = alpha }
@@ -355,7 +352,7 @@ class ProfileFragment : BaseFragment() {
 
         badgeStatusText = TextView(context).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-            setTextColor(statusBubblePalette.semantic.textPrimary)
+            setTextColor(themeColors.onSurface)
             maxLines = 2 
             ellipsize = TextUtils.TruncateAt.END
         }
@@ -835,7 +832,7 @@ class ProfileFragment : BaseFragment() {
         fragmentView?.setBackgroundColor(themeColors.background)
         if (::statusBubble.isInitialized) {
             statusBubble.invalidate()
-            badgeStatusText.setTextColor(statusBubblePalette.semantic.textPrimary)
+            badgeStatusText.setTextColor(themeColors.onSurface)
         }
         if (::settingGeneralIconView.isInitialized) {
             settingGeneralIconView.colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)

@@ -100,7 +100,7 @@ enum class DesktopThemeToken {
     THREAD_SCROLL,
 }
 
-class DesktopThemePalette internal constructor(
+class DesktopThemePalette private constructor(
     private val colors: IntArray,
     val semantic: SemanticColors,
     val previewColor: Int,
@@ -108,7 +108,8 @@ class DesktopThemePalette internal constructor(
     val conversationGradient: ThemeGradient?,
     val chatGradient: ThemeGradient?,
     val composerGradient: ThemeGradient?,
-    val primaryFillGradient: ThemeGradient?
+    val primaryFillGradient: ThemeGradient?,
+    internal val pollFieldBackground: Int = colors[DesktopThemeToken.BG_THEME_DIRECT_MESSAGE.ordinal],
 ) {
     operator fun get(token: DesktopThemeToken): Int = colors[token.ordinal]
 
@@ -1084,8 +1085,56 @@ class DesktopThemePalette internal constructor(
             primaryFillGradient = ThemeGradient(161.03f, intArrayOf(0xFF340820.toInt(), 0xFF3A200A.toInt(), 0xFF45320B.toInt()), floatArrayOf(0.1879f, 0.4976f, 0.8072f), false)
         )
 
-        fun forTheme(mode: ThemeMode): DesktopThemePalette = when (mode) {
+        // Keep the desktop palette available for surfaces that match desktop.
+        private val androidDark = DesktopThemePalette(
+            colors = dark.colors.copyOf().apply {
+                this[DesktopThemeToken.BG_ACTIVE_FRIEND_LIST.ordinal] = 0xFF4F378B.toInt()
+                this[DesktopThemeToken.BG_ACTIVE_MEMBER_CHANNEL.ordinal] = 0xFF4F378B.toInt()
+                this[DesktopThemeToken.BG_BUTTON_PRIMARY.ordinal] = 0xFF5A62F4.toInt()
+                this[DesktopThemeToken.BG_ICON_THEME.ordinal] = 0xFF334155.toInt()
+                this[DesktopThemeToken.BG_INPUT_SECONDARY.ordinal] = 0xFF1C1D23.toInt()
+                this[DesktopThemeToken.BG_MARKDOWN_CODE.ordinal] = 0xFF383A43.toInt()
+                this[DesktopThemeToken.BG_MENTION_EVRYONE.ordinal] = 0xFF3C4C43.toInt()
+                this[DesktopThemeToken.BG_PRIMARY.ordinal] = 0xFF383A43.toInt()
+                this[DesktopThemeToken.BG_SECONDARY.ordinal] = 0xFF1C1B1F.toInt()
+                this[DesktopThemeToken.BG_SURFACE.ordinal] = 0xFF26272F.toInt()
+                this[DesktopThemeToken.BG_THEME_DIRECT_MESSAGE.ordinal] = 0xFF1C1B1F.toInt()
+                this[DesktopThemeToken.BORDER_PRIMARY.ordinal] = 0xFF2A2D31.toInt()
+                this[DesktopThemeToken.BUTTON_THEME_PRIMARY.ordinal] = 0xFF5A62F4.toInt()
+                this[DesktopThemeToken.COLOR_MENTION_EVRYONE.ordinal] = 0xFF009C67.toInt()
+                this[DesktopThemeToken.COLOR_MENTION_HOVER.ordinal] = 0xFF3297FF.toInt()
+                this[DesktopThemeToken.COLOR_TEXT_ACTIVE_BUTTON.ordinal] = 0xFF939BF6.toInt()
+                this[DesktopThemeToken.MENTION_COLOR.ordinal] = 0xFF3297FF.toInt()
+                this[DesktopThemeToken.MENTION_PRIMARY.ordinal] = 0xFF3B426E.toInt()
+                this[DesktopThemeToken.TEXT_SECONDARY.ordinal] = 0xFFE6E1E5.toInt()
+                this[DesktopThemeToken.TEXT_THEME_MESSAGE.ordinal] = 0xFFE6E1E5.toInt()
+                this[DesktopThemeToken.TEXT_THEME_PRIMARY.ordinal] = 0xFFCAC4D0.toInt()
+                this[DesktopThemeToken.THEME_SETTING_NAV.ordinal] = 0xFF212122.toInt()
+                this[DesktopThemeToken.THEME_SETTING_PRIMARY.ordinal] = 0xFF26272F.toInt()
+            },
+            semantic = SemanticColors(
+                textPrimary = 0xFFE6E1E5.toInt(),
+                textSecondary = 0xFFCAC4D0.toInt(),
+                textMuted = 0xFF6B6B6B.toInt(),
+                statusOnline = 0xFF43B581.toInt(),
+                mentionBadge = 0xFFD30E0E.toInt(),
+            ),
+            previewColor = 0xFF111827.toInt(),
+            previewGradient = null,
+            conversationGradient = null,
+            chatGradient = null,
+            composerGradient = null,
+            primaryFillGradient = null,
+            pollFieldBackground = 0xFF383A43.toInt(),
+        )
+
+        internal fun forDesktopTheme(mode: ThemeMode): DesktopThemePalette = when (mode) {
             ThemeMode.DARK -> dark
+            else -> forTheme(mode)
+        }
+
+        fun forTheme(mode: ThemeMode): DesktopThemePalette = when (mode) {
+            ThemeMode.DARK -> androidDark
             ThemeMode.LIGHT -> light
             ThemeMode.SUNRISE -> sunrise
             ThemeMode.RED_DARK -> redDark

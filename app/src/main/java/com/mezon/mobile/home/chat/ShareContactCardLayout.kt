@@ -14,7 +14,6 @@ import com.mezon.mobile.R
 import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
-import com.mezon.mobile.core.theme.DesktopThemePalette
 import com.mezon.mobile.core.theme.DesktopThemeToken as Token
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.util.ShareContactData
@@ -82,15 +81,14 @@ class ShareContactCardLayout(private val context: Context) {
         cardWidth = (maxBubbleWidth * 0.9f).toInt().coerceAtLeast(LayoutHelper.dp(200))
         showOnline = isOnline
         rippleLight = theme.resolvedMode.isLight
-        val palette = DesktopThemePalette.forTheme(theme.resolvedMode)
         val textBlockW = (cardWidth - INNER_PAD_H - TEXT_RIGHT_PAD - AVATAR_SIZE - AVATAR_GAP).coerceAtLeast(1)
 
         DISPLAY_PAINT.typeface = Typeface.DEFAULT_BOLD
         DISPLAY_PAINT.textSize = LayoutHelper.sp(14f)
-        DISPLAY_PAINT.color = palette[Token.TEXT_SECONDARY]
+        DISPLAY_PAINT.color = theme.desktop[Token.TEXT_SECONDARY]
 
         USERNAME_PAINT.textSize = LayoutHelper.sp(12f)
-        USERNAME_PAINT.color = palette[Token.TEXT_THEME_PRIMARY]
+        USERNAME_PAINT.color = theme.textThemePrimary
 
         ACTION_PAINT.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
         ACTION_PAINT.isFakeBoldText = false
@@ -110,15 +108,15 @@ class ShareContactCardLayout(private val context: Context) {
         avatarDrawable.setUserId(data.userId)
         loadAvatar(data.avatarUrl)
 
-        CARD_BORDER_PAINT.color = palette[Token.BORDER_PRIMARY]
-        cardBgPaint.color = palette[Token.BG_PRIMARY]
-        headerBackground = palette.primaryFillGradient?.previewDrawable(0f)
-        footerBackground = palette.primaryFillGradient?.previewDrawable(0f)
-        actionBgPaint.color = palette[Token.BG_SECONDARY_BUTTON_HOVER]
-        dividerPaint.color = palette[Token.BORDER_PRIMARY]
-        actionTopDividerPaint.color = palette[Token.BORDER_PRIMARY]
-        onlineDotPaint.color = DesktopThemePalette.onlinePresenceBadge
-        actionTint = palette[Token.TEXT_THEME_PRIMARY]
+        CARD_BORDER_PAINT.color = theme.outline
+        cardBgPaint.color = theme.desktop[Token.BG_PRIMARY]
+        headerBackground = theme.desktop.primaryFillGradient?.previewDrawable(0f)
+        footerBackground = theme.desktop.primaryFillGradient?.previewDrawable(0f)
+        actionBgPaint.color = theme.desktop[Token.BG_SECONDARY_BUTTON_HOVER]
+        dividerPaint.color = theme.outline
+        actionTopDividerPaint.color = theme.outline
+        onlineDotPaint.color = theme.onlineGreen
+        actionTint = theme.textThemePrimary
 
         val textStackH = (displayLayout?.height ?: 0) + USERNAME_GAP + (usernameLayout?.height ?: 0)
         val headerContentH = maxOf(AVATAR_SIZE, textStackH)
@@ -126,10 +124,10 @@ class ShareContactCardLayout(private val context: Context) {
         textBlockTop = HEADER_PAD_V + (headerContentH - textStackH) / 2f
 
         callIcon = MezonIcon.phoneCallIcon.getDrawable(context).mutate().apply {
-            setColorFilter(palette.semantic.textSecondary, android.graphics.PorterDuff.Mode.SRC_IN)
+            setColorFilter(theme.colorText, android.graphics.PorterDuff.Mode.SRC_IN)
         }
         messageIcon = MezonIcon.chatIcon.getDrawable(context).mutate().apply {
-            setColorFilter(palette.semantic.textSecondary, android.graphics.PorterDuff.Mode.SRC_IN)
+            setColorFilter(theme.colorText, android.graphics.PorterDuff.Mode.SRC_IN)
         }
 
         val callLabel = context.getString(R.string.user_profile_voice_call)

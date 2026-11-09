@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.chat
 
+import com.mezon.mobile.core.theme.DesktopThemeToken
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -19,8 +20,6 @@ import android.text.style.StyleSpan
 import com.mezon.mobile.R
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
-import com.mezon.mobile.core.theme.DesktopThemePalette
-import com.mezon.mobile.core.theme.DesktopThemeToken as Token
 import com.mezon.mobile.ui.cells.MezonIcon
 import org.json.JSONException
 import org.json.JSONObject
@@ -52,9 +51,8 @@ class SendTokenCardLayout(private val context: Context) {
 
     fun prepare(content: String, theme: ThemeColors, maxWidth: Int) {
         cardWidth = (maxWidth - TRAILING_INSET).coerceAtLeast(MIN_WIDTH).coerceAtMost(maxWidth.coerceAtLeast(1))
-        val palette = DesktopThemePalette.forTheme(theme.resolvedMode)
-        cardBgPaint.color = palette[Token.THEME_SETTING_PRIMARY]
-        footerPaint.color = palette[Token.THEME_SETTING_NAV]
+        cardBgPaint.color = theme.desktop[DesktopThemeToken.THEME_SETTING_PRIMARY]
+        footerPaint.color = theme.desktop[DesktopThemeToken.THEME_SETTING_NAV]
 
         val rawText = try {
             JSONObject(content).optString("t", content)
@@ -68,7 +66,7 @@ class SendTokenCardLayout(private val context: Context) {
         val textW = (cardWidth - PAD_H * 2 - ICON_SLOT - ICON_GAP).coerceAtLeast(1)
         titlePaint.typeface = Typeface.DEFAULT_BOLD
         titlePaint.textSize = LayoutHelper.sp(14f)
-        titlePaint.color = palette[Token.TEXT_THEME_PRIMARY]
+        titlePaint.color = theme.textThemePrimary
         titleLayout = StaticLayout.Builder.obtain(title, 0, title.length, titlePaint, textW)
             .setMaxLines(2)
             .setEllipsize(TextUtils.TruncateAt.END)
@@ -76,7 +74,7 @@ class SendTokenCardLayout(private val context: Context) {
 
         detailPaint.typeface = Typeface.DEFAULT
         detailPaint.textSize = LayoutHelper.sp(12f)
-        detailPaint.color = palette[Token.TEXT_THEME_PRIMARY]
+        detailPaint.color = theme.textThemePrimary
         detailLayout = if (description.isNotEmpty()) {
             val ssb = SpannableStringBuilder()
             val detailLabel = "${context.getString(R.string.common_detail)}: "

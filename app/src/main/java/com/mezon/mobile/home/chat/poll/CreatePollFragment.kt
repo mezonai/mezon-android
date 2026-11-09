@@ -83,12 +83,12 @@ class CreatePollFragment : BaseFragment() {
     private val postRadiusPx by lazy { LayoutHelper.dpf(10f) }
 
     private val colorScreen get() = themeColors.chatBackground
-    private val colorField get() = themeColors.raisedControlBackground
+    private val colorField get() = themeColors.desktop.pollFieldBackground
     private val colorLabel get() = themeColors.onSurfaceVariant
     private val colorText get() = themeColors.onSurface
-    private val colorHint get() = themeColors.pollFormHint
+    private val colorHint get() = themeColors.textDisabled
     private val colorLink get() = MobileThemeColors.accent
-    private val colorPostDisabled get() = themeColors.pollPostDisabledBackground
+    private val colorPostDisabled get() = (themeColors.textDisabled and 0x00FFFFFF) or 0x66000000
 
     private data class AnswerRow(
         val root: LinearLayout,
@@ -675,7 +675,6 @@ class CreatePollFragment : BaseFragment() {
 
     private fun fieldBackground(): GradientDrawable = GradientDrawable().apply {
         setColor(colorField)
-        themeColors.pollFormFieldStroke?.let { setStroke(LayoutHelper.dp(1), it) }
         cornerRadius = fieldRadiusPx
     }
 

@@ -1,14 +1,11 @@
 package com.mezon.mobile.core
 
+import com.mezon.mobile.core.theme.MobileThemeColors
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.text.TextPaint
-import androidx.core.graphics.ColorUtils
 import com.mezon.mobile.core.theme.DesktopThemePalette
-import com.mezon.mobile.core.theme.MobileThemeColors
-import com.mezon.mobile.core.theme.androidThemeOverrides
-import com.mezon.mobile.core.theme.appThemePalette
 import com.mezon.mobile.core.theme.DesktopThemeToken as Token
 import com.mezon.mobile.ui.theme.ThemeMode
 import javax.inject.Inject
@@ -133,9 +130,7 @@ class ThemeColors @Inject constructor() {
     val switchThumbPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
     val shadowPaint = Paint().apply { color = 0x12000000 }
 
-    private val androidOverrides get() = androidThemeOverrides(resolvedMode)
-
-    val desktop: DesktopThemePalette get() = appThemePalette(resolvedMode)
+    val desktop: DesktopThemePalette get() = DesktopThemePalette.forTheme(resolvedMode)
     internal var mobile: MobileThemeColors = MobileThemeColors.forMode(resolvedMode, desktop)
         private set
 
@@ -194,11 +189,11 @@ class ThemeColors @Inject constructor() {
         currentColors[key_actionBarDefaultSubtitle] = onSurfaceVariant
         currentColors[key_actionBarDefaultSelector] = (primary and 0x00FFFFFF) or 0x29000000
 
-        currentColors[key_chats_name] = dialogNameColor
+        currentColors[key_chats_name] = textThemePrimary
         currentColors[key_chats_nameBold] = onSurface
         currentColors[key_chats_message] = onSurfaceVariant
         currentColors[key_chats_date] = onSurfaceVariant
-        currentColors[key_chats_unreadCounter] = unreadBadge
+        currentColors[key_chats_unreadCounter] = MobileThemeColors.unreadBadge
         currentColors[key_chats_unreadCounterText] = Color.WHITE
         currentColors[key_chats_onlineCircle] = onlineGreen
 
@@ -209,7 +204,7 @@ class ThemeColors @Inject constructor() {
         currentColors[key_chat_inTime] = onSurfaceVariant
         currentColors[key_chat_outTime] = onPrimary and 0x99FFFFFF.toInt()
         currentColors[key_chat_senderName] = primary
-        currentColors[key_chat_linkColor] = androidOverrides.chatLink ?: textLink
+        currentColors[key_chat_linkColor] = textLink
 
         currentColors[key_settings_name] = onSurface
         currentColors[key_settings_value] = onSurfaceVariant
@@ -235,7 +230,8 @@ class ThemeColors @Inject constructor() {
         currentColors[key_connectedColor] = connectedColor
         currentColors[key_connectingColor] = connectingColor
         currentColors[key_disconnectedColor] = disconnectedColor
-        currentColors[key_color_success] = androidOverrides.successButton ?: 0xFF16A34A.toInt()
+        // Desktop SUCCESS message buttons have a separate color from the generic success tint.
+        currentColors[key_color_success] = 0xFF16A34A.toInt()
 
         currentColors[key_dialogBackground] = surface
         currentColors[key_dialogTextBlack] = onSurface
@@ -278,25 +274,23 @@ class ThemeColors @Inject constructor() {
         currentColors[key_profile_tabText] = onSurfaceVariant
         currentColors[key_profile_tabSelector] = (primary and 0x00FFFFFF) or 0x29000000
 
-        currentColors[key_sheetItemBackground] = androidOverrides.sheetItemBackground ?: surface
+        currentColors[key_sheetItemBackground] = surface
         currentColors[key_dialogTextRed] = error
         currentColors[key_dialogIcon] = onSurfaceVariant
 
         System.arraycopy(currentColors, 0, defaultColors, 0, NUM_KEYS)
     }
 
-    private val dialogNameColor: Int get() = androidOverrides.dialogName ?: textThemePrimary
-
     private fun applyPaintColors() {
-        dialogNamePaint.color = dialogNameColor
+        dialogNamePaint.color = textThemePrimary
         dialogNameBoldPaint.color = onSurface
         dialogMessagePaint.color = onSurfaceVariant
         dialogMessageBoldPaint.color = onSurface
         dialogTimePaint.color = onSurfaceVariant
-        dialogBadgePaint.color = unreadBadge
+        dialogBadgePaint.color = MobileThemeColors.unreadBadge
         buzzBadgePaint.color = buzzRed
         dialogOnlinePaint.color = onlineGreen
-        dialogOnlineBorderPaint.color = background
+        dialogOnlineBorderPaint.color = channelPanelBg
         dividerPaint.color = outlineVariant
         chatSenderPaint.color = primary
         val fs = LayoutHelper.sp(SharedConfig.fontSize.toFloat())
@@ -331,11 +325,11 @@ class ThemeColors @Inject constructor() {
 
     val background: Int get() = desktop[Token.BG_THEME_DIRECT_MESSAGE]
 
-    val chatBackground: Int get() = androidOverrides.chatBackground ?: surface
+    val chatBackground: Int get() = desktop[Token.BG_SECONDARY]
 
     val surface: Int get() = desktop[Token.BG_SECONDARY]
 
-    val surfaceVariant: Int get() = androidOverrides.surfaceVariant ?: desktop[Token.BG_PRIMARY]
+    val surfaceVariant: Int get() = desktop[Token.BG_PRIMARY]
 
     val secondaryLight: Int get() = desktop[Token.BG_SURFACE]
 
@@ -345,11 +339,11 @@ class ThemeColors @Inject constructor() {
 
     val primaryGradiant: Int get() = primaryContainer
 
-    val textStrong: Int get() = androidOverrides.strongText ?: desktop.semantic.textPrimary
+    val textStrong: Int get() = desktop.semantic.textPrimary
 
     val secondaryInputBackground: Int get() = desktop[Token.BG_INPUT_SECONDARY]
 
-    val createClanDiscordBlurple: Int get() = androidOverrides.createClanAccent ?: primary
+    val createClanDiscordBlurple: Int get() = primary
 
     val createClanCameraGray: Int get() = 0xFF676B73.toInt()
 
@@ -359,9 +353,9 @@ class ThemeColors @Inject constructor() {
 
     val onSurfaceVariant: Int get() = desktop.semantic.textSecondary
 
-    val outline: Int get() = androidOverrides.outline ?: border
+    val outline: Int get() = desktop[Token.BORDER_PRIMARY]
 
-    val outlineVariant: Int get() = androidOverrides.outlineVariant ?: outline
+    val outlineVariant: Int get() = outline
 
     val dividerColor: Int get() = outlineVariant
 
@@ -371,7 +365,7 @@ class ThemeColors @Inject constructor() {
 
     val primaryContainer: Int get() = desktop[Token.BG_ACTIVE_FRIEND_LIST]
 
-    val onPrimaryContainer: Int get() = androidOverrides.onPrimaryContainer ?: onSurface
+    val onPrimaryContainer: Int get() = onSurface
 
     val connectedColor: Int get() = desktop.semantic.statusOnline
     val connectingColor: Int get() = 0xFFFAA61A.toInt()
@@ -388,12 +382,11 @@ class ThemeColors @Inject constructor() {
     val darkMossGreen: Int get() = desktop[Token.BG_MENTION_EVRYONE]
 
     val badgeRed: Int get() = desktop.semantic.mentionBadge
-    internal val unreadBadge: Int get() = androidOverrides.unreadBadge ?: MobileThemeColors.unreadBadge
-    val onlineGreen: Int get() = androidOverrides.onlinePresence ?: DesktopThemePalette.onlinePresenceBadge
-    val voiceActiveGreen: Int get() = androidOverrides.voiceActive ?: desktop.semantic.statusOnline
+    val onlineGreen: Int get() = DesktopThemePalette.onlinePresenceBadge
+    val voiceActiveGreen: Int get() = desktop.semantic.statusOnline
 
-    val reactionBgColor: Int get() = androidOverrides.reactionBackground ?: ((primary and 0x00FFFFFF) or 0x2E000000)
-    val reactionBorderColor: Int get() = androidOverrides.reactionBorder ?: primary
+    val reactionBgColor: Int get() = (primary and 0x00FFFFFF) or 0x2E000000
+    val reactionBorderColor: Int get() = primary
 
     val qrOverlayDim: Int get() = 0x66000000
     val qrOverlayFrame: Int get() = Color.WHITE
@@ -402,56 +395,28 @@ class ThemeColors @Inject constructor() {
     val qrBrandAccent: Int get() = 0xFFE91E8C.toInt()
     val qrAvatarBackground: Int get() = Color.WHITE
 
+    // Bottom tab icon primary (outer shape)
+    val tabIconPrimary: Int get() = (desktop[Token.BG_ICON_THEME] and 0x00FFFFFF) or 0x99000000.toInt()
+
     // Bottom tab icon detail uses the full theme icon color.
-    val tabIconDetail: Int get() = androidOverrides.tabIconDetail ?: desktop[Token.BG_ICON_THEME]
+    val tabIconDetail: Int get() = desktop[Token.BG_ICON_THEME]
+
+    val tabIconActivePrimary: Int get() = desktop[Token.COLOR_TEXT_ACTIVE_BUTTON]
+
+    // Cutout matches the bottom bar surface.
+    val tabIconActiveDetail: Int get() = surface
 
     // Active labels use the desktop navigation text token.
-    val tabLabelActive: Int get() = androidOverrides.tabLabelActive ?: desktop[Token.TEXT_SECONDARY]
+    val tabLabelActive: Int get() = desktop[Token.TEXT_SECONDARY]
 
     // Inactive labels use secondary semantic text.
-    val tabLabelInactive: Int get() = androidOverrides.tabLabelInactive ?: desktop.semantic.textSecondary
+    val tabLabelInactive: Int get() = desktop.semantic.textSecondary
 
-    val channelPanelBg: Int get() = androidOverrides.channelPanelBackground ?: background
+    val channelPanelBg: Int get() = desktop[Token.BG_THEME_DIRECT_MESSAGE]
 
-    internal val channelDocumentBackground: Int get() = androidOverrides.channelDocumentBackground ?: background
+    val serverRailBg: Int get() = desktop[Token.BG_PRIMARY]
 
-    internal fun channelListIconTint(desktopTint: Int, channelNameTint: Int): Int =
-        if (androidOverrides.tintChannelIconFromName) channelNameTint else desktopTint
-
-    internal val messageMenuItemBackground: Int get() = androidOverrides.messageMenuItemBackground ?: background
-    internal val messageMenuGroupBackground: Int get() = androidOverrides.messageMenuGroupBackground ?: background
-    internal val messageMenuText: Int get() = androidOverrides.messageMenuText ?: textStrong
-    internal val messageMenuWarning: Int get() = androidOverrides.messageMenuWarning ?: error
-    internal val messageMenuDivider: Int get() = androidOverrides.messageMenuDivider ?: border
-
-    internal fun messageMenuWarningBackground(sheetBackground: Int): Int =
-        androidOverrides.messageMenuWarningBackground ?: sheetBackground
-
-    val serverRailBg: Int get() = androidOverrides.serverRailBackground ?: desktop[Token.BG_PRIMARY]
-
-    internal val threadCardBackground: Int get() = androidOverrides.threadCardBackground ?: background
-    internal val threadDividerColor: Int get() = androidOverrides.threadDivider ?: mobile.borderDim
-    internal val threadSearchClearTint: Int get() = androidOverrides.threadSearchClear ?: textStrong
-    internal val threadEmptyIconBackground: Int
-        get() = androidOverrides.threadEmptyIconBackground ?: ColorUtils.setAlphaComponent(primary, 36)
-    internal val threadEmptyIconTint: Int? get() = textDisabled.takeIf { androidOverrides.tintThreadEmptyIcon }
-
-    internal val friendScreenCardBackground: Int
-        get() = if (androidOverrides.friendCardsUseSheetBackground) getColor(key_sheetItemBackground) else background
-    internal val friendScreenHint: Int get() = androidOverrides.friendHint ?: textDisabled
-    internal val friendRequestCountText: Int get() = androidOverrides.friendRequestCount ?: onSurface
-    internal val friendScreenShowsDividers: Boolean get() = androidOverrides.showFriendScreenDividers
-
-    internal fun friendActionBackground(useFriendScreenStyle: Boolean): Int =
-        if (useFriendScreenStyle) background else raisedControlBackground
-
-    internal val raisedControlBackground: Int get() = androidOverrides.raisedControlBackground ?: background
-    internal val pollFormHint: Int get() = androidOverrides.pollFormHint ?: textDisabled
-    internal val pollFormFieldStroke: Int? get() = androidOverrides.pollFormFieldStroke
-    internal val pollPostDisabledBackground: Int
-        get() = androidOverrides.pollPostDisabledBackground ?: ColorUtils.setAlphaComponent(textDisabled, 0x66)
-
-    val profileSheetAvatarRingColor: Int get() = androidOverrides.profileAvatarRing ?: surface
+    val profileSheetAvatarRingColor: Int get() = surface
 
     val profileSheetBackdropFallback: Int get() = 0xFF808080.toInt()
 
@@ -459,25 +424,27 @@ class ThemeColors @Inject constructor() {
 
     val textDisabled: Int get() = desktop.semantic.textMuted
 
-    val charcoal: Int get() = androidOverrides.charcoal ?: surfaceVariant
+    val charcoal: Int get() = surfaceVariant
 
-    val borderDim: Int get() = androidOverrides.borderDim ?: outline
+    val borderDim: Int get() = outline
 
-    val border: Int get() = desktop[Token.BORDER_PRIMARY]
+    val border: Int get() = outline
 
-    val secondaryWeight: Int get() = androidOverrides.secondaryWeight ?: desktop[Token.BG_ACTIVE_FRIEND_LIST]
+    val secondaryWeight: Int get() = desktop[Token.BG_ACTIVE_FRIEND_LIST]
 
-    val colorText: Int get() = androidOverrides.colorText ?: desktop.semantic.textSecondary
+    val colorText: Int get() = desktop.semantic.textSecondary
 
     val colorAvatarDefault: Int get() = desktop[Token.BG_ICON_THEME]
 
     val buzzRed: Int get() = 0xFFEA2420.toInt()
 
-    val codeInlineBg: Int get() = androidOverrides.codeInlineBackground ?: desktop[Token.BG_ACTIVE_MEMBER_CHANNEL]
+    val codeInlineBg: Int get() = desktop[Token.BG_ACTIVE_MEMBER_CHANNEL]
 
     val codeInlineText: Int get() = desktop[Token.TEXT_SECONDARY]
 
     val codeFenceBg: Int get() = desktop[Token.BG_MARKDOWN_CODE]
+
+    val codeFenceBorder: Int get() = outline
 
     companion object {
         @Volatile

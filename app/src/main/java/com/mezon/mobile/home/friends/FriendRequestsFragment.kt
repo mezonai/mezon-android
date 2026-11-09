@@ -24,7 +24,6 @@ class FriendRequestsFragment : BaseFragment() {
 
     private lateinit var friendController: FriendController
 
-    private lateinit var tabContainer: LinearLayout
     private lateinit var receivedTab: TextView
     private lateinit var sentTab: TextView
     private lateinit var recyclerView: RecyclerListView
@@ -64,10 +63,11 @@ class FriendRequestsFragment : BaseFragment() {
         }
 
         contentLayout = content
-        tabContainer = LinearLayout(context).apply {
+        val tabContainer = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(12f).toFloat()
+                setColor(themeColors.background)
             }
             setPadding(LayoutHelper.dp(4), LayoutHelper.dp(4), LayoutHelper.dp(4), LayoutHelper.dp(4))
         }
@@ -102,6 +102,7 @@ class FriendRequestsFragment : BaseFragment() {
             adapter = this@FriendRequestsFragment.adapter
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(12f).toFloat()
+                setColor(themeColors.background)
             }
             clipToOutline = true
         }
@@ -124,6 +125,7 @@ class FriendRequestsFragment : BaseFragment() {
 
         emptyDescription = TextView(context).apply {
             setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
+            setTextColor(themeColors.textDisabled)
             gravity = Gravity.CENTER
             setPadding(0, LayoutHelper.dp(8), 0, 0)
         }
@@ -149,10 +151,7 @@ class FriendRequestsFragment : BaseFragment() {
     private fun updateTheme() {
         contentLayout.background = friendListBackground(themeColors)
         fragmentView?.setBackgroundColor(themeColors.surface)
-        emptyDescription.setTextColor(themeColors.friendScreenHint)
-        val cardColor = themeColors.friendScreenCardBackground
-        (tabContainer.background as? GradientDrawable)?.setColor(cardColor)
-        (recyclerView.background as? GradientDrawable)?.setColor(cardColor)
+        (recyclerView.background as? GradientDrawable)?.setColor(themeColors.background)
         val selectedText = themeColors.onPrimary
         val unselectedText = themeColors.onSurface
         val selectedBg = themeColors.primary

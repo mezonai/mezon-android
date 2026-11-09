@@ -129,7 +129,7 @@ class PollMessageLayout(private val context: Context) {
         val expired = parsed.expireAtSeconds > 0 && parsed.expireAtSeconds < nowSec
         val showResults = parsed.isClosed || expired || hasVoted || state.showResultsPreview
 
-        val palette = DesktopThemePalette.forTheme(theme.resolvedMode)
+        val palette = DesktopThemePalette.forDesktopTheme(theme.resolvedMode)
         secondaryTextColor = palette[Token.TEXT_SECONDARY]
         themeTextColor = palette[Token.TEXT_THEME_PRIMARY]
         titlePaint.color = secondaryTextColor

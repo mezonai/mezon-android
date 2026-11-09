@@ -20,6 +20,7 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.graphics.ColorUtils
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.mezon.mobile.MainActivity
 import com.mezon.mobile.core.BaseFragment
@@ -293,7 +294,7 @@ class ThreadListFragment : BaseFragment() {
 
         val clearButton = ImageView(context).apply {
             setImageDrawable(MezonIcon.closeSmallBold.getDrawable(context).apply {
-                colorFilter = PorterDuffColorFilter(themeColors.threadSearchClearTint, PorterDuff.Mode.SRC_IN)
+                colorFilter = PorterDuffColorFilter(themeColors.textStrong, PorterDuff.Mode.SRC_IN)
             })
             visibility = View.GONE
         }
@@ -326,12 +327,12 @@ class ThreadListFragment : BaseFragment() {
         val iconCircle = FrameLayout(context).apply {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(themeColors.threadEmptyIconBackground)
+                setColor(ColorUtils.setAlphaComponent(themeColors.primary, 36))
             }
         }
         val iconView = ImageView(context).apply {
             setImageDrawable(MezonIcon.threadIcon.getDrawable(context))
-            imageTintList = themeColors.threadEmptyIconTint?.let { android.content.res.ColorStateList.valueOf(it) }
+            imageTintList = android.content.res.ColorStateList.valueOf(themeColors.textDisabled)
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
         iconCircle.addView(iconView, LayoutHelper.createFrame(22, 22, Gravity.CENTER))

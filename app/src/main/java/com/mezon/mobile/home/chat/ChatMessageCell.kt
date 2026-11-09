@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.chat
 
+import com.mezon.mobile.core.theme.DesktopThemeToken
 import android.app.DatePickerDialog
 import android.content.Context
 import android.content.Intent
@@ -29,8 +30,6 @@ import com.mezon.mobile.core.BaseCell
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
-import com.mezon.mobile.core.theme.DesktopThemePalette
-import com.mezon.mobile.core.theme.DesktopThemeToken
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.util.FileUtils
 import com.mezon.mobile.util.PresignFinishContent
@@ -1504,25 +1503,23 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             parsed.callLogType == CallLogMessageType.REJECTCALL ||
             parsed.callLogType == CallLogMessageType.CANCELCALL
 
-        val palette = DesktopThemePalette.forTheme(theme.resolvedMode)
-        val mutedTextColor = palette.semantic.textMuted
         callLogTitlePaint.typeface = Typeface.DEFAULT_BOLD
         callLogTitlePaint.textSize = LayoutHelper.sp(16f)
-        callLogTitlePaint.color = if (callLogTitleIsRed) theme.redStrong else palette.semantic.textSecondary
+        callLogTitlePaint.color = if (callLogTitleIsRed) theme.redStrong else theme.colorText
 
         callLogDescPaint.typeface = Typeface.DEFAULT
         callLogDescPaint.textSize = LayoutHelper.sp(14f)
-        callLogDescPaint.color = mutedTextColor
+        callLogDescPaint.color = theme.textDisabled
 
         callLogCallbackPaint.typeface = Typeface.DEFAULT_BOLD
         callLogCallbackPaint.textSize = LayoutHelper.sp(14f)
-        callLogCallbackPaint.color = palette[DesktopThemeToken.COLOR_MENTION_HOVER]
+        callLogCallbackPaint.color = theme.textLink
         callLogCallbackPaint.isFakeBoldText = true
 
         callLogCardBgPaint.style = Paint.Style.FILL
-        callLogCardBgPaint.color = palette[DesktopThemeToken.BG_THEME_DIRECT_MESSAGE]
+        callLogCardBgPaint.color = theme.background
         callLogDividerPaint.style = Paint.Style.STROKE
-        callLogDividerPaint.color = palette[DesktopThemeToken.BG_ACTIVE_FRIEND_LIST]
+        callLogDividerPaint.color = theme.secondaryWeight
         callLogDividerPaint.strokeWidth = LayoutHelper.dp(1f).toFloat()
 
         val innerContentW = (textWidth - 2 * (CALL_LOG_CARD_MARGIN_H + CALL_LOG_INNER_PAD)).coerceAtLeast(1)
@@ -1554,12 +1551,12 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
         callLogIconTint = when (parsed.callLogType) {
             CallLogMessageType.TIMEOUTCALL ->
-                if (isMe) mutedTextColor else theme.redStrong
+                if (isMe) theme.textDisabled else theme.redStrong
             CallLogMessageType.REJECTCALL -> theme.redStrong
             CallLogMessageType.CANCELCALL -> theme.redStrong
             CallLogMessageType.FINISHCALL,
-            CallLogMessageType.STARTCALL -> mutedTextColor
-            else -> mutedTextColor
+            CallLogMessageType.STARTCALL -> theme.textDisabled
+            else -> theme.textDisabled
         }
 
         val blocked = delegate?.isDmPeerBlockedForCallLog() == true

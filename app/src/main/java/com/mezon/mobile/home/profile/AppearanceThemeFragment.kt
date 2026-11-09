@@ -29,7 +29,6 @@ import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.core.theme.DesktopThemePalette
 import com.mezon.mobile.core.theme.DesktopThemeToken as Token
 import com.mezon.mobile.core.theme.ThemeGradient
-import com.mezon.mobile.core.theme.appThemePalette
 import com.mezon.mobile.core.theme.themeSurfaceShape
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.ui.cells.AvatarView
@@ -49,7 +48,7 @@ class AppearanceThemeFragment : BaseFragment() {
         private fun paletteForMode(mode: ThemeMode, context: Context): DesktopThemePalette {
             val theme = ThemeColors.instance
             if (mode == ThemeMode.SYSTEM && theme.currentMode == ThemeMode.SYSTEM) return theme.desktop
-            return appThemePalette(mode.resolve(isSystemDark(context)))
+            return DesktopThemePalette.forTheme(mode.resolve(isSystemDark(context)))
         }
 
         private fun isSystemDark(context: Context): Boolean =
