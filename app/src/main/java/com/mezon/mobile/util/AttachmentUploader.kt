@@ -341,8 +341,11 @@ object AttachmentUploader {
         cdnBaseUrl: String,
         channelId: Long = 0L,
         allowIngest: Boolean = false,
+        file: File? = null,
     ): PresignedFileResult {
-        if (allowIngest && FileIngest.isCandidate(mimeType, uploadFilename, fileSize)) {
+        if (allowIngest && FileIngest.isCandidate(mimeType, uploadFilename, fileSize) &&
+            file != null && FileIngestHlsCheck.supportsHls(file)
+        ) {
             val presign = api.uploadAttachmentFile(
                 apiUrl, token, uploadFilename, attachmentTypeForUpload(mimeType), fileSize.toInt(), width, height,
                 channelId = channelId,
