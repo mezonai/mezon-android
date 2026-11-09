@@ -12,6 +12,8 @@ import android.graphics.RadialGradient
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.Typeface
+import android.os.Handler
+import android.os.Looper
 import android.text.StaticLayout
 import android.text.TextPaint
 import android.text.TextUtils
@@ -41,6 +43,7 @@ class LocationCardLayout(private val context: Context) {
     private val tiles = ArrayList<MapTile>()
     private val tileBitmaps = HashMap<String, Bitmap>()
     private val tileCancellables = ArrayList<MezonImageLoader.Cancellable>()
+    private val tileRetryHandler = Handler(Looper.getMainLooper())
 
     private val cardRect = RectF()
     private val mapRect = RectF()
@@ -301,16 +304,28 @@ class LocationCardLayout(private val context: Context) {
                 tileBitmaps[tile.url] = cached
                 continue
             }
-            tileCancellables.add(loader.load(tile.url, MAP_TILE_PX, MAP_TILE_PX, onSuccess = { bmp ->
-                if (currentTilePlanKey == planKey) {
-                    tileBitmaps[tile.url] = bmp
-                    invalidateCallback?.invoke()
-                }
-            }))
+            loadTile(tile, planKey, 0)
         }
     }
 
+    private fun loadTile(tile: MapTile, planKey: String, attempt: Int) {
+        val loader = MezonImageLoader.getInstance(context)
+        tileCancellables.add(loader.load(tile.url, MAP_TILE_PX, MAP_TILE_PX, onSuccess = { bmp ->
+            if (currentTilePlanKey == planKey) {
+                tileBitmaps[tile.url] = bmp
+                invalidateCallback?.invoke()
+            }
+        }, onError = {
+            if (currentTilePlanKey == planKey && attempt < TILE_RETRY_DELAYS_MS.size) {
+                tileRetryHandler.postDelayed({
+                    if (currentTilePlanKey == planKey) loadTile(tile, planKey, attempt + 1)
+                }, TILE_RETRY_DELAYS_MS[attempt])
+            }
+        }))
+    }
+
     private fun clearTiles() {
+        tileRetryHandler.removeCallbacksAndMessages(null)
         for (cancellable in tileCancellables) cancellable.cancel()
         tileCancellables.clear()
         tiles.clear()
@@ -341,6 +356,7 @@ class LocationCardLayout(private val context: Context) {
         private val HALO_RADIUS = LayoutHelper.dpf(34f)
         private val PIN_SHADOW_OFFSET = LayoutHelper.dpf(1.5f)
         private val PIN_SHADOW_SPREAD = LayoutHelper.dpf(1.5f)
+        private val TILE_RETRY_DELAYS_MS = longArrayOf(3_000L, 8_000L, 15_000L, 30_000L, 60_000L)
         private val DARK_MAP_FILTER: ColorMatrixColorFilter by lazy {
             val invert = ColorMatrix(
                 floatArrayOf(
