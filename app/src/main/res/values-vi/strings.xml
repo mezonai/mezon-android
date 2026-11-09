@@ -288,6 +288,7 @@
     <string name="dm_group_members">%1$d trên %2$d thành viên</string>
     <string name="dm_new_dm_failed">Không thể tạo cuộc trò chuyện. Vui lòng thử lại.</string>
     <string name="dm_create_group_failed">Không thể tạo nhóm. Vui lòng thử lại.</string>
+    <string name="dm_group_already_exists">Đã có nhóm gồm đúng những thành viên này.</string>
     <string name="dm_add_members_failed">Không thể thêm thành viên. Vui lòng thử lại.</string>
     <string name="dm_group_customize">Tùy chỉnh nhóm</string>
     <string name="dm_group_name">Tên nhóm</string>

@@ -19,7 +19,6 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
-import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -32,6 +31,7 @@ import com.mezon.mobile.core.theme.MobileThemeColors
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.di.FragmentEntryPoint
+import com.mezon.mobile.home.CreateGroupResult
 import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.friends.FRIEND_STATE_FRIEND
 import com.mezon.mobile.home.friends.FriendController
@@ -40,7 +40,9 @@ import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.search.LOCAL_PAGE_SIZE
 import com.mezon.mobile.search.SearchController
+import com.mezon.mobile.ui.MezonToast
 import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.ui.cells.ToastOverlay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -54,6 +56,7 @@ class NewGroupFragment : BaseFragment() {
         private const val ARG_CHANNEL_NAME = "channelName"
         private const val MODE_CREATE = 0
         private const val MODE_ADD_MEMBERS = 1
+        private const val MODE_FROM_DM = 2
         private const val LOAD_MORE_THRESHOLD = 10
 
         fun newCreate(): NewGroupFragment = NewGroupFragment().apply {
@@ -63,6 +66,14 @@ class NewGroupFragment : BaseFragment() {
         fun newAddMembers(channelId: Long, channelName: String): NewGroupFragment = NewGroupFragment().apply {
             arguments = Bundle().apply {
                 putInt(ARG_MODE, MODE_ADD_MEMBERS)
+                putLong(ARG_CHANNEL_ID, channelId)
+                putString(ARG_CHANNEL_NAME, channelName)
+            }
+        }
+
+        fun newFromDirectMessage(channelId: Long, channelName: String): NewGroupFragment = NewGroupFragment().apply {
+            arguments = Bundle().apply {
+                putInt(ARG_MODE, MODE_FROM_DM)
                 putLong(ARG_CHANNEL_ID, channelId)
                 putString(ARG_CHANNEL_NAME, channelName)
             }
@@ -112,11 +123,11 @@ class NewGroupFragment : BaseFragment() {
             reloadFriends()
         }
         observe(NotificationCenter.userDataLoaded) { _, _, _ ->
-            if (isPaused || fragmentView == null || mode != MODE_CREATE) return@observe
+            if (isPaused || fragmentView == null || mode == MODE_ADD_MEMBERS) return@observe
             syncDefaultSelectedIds()
         }
         observe(NotificationCenter.channelMembersDidLoad) { _, _, args ->
-            if (isPaused || fragmentView == null || mode != MODE_ADD_MEMBERS) return@observe
+            if (isPaused || fragmentView == null || mode == MODE_CREATE) return@observe
             val changedChannelId = args.firstOrNull() as? Long ?: return@observe
             if (changedChannelId == channelId) syncDefaultSelectedIds()
         }
@@ -127,7 +138,7 @@ class NewGroupFragment : BaseFragment() {
         }
 
         friendController.loadFriendRelations(noCache = true)
-        if (mode == MODE_ADD_MEMBERS) dialogsController.loadDmParticipants(channelId, force = true)
+        if (mode != MODE_CREATE) dialogsController.loadDmParticipants(channelId, force = true)
         return true
     }
 
@@ -215,9 +226,9 @@ class NewGroupFragment : BaseFragment() {
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(LayoutHelper.dp(14), LayoutHelper.dp(14), LayoutHelper.dp(14), LayoutHelper.dp(14))
+            setPadding(LayoutHelper.dp(14), 0, LayoutHelper.dp(14), 0)
         }
-        container.addView(row, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+        container.addView(row, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 56))
 
         val back = FrameLayout(context).apply {
             isClickable = true
@@ -235,14 +246,14 @@ class NewGroupFragment : BaseFragment() {
             setImageDrawable(d)
         }
         back.addView(backIcon, LayoutHelper.createFrame(20, 20, Gravity.CENTER_VERTICAL or Gravity.START))
-        row.addView(back, LayoutHelper.createLinear(70, 33))
+        row.addView(back, LayoutHelper.createLinear(70, 33, gravity = Gravity.CENTER_VERTICAL))
 
         val titleColumn = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
         }
         val title = TextView(context).apply {
-            text = if (mode == MODE_ADD_MEMBERS) getString(R.string.dm_add_members) else getString(R.string.dm_new_group)
+            text = if (mode != MODE_CREATE) getString(R.string.dm_add_members) else getString(R.string.dm_new_group)
             setTextColor(themeColors.onSurface)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
             setTypeface(Typeface.DEFAULT, Typeface.BOLD)
@@ -250,7 +261,9 @@ class NewGroupFragment : BaseFragment() {
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
         }
-        titleColumn.addView(title, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT))
+        titleColumn.addView(title, LayoutHelper.createLinear(
+            LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, gravity = Gravity.CENTER_HORIZONTAL
+        ))
         subtitleText = TextView(context).apply {
             setTextColor(themeColors.textDisabled)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
@@ -258,8 +271,12 @@ class NewGroupFragment : BaseFragment() {
             includeFontPadding = false
             setPadding(0, LayoutHelper.dp(4), 0, 0)
         }
-        titleColumn.addView(subtitleText, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT))
-        row.addView(titleColumn, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f))
+        titleColumn.addView(subtitleText, LayoutHelper.createLinear(
+            LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, gravity = Gravity.CENTER_HORIZONTAL
+        ))
+        row.addView(titleColumn, LayoutHelper.createLinear(
+            0, LayoutHelper.WRAP_CONTENT, 1f, gravity = Gravity.CENTER_VERTICAL
+        ))
 
         val actionWrap = FrameLayout(context)
         actionText = TextView(context).apply {
@@ -271,7 +288,7 @@ class NewGroupFragment : BaseFragment() {
             setOnClickListener { submit() }
         }
         actionWrap.addView(actionText, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
-        row.addView(actionWrap, LayoutHelper.createLinear(70, 33))
+        row.addView(actionWrap, LayoutHelper.createLinear(70, 33, gravity = Gravity.CENTER_VERTICAL))
 
         return container
     }
@@ -359,13 +376,14 @@ class NewGroupFragment : BaseFragment() {
 
     private fun syncDefaultSelectedIds() {
         if (!::adapter.isInitialized) return
-        val ids = if (mode == MODE_ADD_MEMBERS) {
-            dialogsController.getParticipants(channelId)
+        val currentUserIds = userController.userId.takeIf { it != 0L }?.let { setOf(it) } ?: emptySet()
+        val ids = when (mode) {
+            MODE_ADD_MEMBERS -> dialogsController.getParticipants(channelId)
                 .map { it.userId }
                 .filter { it != 0L }
                 .toSet()
-        } else {
-            userController.userId.takeIf { it != 0L }?.let { setOf(it) } ?: emptySet()
+            MODE_FROM_DM -> currentUserIds + directMessagePartnerIds()
+            else -> currentUserIds
         }
         if (ids == defaultSelectedIds) {
             updateHeaderState()
@@ -409,7 +427,8 @@ class NewGroupFragment : BaseFragment() {
                 return@launch
             }
 
-            if (ids.size == 1) {
+            val groupMemberIds = if (mode == MODE_FROM_DM) directMessagePartnerIds().toList() + ids else ids
+            if (groupMemberIds.size == 1) {
                 val friend = friendById[ids.first()]
                 val dmChannelId = dialogsController.getOrCreateDm(ids.first())
                 withContext(Dispatchers.Main) {
@@ -433,22 +452,22 @@ class NewGroupFragment : BaseFragment() {
                 return@launch
             }
 
-            val group = dialogsController.createGroup(ids, buildParticipantHints(selectedIds.toList()))
+            val result = dialogsController.createGroup(groupMemberIds, buildParticipantHints(selectedIds.toList()))
             withContext(Dispatchers.Main) {
                 submitting = false
                 setSubmittingLoading(false)
                 updateHeaderState()
-                if (group == null) {
-                    showToast(R.string.dm_create_group_failed)
-                } else {
-                    openChatFromPicker(
-                        group.channelId,
-                        group.displayName.ifBlank { group.label },
+                when (result) {
+                    is CreateGroupResult.Ready -> openChatFromPicker(
+                        result.group.channelId,
+                        result.group.displayName.ifBlank { result.group.label },
                         0L,
                         CHANNEL_TYPE_GROUP,
                         popSelfBeforeOpen = true,
                         onOpenChat = onOpenChat
                     )
+                    CreateGroupResult.AlreadyExists -> showToast(R.string.dm_group_already_exists)
+                    CreateGroupResult.Failed -> showToast(R.string.dm_create_group_failed)
                 }
             }
         }
@@ -471,7 +490,11 @@ class NewGroupFragment : BaseFragment() {
                 ))
                 continue
             }
-            val friend = friendById[id] ?: continue
+            val friend = friendById[id]
+            if (friend == null) {
+                dialogsController.getParticipants(channelId).firstOrNull { it.userId == id }?.let { result.add(it) }
+                continue
+            }
             result.add(DmParticipant(
                 userId = id,
                 username = friend.user.username,
@@ -482,12 +505,23 @@ class NewGroupFragment : BaseFragment() {
         return result
     }
 
+    private fun directMessagePartnerIds(): Set<Long> {
+        val myId = userController.userId
+        val participantIds = dialogsController.getParticipants(channelId)
+            .map { it.userId }
+            .filter { it != 0L && it != myId }
+            .toSet()
+        if (participantIds.isNotEmpty()) return participantIds
+        val otherUserId = dialogsController.getDialog(channelId)?.otherUserId ?: 0L
+        return if (otherUserId != 0L && otherUserId != myId) setOf(otherUserId) else emptySet()
+    }
+
     private fun newMemberIds(): List<Long> =
         selectedIds.filter { it != 0L && it !in defaultSelectedIds }
 
     private fun showToast(messageRes: Int) {
-        val ctx = fragmentView?.context ?: return
-        Toast.makeText(ctx, getString(messageRes), Toast.LENGTH_SHORT).show()
+        if (fragmentView == null) return
+        MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(messageRes))
     }
 
     private fun normalize(value: String): String =

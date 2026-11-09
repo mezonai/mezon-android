@@ -1,11 +1,13 @@
 package com.mezon.mobile.home.messages
 
 import android.content.Context
+import android.content.res.ColorStateList
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
 import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
@@ -14,7 +16,6 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mezon.api.Friend
@@ -140,6 +141,7 @@ class FriendPickerAdapter(
             checked = selected,
             disabled = disabled,
             selectMode = selectMode,
+            first = row.first,
             divider = row.divider
         )
     }
@@ -177,7 +179,7 @@ class FriendPickerAdapter(
         if (searching) {
             result.add(Row.Header(context.getString(com.mezon.mobile.R.string.dm_friends), uppercase = false))
             friends.forEachIndexed { index, friend ->
-                result.add(Row.FriendRow(friend, divider = index < friends.lastIndex))
+                result.add(Row.FriendRow(friend, first = index == 0, divider = index < friends.lastIndex))
             }
             return result
         }
@@ -190,7 +192,7 @@ class FriendPickerAdapter(
             val group = entry.value
             result.add(Row.Header(letter, uppercase = true, separated = groupIndex > 0))
             group.forEachIndexed { index, friend ->
-                result.add(Row.FriendRow(friend, divider = index < group.lastIndex))
+                result.add(Row.FriendRow(friend, first = index == 0, divider = index < group.lastIndex))
             }
         }
         return result
@@ -198,7 +200,7 @@ class FriendPickerAdapter(
 
     private sealed class Row {
         data class Header(val title: String, val uppercase: Boolean, val separated: Boolean = false) : Row()
-        data class FriendRow(val friend: Friend, val divider: Boolean) : Row()
+        data class FriendRow(val friend: Friend, val first: Boolean, val divider: Boolean) : Row()
     }
 
     private class HeaderHolder(val view: HeaderRowView) : RecyclerView.ViewHolder(view)
@@ -239,7 +241,8 @@ class FriendPickerAdapter(
             if (old is Row.FriendRow && new is Row.FriendRow) {
                 val o = old.friend
                 val n = new.friend
-                return old.divider == new.divider &&
+                return old.first == new.first &&
+                    old.divider == new.divider &&
                     o.state == n.state &&
                     o.user.id == n.user.id &&
                     o.user.username == n.user.username &&
@@ -297,6 +300,8 @@ private class FriendPickerCell(
     private val subtitleView: TextView
     private val checkView: SquareCheckView
     private val rowBackground = GradientDrawable()
+    private val rippleMask = GradientDrawable().apply { setColor(0xFFFFFFFF.toInt()) }
+    private val cornerRadius = LayoutHelper.dpf(12f)
     private val dividerPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var drawDivider = false
 
@@ -304,11 +309,11 @@ private class FriendPickerCell(
         setWillNotDraw(false)
         isClickable = true
         isFocusable = true
-        val outValue = TypedValue()
-        context.theme.resolveAttribute(android.R.attr.selectableItemBackground, outValue, true)
-        if (outValue.resourceId != 0) {
-            foreground = ContextCompat.getDrawable(context, outValue.resourceId)
-        }
+        foreground = RippleDrawable(
+            ColorStateList.valueOf(themeColors.onSurface and 0x1A_FFFFFF),
+            null,
+            rippleMask
+        )
         layoutParams = RecyclerView.LayoutParams(
             RecyclerView.LayoutParams.MATCH_PARENT,
             RecyclerView.LayoutParams.WRAP_CONTENT
@@ -359,7 +364,7 @@ private class FriendPickerCell(
         checkView = SquareCheckView(context, themeColors).apply {
             visibility = View.GONE
         }
-        row.addView(checkView, LayoutHelper.createLinear(24, 24))
+        row.addView(checkView, LayoutHelper.createLinear(24, 24, gravity = Gravity.CENTER_VERTICAL))
     }
 
     fun bind(
@@ -367,8 +372,13 @@ private class FriendPickerCell(
         checked: Boolean,
         disabled: Boolean,
         selectMode: Boolean,
+        first: Boolean,
         divider: Boolean
     ) {
+        val top = if (first) cornerRadius else 0f
+        val bottom = if (divider) 0f else cornerRadius
+        rowBackground.cornerRadii = floatArrayOf(top, top, top, top, bottom, bottom, bottom, bottom)
+        rippleMask.cornerRadii = floatArrayOf(top, top, top, top, bottom, bottom, bottom, bottom)
         rowBackground.setColor(themeColors.background)
         titleView.setTextColor(themeColors.textStrong)
         subtitleView.setTextColor(themeColors.textDisabled)

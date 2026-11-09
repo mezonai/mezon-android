@@ -5,6 +5,7 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.home.chat.MEDIA_ANONYMOUS_USER_ID
 import java.util.Calendar
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -46,6 +47,7 @@ fun buildChannelFileRows(
 
 interface FilesTabRowResolver {
     fun resolveSharerName(item: ChannelDocumentItem): String
+    suspend fun loadAnonymousSharerName(item: ChannelDocumentItem): String?
     fun formatTime(createTimeSeconds: Int): String
     fun formatSharedByLine(displayName: String): String
     fun openUrl(url: String)
@@ -144,18 +146,39 @@ class ChannelFilesAdapter(
                 holder.view.bind(h.year, h.dayTitle, h.showYearLine)
             }
             is DocVH -> {
-                val d = rows[position] as ChannelFilesRow.Doc
-                val name = resolver.resolveSharerName(d.item)
-                val time = resolver.formatTime(d.item.createTimeSeconds)
+                holder.sharerNameJob?.cancel()
+                val item = (rows[position] as ChannelFilesRow.Doc).item
+                val name = resolver.resolveSharerName(item)
+                val time = resolver.formatTime(item.createTimeSeconds)
                 val shared = resolver.formatSharedByLine(name)
-                holder.view.bind(d.item, shared, time)
-                holder.view.tag = d.item
+                holder.view.bind(item, shared, time)
+                holder.view.tag = item
+                holder.sharerNameJob = if (item.uploader == MEDIA_ANONYMOUS_USER_ID &&
+                    item.anonymousSharerName == null && item.messageId != 0L
+                ) {
+                    scope.launch {
+                        val resolvedName = resolver.loadAnonymousSharerName(item) ?: return@launch
+                        if (holder.view.tag === item) {
+                            holder.view.setSharedByLine(resolver.formatSharedByLine(resolvedName))
+                        }
+                    }
+                } else null
             }
         }
     }
 
+    override fun onViewRecycled(holder: RecyclerView.ViewHolder) {
+        if (holder is DocVH) {
+            holder.sharerNameJob?.cancel()
+            holder.sharerNameJob = null
+        }
+        super.onViewRecycled(holder)
+    }
+
     class HeaderVH(val view: ChannelFileSectionHeaderView) : RecyclerView.ViewHolder(view)
-    class DocVH(val view: ChannelFileDocumentRowView) : RecyclerView.ViewHolder(view)
+    class DocVH(val view: ChannelFileDocumentRowView) : RecyclerView.ViewHolder(view) {
+        var sharerNameJob: Job? = null
+    }
 
     private class FilesDiffCallback(
         private val old: List<ChannelFilesRow>,

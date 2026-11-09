@@ -19,6 +19,7 @@ import android.widget.TextView
 import androidx.core.graphics.drawable.DrawableCompat
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
+import com.mezon.mobile.R
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.ChannelGalleryController
@@ -264,8 +265,13 @@ internal class ChannelMediaGalleryAdapter(
 
         val anonymousAv = ImageView(ctx).apply {
             visibility = View.GONE
-            val drawable = com.mezon.mobile.ui.cells.MezonIcon.anonymousAvatar.getDrawable(ctx)
-            setImageDrawable(drawable)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(theme.colorAvatarDefault)
+            }
+            val iconPadding = LayoutHelper.dp(6f)
+            setPadding(iconPadding, iconPadding, iconPadding, iconPadding)
+            setImageDrawable(MezonIcon.loadDrawable(ctx, R.drawable.ic_anonymous_icon, Color.WHITE))
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
         avRing.addView(anonymousAv, LayoutHelper.createFrame(24, 24, Gravity.CENTER))

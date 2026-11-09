@@ -268,6 +268,7 @@
     <string name="dm_group_members">%1$d of %2$d members</string>
     <string name="dm_new_dm_failed">Could not create conversation. Please try again.</string>
     <string name="dm_create_group_failed">Could not create group. Please try again.</string>
+    <string name="dm_group_already_exists">A group with these members already exists.</string>
     <string name="dm_add_members_failed">Could not add members. Please try again.</string>
     <string name="dm_group_customize">Customize Group</string>
     <string name="dm_group_name">Group Name</string>
