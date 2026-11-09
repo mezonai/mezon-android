@@ -86,8 +86,6 @@ class MessageActionBottomSheet(
         }
     }
 
-    private val menuBackgroundColor: Int get() = theme.messageMenuItemBackground
-
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         setSnapPoints(0.5f, 1f, initialIndex = 0)
         setFitToContents(true)
@@ -218,7 +216,7 @@ class MessageActionBottomSheet(
         for (qe in fallbacks) {
             val btn = FrameLayout(context).apply {
                 val bg = GradientDrawable().apply {
-                    setColor(menuBackgroundColor)
+                    setColor(theme.messageMenuItemBackground)
                     cornerRadius = LayoutHelper.dp(50).toFloat()
                 }
                 background = bg
@@ -259,7 +257,7 @@ class MessageActionBottomSheet(
 
         val plusBtn = FrameLayout(context).apply {
             val bg = GradientDrawable().apply {
-                setColor(menuBackgroundColor)
+                setColor(theme.messageMenuItemBackground)
                 cornerRadius = LayoutHelper.dp(50).toFloat()
             }
             background = bg
@@ -506,7 +504,7 @@ class MessageActionBottomSheet(
   
     private fun buildActionRow(item: ActionItem): FrameLayout {
         val row = FrameLayout(context).apply {
-            setBackgroundColor(menuBackgroundColor)
+            setBackgroundColor(theme.messageMenuItemBackground)
             val outValue = TypedValue()
             context.theme.resolveAttribute(android.R.attr.selectableItemBackground, outValue, true)
             foreground = context.getDrawable(outValue.resourceId)

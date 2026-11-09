@@ -68,7 +68,7 @@ class AddFriendFragment : BaseFragment() {
             setPadding(LayoutHelper.dp(14), LayoutHelper.dp(12), LayoutHelper.dp(14), LayoutHelper.dp(12))
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(12f).toFloat()
-                setColor(themeColors.background)
+                setColor(themeColors.friendScreenCardBackground)
             }
             isClickable = true
             isFocusable = true
@@ -108,7 +108,7 @@ class AddFriendFragment : BaseFragment() {
         val listContainer = FrameLayout(context)
         content.addView(listContainer, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
 
-        adapter = FriendRelationAdapter(context, themeColors) { friend, action ->
+        adapter = FriendRelationAdapter(context, themeColors, useFriendScreenStyle = true) { friend, action ->
             when (action) {
                 FriendRowAction.DELETE -> friendController.deleteFriendRelation(friend.user.id, friend.user.username) {}
                 FriendRowAction.APPROVE -> friendController.acceptFriendRequest(friend.user.id, friend.user.username) {}
@@ -160,7 +160,7 @@ class AddFriendFragment : BaseFragment() {
     private fun applyBackgroundColors() {
         contentLayout.background = friendListBackground(themeColors)
         fragmentView?.setBackgroundColor(themeColors.surface)
-        (addByUsernameRow.background as? GradientDrawable)?.setColor(themeColors.background)
+        (addByUsernameRow.background as? GradientDrawable)?.setColor(themeColors.friendScreenCardBackground)
     }
 
     private fun reloadData() {

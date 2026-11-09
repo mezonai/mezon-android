@@ -1,6 +1,5 @@
 package com.mezon.mobile.home.chat
 
-import com.mezon.mobile.core.theme.DesktopThemeToken
 import android.app.DatePickerDialog
 import android.content.Context
 import android.content.Intent
@@ -30,6 +29,8 @@ import com.mezon.mobile.core.BaseCell
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.core.theme.DesktopThemePalette
+import com.mezon.mobile.core.theme.DesktopThemeToken
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.util.FileUtils
 import com.mezon.mobile.util.PresignFinishContent
