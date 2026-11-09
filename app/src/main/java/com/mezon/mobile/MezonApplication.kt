@@ -10,6 +10,7 @@ import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.data.db.MezonDatabase
 import com.mezon.mobile.session.SessionKeys
 import com.mezon.mobile.home.messages.EmbedAnimationHttp
+import com.mezon.mobile.ui.theme.ThemeMode
 import com.mezon.mobile.util.SentryReporter
 import dagger.hilt.android.HiltAndroidApp
 import okhttp3.OkHttpClient
@@ -49,7 +50,7 @@ class MezonApplication : Application() {
                 } else {
                     StartupCache.seed(
                         hasSession = hasToken,
-                        themeMode = prefs[stringPreferencesKey("app_theme")] ?: "dark",
+                        themeMode = prefs[stringPreferencesKey("app_theme")] ?: StartupCache.themeMode.storageKey,
                         locale = prefs[stringPreferencesKey("app_language")] ?: "en"
                     )
                 }
@@ -58,6 +59,10 @@ class MezonApplication : Application() {
         }
 
         val sessionDataStoreFile = File(filesDir, "datastore/mezon_session.preferences_pb")
+        val isFreshInstall = !StartupCache.isSeeded && !sessionDataStoreFile.exists()
+        if (isFreshInstall) {
+            StartupCache.themeMode = ThemeMode.PURPLE_HAZE
+        }
         if (StartupCache.isSeeded || !sessionDataStoreFile.exists()) {
             appStartScope.launch { seedStartupCacheFromDataStore() }
         } else {
