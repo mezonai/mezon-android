@@ -144,11 +144,11 @@ class DesktopThemePalette private constructor(
             colors = intArrayOf(
                 0x404B4B4B.toInt(), // bg_accent
                 0x40555555.toInt(), // bg_active_button
-                0xFF2B2D31.toInt(), // bg_active_friend_list
-                0x14E9E9E9.toInt(), // bg_active_member_channel
+                0xFF4F378B.toInt(), // bg_active_friend_list
+                0xFF4F378B.toInt(), // bg_active_member_channel
                 0xFF3366CC.toInt(), // bg_button_add_friend
                 0x1F97979F.toInt(), // bg_button_add_friend_active
-                0xFF5865F2.toInt(), // bg_button_primary
+                0xFF5A62F4.toInt(), // bg_button_primary
                 0xFF4654C0.toInt(), // bg_button_primary_hover
                 0x00000000.toInt(), // bg_button_secondary
                 0x26292AD6.toInt(), // bg_click_highlight
@@ -160,15 +160,15 @@ class DesktopThemePalette private constructor(
                 0x2E9AA1F0.toInt(), // bg_highlight_react_theme
                 0xFF2C2C2C.toInt(), // bg_hover
                 0xFF2D3035.toInt(), // bg_hover_select_status
-                0xFFACACAC.toInt(), // bg_icon_theme
-                0xFFF7FFFF.toInt(), // bg_icon_theme_active
-                0xFF202225.toInt(), // bg_input_secondary
+                0xFFCAC4D0.toInt(), // bg_icon_theme
+                0xFFE6E1E5.toInt(), // bg_icon_theme_active
+                0xFF1C1D23.toInt(), // bg_input_secondary
                 0x14FFFFFF.toInt(), // bg_item_hover
                 0x9418181A.toInt(), // bg_item_hover_chat
                 0x14FFFFFF.toInt(), // bg_item_theme_hover
-                0xFF2B2D31.toInt(), // bg_markdown_code
+                0xFF383A43.toInt(), // bg_markdown_code
                 0x8C2EB08B.toInt(), // bg_mention_everyone_hover
-                0x632EB08B.toInt(), // bg_mention_evryone
+                0xFF3C4C43.toInt(), // bg_mention_evryone
                 0x634362EE.toInt(), // bg_mention_hover
                 0xB3000000.toInt(), // bg_modal
                 0xFF242429.toInt(), // bg_modal_theme
@@ -177,16 +177,16 @@ class DesktopThemePalette private constructor(
                 0xFF28282D.toInt(), // bg_option_theme
                 0xFF1A1A1A.toInt(), // bg_outside_footer
                 0xFF2D2D30.toInt(), // bg_ping_member
-                0xFF26272B.toInt(), // bg_primary
+                0xFF383A43.toInt(), // bg_primary
                 0xFFB4B2AB.toInt(), // bg_scroll_bar
-                0xFF313338.toInt(), // bg_secondary
+                0xFF1C1B1F.toInt(), // bg_secondary
                 0x4D4D4D4D.toInt(), // bg_secondary_button_hover
-                0xFF383A40.toInt(), // bg_surface
+                0xFF26272F.toInt(), // bg_surface
                 0x33464646.toInt(), // bg_tertiary
                 0xFFFFFFFF.toInt(), // bg_theme_bar_play_color_dark_sound
                 0xFF2C2C2C.toInt(), // bg_theme_bar_play_color_light_sound
                 0xFF252525.toInt(), // bg_theme_contexify
-                0xFF2B2D31.toInt(), // bg_theme_direct_message
+                0xFF1C1B1F.toInt(), // bg_theme_direct_message
                 0xFF161616.toInt(), // bg_theme_input_primary
                 0xFF242429.toInt(), // bg_theme_pop
                 0x00534F4F.toInt(), // bg_theme_secounnd
@@ -203,46 +203,53 @@ class DesktopThemePalette private constructor(
                 0xFF5865F2.toInt(), // border_highlight_react_theme
                 0xFF4177C9.toInt(), // border_hover
                 0xFFF3E65A.toInt(), // border_left_highlight
-                0x66646464.toInt(), // border_primary
+                0xFF2A2D31.toInt(), // border_primary
                 0xFF444444.toInt(), // border_r_b_l_theme_primary
                 0xFF444444.toInt(), // border_r_t_l_theme_primary
                 0xFF5A8CD9.toInt(), // border_secondary
                 0xFF444444.toInt(), // border_t_theme_primary
                 0xFF444444.toInt(), // border_theme_primary
-                0xFF5265EC.toInt(), // button_theme_primary
+                0xFF5A62F4.toInt(), // button_theme_primary
                 0xFF32B993.toInt(), // color_mention_everyone_hover
-                0xFF2EB08C.toInt(), // color_mention_evryone
-                0xFF3298FF.toInt(), // color_mention_hover
-                0xFF7EB1FF.toInt(), // color_text_active_button
+                0xFF009C67.toInt(), // color_mention_evryone
+                0xFF3297FF.toInt(), // color_mention_hover
+                0xFF939BF6.toInt(), // color_text_active_button
                 0xFFABABAD.toInt(), // member_icon_head_fill
-                0xFF3298FF.toInt(), // mention_color
-                0x3D4361EE.toInt(), // mention_primary
+                0xFF3297FF.toInt(), // mention_color
+                0xFF3B426E.toInt(), // mention_primary
                 0xFF2C4957.toInt(), // private_theme
                 0xFF93A7FD.toInt(), // text_button_add_friend_active
                 0xFFCCCCCC.toInt(), // text_count_page
                 0xFFFFFFFF.toInt(), // text_count_page_active
                 0xFFE0E0E0.toInt(), // text_count_page_hover
-                0xFFFFFFFF.toInt(), // text_secondary
+                0xFFE6E1E5.toInt(), // text_secondary
                 0x32BABABA.toInt(), // text_separator_theme_primary
-                0xFFDFE0E2.toInt(), // text_theme_message
-                0xFF9B9CA3.toInt(), // text_theme_primary
+                0xFFE6E1E5.toInt(), // text_theme_message
+                0xFFCAC4D0.toInt(), // text_theme_primary
                 0xFFFFFFFF.toInt(), // text_theme_primary_hover
                 0xFFFFFFFF.toInt(), // text_tooltip_app
                 0x0FFFFFFF.toInt(), // theme_base_color
                 0x66787878.toInt(), // theme_border_input
                 0x334D4D4D.toInt(), // theme_input
-                0xFF2B2D31.toInt(), // theme_setting_nav
-                0xFF313338.toInt(), // theme_setting_primary
+                0xFF212122.toInt(), // theme_setting_nav
+                0xFF26272F.toInt(), // theme_setting_primary
                 0xFFE0E0E0.toInt(), // theme_text_color_dark
                 0xFF787881.toInt(), // thread_scroll
             ),
-            semantic = darkSemantic,
-            previewColor = 0xFF26272B.toInt(),
+            semantic = SemanticColors(
+                textPrimary = 0xFFE6E1E5.toInt(),
+                textSecondary = 0xFFCAC4D0.toInt(),
+                textMuted = 0xFF6B6B6B.toInt(),
+                statusOnline = 0xFF43B581.toInt(),
+                mentionBadge = 0xFFD30E0E.toInt(),
+            ),
+            previewColor = 0xFF111827.toInt(),
             previewGradient = null,
             conversationGradient = null,
             chatGradient = null,
             composerGradient = null,
-            primaryFillGradient = null
+            primaryFillGradient = null,
+            pollFieldBackground = 0xFF383A43.toInt(),
         )
 
         private val light = DesktopThemePalette(
@@ -1085,56 +1092,10 @@ class DesktopThemePalette private constructor(
             primaryFillGradient = ThemeGradient(161.03f, intArrayOf(0xFF340820.toInt(), 0xFF3A200A.toInt(), 0xFF45320B.toInt()), floatArrayOf(0.1879f, 0.4976f, 0.8072f), false)
         )
 
-        // Keep the desktop palette available for surfaces that match desktop.
-        private val androidDark = DesktopThemePalette(
-            colors = dark.colors.copyOf().apply {
-                this[DesktopThemeToken.BG_ACTIVE_FRIEND_LIST.ordinal] = 0xFF4F378B.toInt()
-                this[DesktopThemeToken.BG_ACTIVE_MEMBER_CHANNEL.ordinal] = 0xFF4F378B.toInt()
-                this[DesktopThemeToken.BG_BUTTON_PRIMARY.ordinal] = 0xFF5A62F4.toInt()
-                this[DesktopThemeToken.BG_ICON_THEME.ordinal] = 0xFF334155.toInt()
-                this[DesktopThemeToken.BG_INPUT_SECONDARY.ordinal] = 0xFF1C1D23.toInt()
-                this[DesktopThemeToken.BG_MARKDOWN_CODE.ordinal] = 0xFF383A43.toInt()
-                this[DesktopThemeToken.BG_MENTION_EVRYONE.ordinal] = 0xFF3C4C43.toInt()
-                this[DesktopThemeToken.BG_PRIMARY.ordinal] = 0xFF383A43.toInt()
-                this[DesktopThemeToken.BG_SECONDARY.ordinal] = 0xFF1C1B1F.toInt()
-                this[DesktopThemeToken.BG_SURFACE.ordinal] = 0xFF26272F.toInt()
-                this[DesktopThemeToken.BG_THEME_DIRECT_MESSAGE.ordinal] = 0xFF1C1B1F.toInt()
-                this[DesktopThemeToken.BORDER_PRIMARY.ordinal] = 0xFF2A2D31.toInt()
-                this[DesktopThemeToken.BUTTON_THEME_PRIMARY.ordinal] = 0xFF5A62F4.toInt()
-                this[DesktopThemeToken.COLOR_MENTION_EVRYONE.ordinal] = 0xFF009C67.toInt()
-                this[DesktopThemeToken.COLOR_MENTION_HOVER.ordinal] = 0xFF3297FF.toInt()
-                this[DesktopThemeToken.COLOR_TEXT_ACTIVE_BUTTON.ordinal] = 0xFF939BF6.toInt()
-                this[DesktopThemeToken.MENTION_COLOR.ordinal] = 0xFF3297FF.toInt()
-                this[DesktopThemeToken.MENTION_PRIMARY.ordinal] = 0xFF3B426E.toInt()
-                this[DesktopThemeToken.TEXT_SECONDARY.ordinal] = 0xFFE6E1E5.toInt()
-                this[DesktopThemeToken.TEXT_THEME_MESSAGE.ordinal] = 0xFFE6E1E5.toInt()
-                this[DesktopThemeToken.TEXT_THEME_PRIMARY.ordinal] = 0xFFCAC4D0.toInt()
-                this[DesktopThemeToken.THEME_SETTING_NAV.ordinal] = 0xFF212122.toInt()
-                this[DesktopThemeToken.THEME_SETTING_PRIMARY.ordinal] = 0xFF26272F.toInt()
-            },
-            semantic = SemanticColors(
-                textPrimary = 0xFFE6E1E5.toInt(),
-                textSecondary = 0xFFCAC4D0.toInt(),
-                textMuted = 0xFF6B6B6B.toInt(),
-                statusOnline = 0xFF43B581.toInt(),
-                mentionBadge = 0xFFD30E0E.toInt(),
-            ),
-            previewColor = 0xFF111827.toInt(),
-            previewGradient = null,
-            conversationGradient = null,
-            chatGradient = null,
-            composerGradient = null,
-            primaryFillGradient = null,
-            pollFieldBackground = 0xFF383A43.toInt(),
-        )
-
-        internal fun forDesktopTheme(mode: ThemeMode): DesktopThemePalette = when (mode) {
-            ThemeMode.DARK -> dark
-            else -> forTheme(mode)
-        }
+        internal fun forDesktopTheme(mode: ThemeMode): DesktopThemePalette = forTheme(mode)
 
         fun forTheme(mode: ThemeMode): DesktopThemePalette = when (mode) {
-            ThemeMode.DARK -> androidDark
+            ThemeMode.DARK -> dark
             ThemeMode.LIGHT -> light
             ThemeMode.SUNRISE -> sunrise
             ThemeMode.RED_DARK -> redDark

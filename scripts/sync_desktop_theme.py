@@ -26,7 +26,8 @@ ANDROID_DARK_COLORS = {
     "bg_active_friend_list": 0xFF4F378B,
     "bg_active_member_channel": 0xFF4F378B,
     "bg_button_primary": 0xFF5A62F4,
-    "bg_icon_theme": 0xFF334155,
+    "bg_icon_theme": 0xFFCAC4D0,
+    "bg_icon_theme_active": 0xFFE6E1E5,
     "bg_input_secondary": 0xFF1C1D23,
     "bg_markdown_code": 0xFF383A43,
     "bg_mention_evryone": 0xFF3C4C43,
@@ -54,6 +55,7 @@ ANDROID_DARK_SEMANTIC = {
     "statusOnline": 0xFF43B581,
     "mentionBadge": 0xFFD30E0E,
 }
+
 
 NUMBER = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
 RGBA = r"Rgba \{\s*" + r"\s*".join(fr"{key}: ({NUMBER})," for key in "rgba") + r"\s*\}"
@@ -220,57 +222,53 @@ def generate(revision, tokens_source, surfaces_source, semantic_source, presence
         lines += [f"        private val {base}Semantic = SemanticColors("]
         lines += [f"            {field} = {value}," for field, value in values.items()]
         lines += ["        )", ""]
+    assert ANDROID_DARK_COLORS.keys() <= set(fields)
+    assert ANDROID_DARK_SEMANTIC.keys() == set(semantic_fields.values())
     for name, swift in THEMES.items():
+        is_android_dark = name == "dark"
         bg = tokens[name]["bg_secondary"]
         luminance = sum(float(value) * weight for value, weight in zip(bg, (0.299, 0.587, 0.114)))
         semantic = "lightSemantic" if luminance > 0.5 else "darkSemantic"
         preview_color, preview_gradient = previews[name]
         lines += [f"        private val {swift} = DesktopThemePalette(", "            colors = intArrayOf("]
-        lines += [f"                {color_literal(tokens[name][field])}, // {field}" for field in fields]
-        lines += [
-            "            ),",
-            f"            semantic = {semantic},",
-            f"            previewColor = {preview_color},",
-            f"            previewGradient = {preview_gradient},",
-            f"            conversationGradient = {surface_gradient(name, 'direct_message')},",
-            f"            chatGradient = {surface_gradient(name, 'secondary')},",
-            f"            composerGradient = {surface_gradient(name, 'surface', fill=True)},",
-            f"            primaryFillGradient = {surface_gradient(name, 'primary', fill=True)}",
-            "        )",
-            "",
-        ]
-    assert ANDROID_DARK_COLORS.keys() <= set(fields)
-    assert ANDROID_DARK_SEMANTIC.keys() == set(semantic_fields.values())
+        for field in fields:
+            value = (
+                f"0x{ANDROID_DARK_COLORS[field]:08X}.toInt()"
+                if is_android_dark and field in ANDROID_DARK_COLORS
+                else color_literal(tokens[name][field])
+            )
+            lines.append(f"                {value}, // {field}")
+        lines.append("            ),")
+        if is_android_dark:
+            lines += ["            semantic = SemanticColors("]
+            lines += [f"                {field} = 0x{color:08X}.toInt()," for field, color in ANDROID_DARK_SEMANTIC.items()]
+            lines += [
+                "            ),",
+                "            previewColor = 0xFF111827.toInt(),",
+                "            previewGradient = null,",
+                "            conversationGradient = null,",
+                "            chatGradient = null,",
+                "            composerGradient = null,",
+                "            primaryFillGradient = null,",
+                f"            pollFieldBackground = 0x{ANDROID_DARK_COLORS['bg_primary']:08X}.toInt(),",
+            ]
+        else:
+            lines += [
+                f"            semantic = {semantic},",
+                f"            previewColor = {preview_color},",
+                f"            previewGradient = {preview_gradient},",
+                f"            conversationGradient = {surface_gradient(name, 'direct_message')},",
+                f"            chatGradient = {surface_gradient(name, 'secondary')},",
+                f"            composerGradient = {surface_gradient(name, 'surface', fill=True)},",
+                f"            primaryFillGradient = {surface_gradient(name, 'primary', fill=True)}",
+            ]
+        lines += ["        )", ""]
     lines += [
-        "        // Keep the desktop palette available for surfaces that match desktop.",
-        "        private val androidDark = DesktopThemePalette(",
-        "            colors = dark.colors.copyOf().apply {",
-        *(
-            f"                this[DesktopThemeToken.{field.upper()}.ordinal] = 0x{color:08X}.toInt()"
-            for field, color in ANDROID_DARK_COLORS.items()
-        ),
-        "            },",
-        "            semantic = SemanticColors(",
-        *(f"                {field} = 0x{color:08X}.toInt()," for field, color in ANDROID_DARK_SEMANTIC.items()),
-        "            ),",
-        "            previewColor = 0xFF111827.toInt(),",
-        "            previewGradient = null,",
-        "            conversationGradient = null,",
-        "            chatGradient = null,",
-        "            composerGradient = null,",
-        "            primaryFillGradient = null,",
-        f"            pollFieldBackground = 0x{ANDROID_DARK_COLORS['bg_primary']:08X}.toInt(),",
-        "        )",
+        "        internal fun forDesktopTheme(mode: ThemeMode): DesktopThemePalette = forTheme(mode)",
         "",
-        "        internal fun forDesktopTheme(mode: ThemeMode): DesktopThemePalette = when (mode) {",
-        "            ThemeMode.DARK -> dark",
-        "            else -> forTheme(mode)",
-        "        }",
-        "",
+        "        fun forTheme(mode: ThemeMode): DesktopThemePalette = when (mode) {",
     ]
-    lines += ["        fun forTheme(mode: ThemeMode): DesktopThemePalette = when (mode) {"]
-    lines += ["            ThemeMode.DARK -> androidDark"]
-    lines += [f"            ThemeMode.{MODES[name]} -> {swift}" for name, swift in THEMES.items() if name != "dark"]
+    lines += [f"            ThemeMode.{MODES[name]} -> {swift}" for name, swift in THEMES.items()]
     lines += [
         '            ThemeMode.SYSTEM -> error("Resolve System appearance before selecting a palette")',
         "        }",
