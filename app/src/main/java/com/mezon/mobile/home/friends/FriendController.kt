@@ -1,7 +1,9 @@
 package com.mezon.mobile.home.friends
 
 import com.mezon.mezon.api.Friend
+import com.mezon.mezon.api.User
 import com.mezon.mobile.core.NotificationCenter
+import com.mezon.mobile.core.StartupCache
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.home.profile.UserController
@@ -10,13 +12,17 @@ import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.network.SocketEventDispatcher
 import com.mezon.mobile.network.apiCacheKey
 import com.mezon.mobile.session.SessionManager
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import android.os.SystemClock
 import android.widget.Toast
@@ -45,6 +51,7 @@ class FriendController @Inject constructor(
 ) {
     private val _blockedUsers = MutableStateFlow<List<Friend>>(emptyList())
     val blockedUsers: StateFlow<List<Friend>> = _blockedUsers.asStateFlow()
+    private val blockedRelations = MutableStateFlow<List<Friend>>(emptyList())
 
     private val _friends = MutableStateFlow<List<Friend>>(emptyList())
     val friends: StateFlow<List<Friend>> = _friends.asStateFlow()
@@ -62,6 +69,7 @@ class FriendController @Inject constructor(
     val pendingReceivedCount: StateFlow<Int> = _pendingReceivedCount.asStateFlow()
 
     private val friendRelationsForegroundThrottleLock = Any()
+    private val friendRelationsMutex = Mutex()
     private var lastFriendRelationsForegroundRefreshElapsedMs = 0L
     private var lastFriendRelationsNotificationRefreshElapsedMs = 0L
 
@@ -73,10 +81,18 @@ class FriendController @Inject constructor(
 
     init {
         appScope.launch { observeFriendRelationNotifications() }
+        appScope.launch {
+            dispatcher.friendBlockChanges.collect {
+                loadFriendRelations(noCache = true)
+            }
+        }
     }
 
     val currentUsername: String
         get() = userController.username
+
+    private val activeUserId: Long
+        get() = userController.userId.takeIf { it > 0L } ?: StartupCache.userId.toLongOrNull() ?: 0L
 
     private suspend fun observeFriendRelationNotifications() {
         dispatcher.notifications.collect { notification ->
@@ -158,29 +174,45 @@ class FriendController @Inject constructor(
 
     fun loadFriendRelations(noCache: Boolean = false) {
         appScope.launch {
-            if (cacheTracker.shouldCall(listFriendsCombinedCacheKey, noCache = noCache) == ApiCacheTracker.ShouldCall.SKIP) {
-                return@launch
-            }
-
-            try {
-                sessionManager.withAutoRefresh { session ->
-                    val all = withContext(ioDispatcher) { api.listFriendsAll(session.apiUrl, session.token).friendsList }
-                    applyFriendListsPartitioned(all)
-                    cacheTracker.markCalled(listFriendsCombinedCacheKey)
-                    publishAllFriendRelations()
-                    notificationCenter.postNotificationOnMainThread(NotificationCenter.friendsLoaded)
-                    notificationCenter.postNotificationOnMainThread(NotificationCenter.blockedUsersLoaded)
+            friendRelationsMutex.withLock {
+                if (cacheTracker.shouldCall(listFriendsCombinedCacheKey, noCache = noCache) == ApiCacheTracker.ShouldCall.SKIP) {
+                    return@withLock
                 }
-            } catch (_: Exception) {
+                try {
+                    refreshFriendRelations()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                }
             }
         }
     }
 
-    private fun applyFriendListsPartitioned(all: List<Friend>) {
-        _friends.value = all.filter { it.state == FRIEND_STATE_FRIEND }
-        _sentFriendRequests.value = all.filter { it.state == FRIEND_STATE_INVITE_SENT }
-        _receivedFriendRequests.value = all.filter { it.state == FRIEND_STATE_INVITE_RECEIVED }
-        _blockedUsers.value = all.filter { it.state == FRIEND_STATE_BLOCKED }
+    private fun applyFriendListsPartitioned(all: List<Friend>, currentUserId: Long) {
+        val blocks = all.asSequence().filter { it.state == FRIEND_STATE_BLOCKED && it.user.id > 0L }
+            .mapNotNull { relation ->
+                if (relation.user.id != currentUserId) {
+                    relation
+                } else if (relation.sourceId > 0L && relation.sourceId != currentUserId) {
+                    // An incoming block can carry our profile. Its source is the peer.
+                    relation.toBuilder().setUser(User.newBuilder().setId(relation.sourceId).build()).build()
+                } else {
+                    null
+                }
+            }
+            .distinctBy { it.user.id to it.sourceId }
+            .toList()
+        val blockedIds = blocks.mapTo(HashSet()) { it.user.id }
+        val available = all.filter { it.user.id !in blockedIds }
+        _friends.value = available.filter { it.state == FRIEND_STATE_FRIEND }
+        _sentFriendRequests.value = available.filter { it.state == FRIEND_STATE_INVITE_SENT }
+        _receivedFriendRequests.value = available.filter { it.state == FRIEND_STATE_INVITE_RECEIVED }
+        applyBlockedRelations(blocks, currentUserId)
+    }
+
+    private fun applyBlockedRelations(relations: List<Friend>, currentUserId: Long) {
+        blockedRelations.value = relations
+        _blockedUsers.value = relations.filter { it.sourceId == currentUserId }
     }
 
     fun sendFriendRequest(
@@ -228,33 +260,72 @@ class FriendController @Inject constructor(
         )
     }
 
-    fun blockUser(userId: Long, username: String, onResult: (success: Boolean) -> Unit) {
-        requestFriendRelationUpdate(
-            userId = userId,
-            username = username,
-            onRequest = { session, ids, usernames ->
-                api.blockFriends(session.apiUrl, session.token, ids, usernames)
-            },
-            onResult = onResult
-        )
-    }
+    fun canBlockUser(userId: Long): Boolean =
+        activeUserId.let { it > 0L && userId > 0L && userId != it }
 
-    fun unblockUser(userId: Long, username: String, onResult: (success: Boolean) -> Unit) {
+    fun setUserBlocked(user: User, blocked: Boolean, onResult: (success: Boolean) -> Unit) {
+        val currentUserId = activeUserId
         appScope.launch {
+            var success = false
             try {
-                sessionManager.withAutoRefresh { session ->
-                    withContext(ioDispatcher) {
-                        api.unblockFriends(session.apiUrl, session.token, listOf(userId), listOf(username))
+                success = friendRelationsMutex.withLock {
+                    if (!canBlockUser(user.id) || activeUserId != currentUserId) return@withLock false
+                    try {
+                        sessionManager.withAutoRefresh { session ->
+                            check(session.userId.toLongOrNull() == currentUserId)
+                            withContext(ioDispatcher) {
+                                val ids = listOf(user.id)
+                                if (blocked) {
+                                    api.blockFriends(session.apiUrl, session.token, ids, emptyList())
+                                } else {
+                                    api.unblockFriends(session.apiUrl, session.token, ids, emptyList())
+                                }
+                            }
+                        }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        return@withLock false
                     }
+                    if (activeUserId != currentUserId) return@withLock false
+                    updateLocalBlock(user, blocked, currentUserId)
+                    success = true
+                    try {
+                        invalidateFriendRelationCachesAndRefresh()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        // The server accepted the mutation. Keep the confirmed local state.
+                    }
+                    activeUserId == currentUserId
                 }
-                _blockedUsers.value = _blockedUsers.value.filter { it.user.id != userId }
-                publishAllFriendRelations()
-                notificationCenter.postNotificationOnMainThread(NotificationCenter.blockedUsersLoaded)
-                withContext(Dispatchers.Main) { onResult(true) }
-            } catch (_: Exception) {
-                withContext(Dispatchers.Main) { onResult(false) }
+            } finally {
+                // Complete the UI callback even if the request coroutine was cancelled.
+                withContext(NonCancellable + Dispatchers.Main) { onResult(success) }
             }
         }
+    }
+
+    private fun updateLocalBlock(user: User, blocked: Boolean, currentUserId: Long) {
+        val updated = blockedRelations.value.filterNot { it.user.id == user.id && it.sourceId == currentUserId }
+        if (blocked) {
+            val cachedUser = findFriendByUserId(user.id)?.user
+            val profile = user.toBuilder().apply {
+                if (username.isBlank()) username = cachedUser?.username.orEmpty()
+                if (displayName.isBlank()) displayName = cachedUser?.displayName.orEmpty()
+                if (avatarUrl.isBlank()) avatarUrl = cachedUser?.avatarUrl.orEmpty()
+            }.build()
+            val relation = Friend.newBuilder()
+                .setUser(profile).setState(FRIEND_STATE_BLOCKED).setSourceId(currentUserId).build()
+            applyBlockedRelations(updated + relation, currentUserId)
+            _friends.value = _friends.value.filterNot { it.user.id == user.id }
+            _sentFriendRequests.value = _sentFriendRequests.value.filterNot { it.user.id == user.id }
+            _receivedFriendRequests.value = _receivedFriendRequests.value.filterNot { it.user.id == user.id }
+        } else {
+            // Only ListFriends can tell if there is still a friendship or an incoming block.
+            applyBlockedRelations(updated, currentUserId)
+        }
+        publishFriendRelations()
     }
 
     fun isUserBlockedByMe(userId: Long): Boolean {
@@ -278,13 +349,23 @@ class FriendController @Inject constructor(
         cacheTracker.invalidate(friendInviteReceivedCacheKey)
         cacheTracker.invalidate(blockedCacheKey)
 
-        val all = sessionManager.withAutoRefresh { session ->
-            withContext(ioDispatcher) { api.listFriendsAll(session.apiUrl, session.token).friendsList }
-        }
-        applyFriendListsPartitioned(all)
-        publishAllFriendRelations()
+        refreshFriendRelations()
+    }
 
+    private suspend fun refreshFriendRelations() {
+        val (currentUserId, all) = sessionManager.withAutoRefresh { session ->
+            val currentUserId = session.userId.toLong()
+            val all = withContext(ioDispatcher) { api.listFriendsAll(session.apiUrl, session.token).friendsList }
+            currentUserId to all
+        }
+        if (activeUserId != currentUserId) return
+        applyFriendListsPartitioned(all, currentUserId)
         cacheTracker.markCalled(listFriendsCombinedCacheKey)
+        publishFriendRelations()
+    }
+
+    private fun publishFriendRelations() {
+        publishAllFriendRelations()
         notificationCenter.postNotificationOnMainThread(NotificationCenter.friendsLoaded)
         notificationCenter.postNotificationOnMainThread(NotificationCenter.blockedUsersLoaded)
     }
@@ -311,7 +392,7 @@ class FriendController @Inject constructor(
                     }
                 }
 
-                invalidateFriendRelationCachesAndRefresh()
+                friendRelationsMutex.withLock { invalidateFriendRelationCachesAndRefresh() }
                 withContext(Dispatchers.Main) { onResult(true) }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
@@ -333,6 +414,9 @@ class FriendController @Inject constructor(
         for (friend in _receivedFriendRequests.value) {
             merged[friend.user.id] = friend
         }
+        for (friend in blockedRelations.value) {
+            merged[friend.user.id] = friend
+        }
         for (friend in _blockedUsers.value) {
             merged[friend.user.id] = friend
         }
@@ -344,13 +428,14 @@ class FriendController @Inject constructor(
     }
 
     fun isUserBlocked(userId: Long): Boolean =
-        _blockedUsers.value.any { it.user.id == userId }
+        blockedRelations.value.any { it.user.id == userId }
 
     fun isFriend(userId: Long): Boolean =
         _friends.value.any { it.user.id == userId }
 
     fun cleanup() {
         _blockedUsers.value = emptyList()
+        blockedRelations.value = emptyList()
         _friends.value = emptyList()
         _sentFriendRequests.value = emptyList()
         _receivedFriendRequests.value = emptyList()

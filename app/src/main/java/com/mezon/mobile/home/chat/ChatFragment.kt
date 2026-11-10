@@ -1564,6 +1564,10 @@ open class ChatFragment : BaseFragment() {
             actionBar?.let { applyDmVoicePresenceSubtitle(it) }
         }
 
+        observe(NotificationCenter.blockedUsersLoaded) { _, _, _ ->
+            refreshDmBlockState()
+        }
+
         observe(NotificationCenter.dialogsNeedReload) { _, _, _ ->
             if (isPaused) return@observe
             if (clanId == 0L && channelType == CHANNEL_TYPE_GROUP) {
@@ -1574,8 +1578,7 @@ open class ChatFragment : BaseFragment() {
                 actionBar?.let { applyDmVoicePresenceSubtitle(it) }
                 refreshWelcomeFromDialog()
             }
-            if (clanId != 0L || channelType != CHANNEL_TYPE_DM) return@observe
-            actionBar?.let { setupDmHeaderCallMenu(it) }
+            refreshDmBlockState()
         }
 
         observe(NotificationCenter.jumpToMessage) { _, _, args ->
@@ -4932,10 +4935,21 @@ open class ChatFragment : BaseFragment() {
 
     private fun dmHeaderCallOtherUserId(): Long? {
         val myId = chatController.getCurrentUserId()
-        dialogsController.getParticipants(channelId).firstOrNull { it.userId != myId }?.let { return it.userId }
+        dialogsController.getParticipants(channelId).firstOrNull { it.userId != 0L && it.userId != myId }
+            ?.let { return it.userId }
         val dm = dialogsController.getDialog(channelId) ?: return null
         if (dm.otherUserId != 0L && dm.otherUserId != myId) return dm.otherUserId
         return null
+    }
+
+    private fun isDmPeerBlocked(): Boolean =
+        clanId == 0L && channelType == CHANNEL_TYPE_DM &&
+            dmHeaderCallOtherUserId()?.let(friendController::isUserBlocked) == true
+
+    private fun refreshDmBlockState() {
+        if (clanId != 0L || channelType != CHANNEL_TYPE_DM || fragmentView == null) return
+        actionBar?.let { setupDmHeaderCallMenu(it) }
+        if (::sendButton.isInitialized) updateSendButtonState()
     }
 
     private fun resolveDmCallPeerForHeader(): CallPeer? {
@@ -4962,8 +4976,10 @@ open class ChatFragment : BaseFragment() {
         if (participants.isEmpty()) {
             dialogsController.loadDmParticipants(channelId)
         }
-        val otherId = dmHeaderCallOtherUserId()
-        if (otherId != null && friendController.isUserBlocked(otherId)) {
+        val menu = chatActionBar.createMenu()
+        val existingCallItem = menu.getItem(MENU_DM_VOICE_CALL)
+        if (isDmPeerBlocked()) {
+            existingCallItem?.visibility = View.GONE
             return
         }
         chatActionBar.setMenuOnItemClick(object : ActionBarView.ActionBarMenuOnItemClick() {
@@ -4986,7 +5002,11 @@ open class ChatFragment : BaseFragment() {
                         }
                         requestCallPermissions(needsCamera = false) {
                             runOutgoingCallAfterFullScreenIntentPrompt(
-                                {
+                                call@{
+                                    if (friendController.isUserBlocked(peer.userId)) {
+                                        MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.ERROR, getString(R.string.no_permission_call_blocked))
+                                        return@call
+                                    }
                                     callController.startCall(
                                         peer.userId,
                                         peer.displayName,
@@ -5005,8 +5025,8 @@ open class ChatFragment : BaseFragment() {
                 }
             }
         })
-        val menu = chatActionBar.createMenu()
-        if (menu.getItem(MENU_DM_VOICE_CALL) != null) {
+        if (existingCallItem != null) {
+            existingCallItem.visibility = View.VISIBLE
             chatActionBar.setItemsColor(themeColors.onSurface)
             return
         }
@@ -7209,6 +7229,7 @@ open class ChatFragment : BaseFragment() {
 
     private fun canSendMessageInCurrentChannel(): Boolean {
         if (channelId == 0L) return false
+        if (isDmPeerBlocked()) return false
         if (clanId == 0L || channelType == CHANNEL_TYPE_DM || channelType == CHANNEL_TYPE_GROUP) return true
         if (!permissionPolicy.hasCachedChannelUserPermissions(channelId)) return true
         if (permissionPolicy.checkPermission(PermissionPolicy.SEND_MESSAGE, channelId, clanId)) return true
