@@ -976,7 +976,6 @@ class SharingFragment(
 
     private fun rebuildForwardTargets() {
         allTargets.clear()
-        val blocked = friendController.blockedUsers.value.asSequence().map { it.user.id }.toSet()
         val clans = clansController.clans.value
         val channelLabelById = HashMap<Long, String>()
         for (clan in clans) {
@@ -997,7 +996,7 @@ class SharingFragment(
             val t = dm.type
             if (t != CHANNEL_TYPE_DM && t != CHANNEL_TYPE_GROUP) continue
             if (dm.label.isBlank()) continue
-            if (t == CHANNEL_TYPE_DM && dm.otherUserId != 0L && dm.otherUserId in blocked) continue
+            if (t == CHANNEL_TYPE_DM && friendController.isUserBlocked(dm.otherUserId)) continue
             allTargets.add(dm.toSharingTarget())
         }
         allTargets.sortWith(

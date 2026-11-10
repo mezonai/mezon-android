@@ -290,7 +290,7 @@ class ServerRolesFragment : BaseFragment() {
                 setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_chevron_right_16, themeColors.textDisabled))
                 scaleType = ImageView.ScaleType.FIT_CENTER
             },
-            LayoutHelper.createLinear(LayoutHelper.dp(16), LayoutHelper.dp(16), 0f, Gravity.CENTER_VERTICAL)
+            LayoutHelper.createLinear(16, 16, 0f, Gravity.CENTER_VERTICAL)
         )
         return row
     }
@@ -376,7 +376,7 @@ class ServerRolesFragment : BaseFragment() {
                 setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_chevron_right_16, themeColors.textDisabled))
                 scaleType = ImageView.ScaleType.FIT_CENTER
             },
-            LayoutHelper.createLinear(LayoutHelper.dp(16), LayoutHelper.dp(16), 0f, Gravity.CENTER_VERTICAL)
+            LayoutHelper.createLinear(16, 16, 0f, Gravity.CENTER_VERTICAL)
         )
         wrap.addView(row)
         if (showDivider) {

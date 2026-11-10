@@ -11,9 +11,14 @@ class ContentUriTooLargeException(val maxAllowedBytes: Int) : RuntimeException()
 
 object FileUtils {
 
-    suspend fun downloadMediaToGallery(context: android.content.Context, url: String): Boolean = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+    suspend fun downloadMediaToGallery(context: android.content.Context, url: String): Boolean =
+        saveMediaToGallery(context, url) == null
+
+    @androidx.annotation.StringRes
+    suspend fun saveMediaToGallery(context: android.content.Context, url: String): Int? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val filename = url.substringAfterLast('/').substringBefore('?').ifEmpty { "download.jpg" }
+        val isVideo = FileIngest.isVideoName(filename)
         try {
-            val filename = url.substringAfterLast('/').substringBefore('?').ifEmpty { "download.jpg" }
             val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
             downloadsDir.mkdirs()
             val destFile = java.io.File(downloadsDir, filename)
@@ -21,7 +26,10 @@ object FileUtils {
             val conn = java.net.URL(com.mezon.mobile.network.CdnSigner.requestUrl(url).url).openConnection() as java.net.HttpURLConnection
             conn.connect()
             if (conn.responseCode !in 200..299) {
-                return@withContext false
+                val isOriginalMissing = conn.responseCode == 403 || conn.responseCode == 404
+                if (!isVideo || !isOriginalMissing) return@withContext com.mezon.mobile.R.string.message_toast_save_failed
+                val outcome = HlsVideoCopy.saveToDownloads(context, url)
+                return@withContext if (outcome == HlsVideoCopy.Outcome.SAVED) null else HlsVideoCopy.failureMessage(outcome)
             }
             conn.inputStream.use { input ->
                 java.io.FileOutputStream(destFile).use { output ->
@@ -30,9 +38,14 @@ object FileUtils {
             }
             
             android.media.MediaScannerConnection.scanFile(context.applicationContext, arrayOf(destFile.absolutePath), null, null)
-            true
+            null
         } catch (e: Exception) {
-            false
+            when {
+                !isVideo -> com.mezon.mobile.R.string.message_toast_save_failed
+                HlsVideoCopy.isOutOfSpace(e) -> com.mezon.mobile.R.string.video_save_no_space
+                e is java.io.IOException && e !is java.io.FileNotFoundException -> com.mezon.mobile.R.string.video_save_network_failed
+                else -> com.mezon.mobile.R.string.message_toast_save_failed
+            }
         }
     }
 

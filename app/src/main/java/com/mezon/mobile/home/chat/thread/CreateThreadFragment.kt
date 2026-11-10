@@ -8,7 +8,6 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
-import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
@@ -32,7 +31,6 @@ import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.widget.EditText
 import android.widget.FrameLayout
-import android.widget.HorizontalScrollView
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -61,6 +59,7 @@ import android.content.pm.PackageManager
 import com.mezon.mobile.home.chat.AttachmentPickerItem
 import com.mezon.mobile.home.chat.input.VoiceRecorder
 import com.mezon.mobile.home.chat.input.VoiceRecordingOverlay
+import com.mezon.mobile.home.chat.AttachmentPreviewView
 import com.mezon.mobile.home.chat.ChatAttachAlert
 import com.mezon.mobile.home.chat.CameraPhotoCapture
 import com.mezon.mobile.home.chat.CameraPhotoReviewDialog
@@ -77,7 +76,6 @@ import com.mezon.mobile.home.chat.isImageAttachmentType
 import com.mezon.mobile.home.chat.isVideoAttachmentType
 import com.mezon.mobile.home.chat.PasteImagePasteTooltipContent
 import com.mezon.mobile.home.chat.StickerItem
-import com.mezon.mobile.home.chat.ThumbnailCache
 import com.mezon.mobile.home.chat.input.InputSuggestionItem
 import com.mezon.mobile.home.chat.input.InputSuggestionsAdapter
 import com.mezon.mobile.home.chat.input.InputSuggestionsController
@@ -200,8 +198,7 @@ class CreateThreadFragment : BaseFragment() {
     private var emojiButton: ImageButton? = null
     private var micButton: ImageButton? = null
     private var inputWrapper: FrameLayout? = null
-    private var attachmentPreviewScroll: HorizontalScrollView? = null
-    private var attachmentPreviewStrip: LinearLayout? = null
+    private var attachmentPreviewView: AttachmentPreviewView? = null
     private var suggestionsPopup: InputSuggestionsPopup? = null
     private var suggestionsAdapter: InputSuggestionsAdapter? = null
     private var formScroll: ScrollView? = null
@@ -216,7 +213,6 @@ class CreateThreadFragment : BaseFragment() {
     private var cameraSourceAlert: ChatAttachAlert? = null
     private var activeCameraReview: CameraPhotoReviewDialog? = null
     private var activeImageEditor: ChatImageEditorDialog? = null
-    private val pendingAttachmentThumbTasks = ArrayList<Runnable?>()
     private val mentionTrackers = mutableListOf<MentionData>()
     private val hashtagTrackers = mutableListOf<HashtagData>()
     private val emojiObjPicked = linkedMapOf<String, String>()
@@ -855,18 +851,13 @@ class CreateThreadFragment : BaseFragment() {
 
         outer.addView(View(context).apply { setBackgroundColor(themeColors.outlineVariant) }, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 1))
 
-        attachmentPreviewScroll = HorizontalScrollView(context).apply {
-            visibility = View.GONE
-            isHorizontalScrollBarEnabled = false
-            val pad = LayoutHelper.dp(8)
-            setPadding(pad, pad, pad, 0)
+        val attachmentPreview = AttachmentPreviewView(context, themeColors) { index ->
+            pendingAttachments.removeAt(index).deleteOwnedCacheFile()
+            updateAttachmentPreview()
+            updateSendButtonState()
         }
-        attachmentPreviewStrip = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
-        attachmentPreviewScroll!!.addView(
-            attachmentPreviewStrip,
-            LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LayoutHelper.dp(56f))
-        )
-        outer.addView(attachmentPreviewScroll, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+        attachmentPreviewView = attachmentPreview
+        outer.addView(attachmentPreview, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
         val inputBar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -1306,108 +1297,7 @@ class CreateThreadFragment : BaseFragment() {
     }
 
     private fun updateAttachmentPreview() {
-        val strip = attachmentPreviewStrip ?: return
-        val scroll = attachmentPreviewScroll ?: return
-        for (t in pendingAttachmentThumbTasks) ThumbnailCache.cancel(t)
-        pendingAttachmentThumbTasks.clear()
-        strip.removeAllViews()
-        if (pendingAttachments.isEmpty()) {
-            scroll.visibility = View.GONE
-            return
-        }
-        scroll.visibility = View.VISIBLE
-        val ctx = getContext() ?: return
-        val resolver = ctx.contentResolver
-        val thumbSize = LayoutHelper.dp(48f)
-        val margin = LayoutHelper.dp(4f)
-        for (i in pendingAttachments.indices) {
-            val item = pendingAttachments[i]
-            val container = FrameLayout(ctx)
-            if (item.isFileType) {
-                buildFilePreviewItem(ctx, container, item, thumbSize)
-            } else {
-                buildMediaPreviewItem(ctx, container, item, resolver, thumbSize)
-            }
-            val closeBtn = ImageView(ctx).apply {
-                setImageDrawable(MezonIcon.loadDrawable(ctx, R.drawable.mz_close_16, ThemeMode.DARK.iconTint))
-                setBackgroundColor(0x80000000.toInt())
-                setPadding(LayoutHelper.dp(2f), LayoutHelper.dp(2f), LayoutHelper.dp(2f), LayoutHelper.dp(2f))
-                setOnClickListener {
-                    pendingAttachments.removeAt(i).deleteOwnedCacheFile()
-                    updateAttachmentPreview()
-                    updateSendButtonState()
-                }
-            }
-            container.addView(
-                closeBtn,
-                FrameLayout.LayoutParams(LayoutHelper.dp(18f), LayoutHelper.dp(18f), Gravity.TOP or Gravity.END)
-            )
-            strip.addView(
-                container,
-                LinearLayout.LayoutParams(thumbSize, thumbSize).apply { rightMargin = margin }
-            )
-        }
-    }
-
-    private fun buildMediaPreviewItem(
-        ctx: Context,
-        container: FrameLayout,
-        item: AttachmentPickerItem,
-        resolver: android.content.ContentResolver,
-        thumbSize: Int
-    ) {
-        val bindId = item.id
-        val thumb = ImageView(ctx).apply {
-            scaleType = ImageView.ScaleType.CENTER_CROP
-            tag = bindId
-        }
-        val cached = ThumbnailCache.get(bindId)
-        if (cached != null) {
-            thumb.setImageBitmap(cached)
-        } else {
-            val task = ThumbnailCache.load(resolver, item, object : ThumbnailCache.Callback {
-                override fun onThumbnailLoaded(id: Long, bitmap: Bitmap) {
-                    if (thumb.tag == bindId) thumb.setImageBitmap(bitmap)
-                }
-            })
-            if (task != null) pendingAttachmentThumbTasks.add(task)
-        }
-        container.addView(thumb, FrameLayout.LayoutParams(thumbSize, thumbSize))
-    }
-
-    private fun buildFilePreviewItem(
-        ctx: Context,
-        container: FrameLayout,
-        item: AttachmentPickerItem,
-        thumbSize: Int
-    ) {
-        val fileContainer = LinearLayout(ctx).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setBackgroundColor(themeColors.secondaryLight)
-        }
-        val iconSize = LayoutHelper.dp(24f)
-        val icon = ImageView(ctx).apply {
-            setImageDrawable(MezonIcon.loadDrawable(ctx, R.drawable.mz_file_24, ThemeColors.defaultIconTint))
-        }
-        fileContainer.addView(
-            icon,
-            LinearLayout.LayoutParams(iconSize, iconSize).apply { gravity = Gravity.CENTER_HORIZONTAL }
-        )
-        val nameLabel = TextView(ctx).apply {
-            text = item.filename
-            setTextColor(themeColors.onSurface)
-            textSize = 9f
-            maxLines = 1
-            ellipsize = android.text.TextUtils.TruncateAt.MIDDLE
-            gravity = Gravity.CENTER
-            setPadding(LayoutHelper.dp(2f), LayoutHelper.dp(1f), LayoutHelper.dp(2f), 0)
-        }
-        fileContainer.addView(
-            nameLabel,
-            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-        )
-        container.addView(fileContainer, FrameLayout.LayoutParams(thumbSize, thumbSize))
+        attachmentPreviewView?.bind(pendingAttachments, themeColors.surface)
     }
 
     private fun updateSendButtonState() {
@@ -2575,8 +2465,8 @@ class CreateThreadFragment : BaseFragment() {
         AndroidUtilities.cancelRunOnUIThread(openKeyboardRunnable)
         AndroidUtilities.cancelRunOnUIThread(showKeyboardFromEmojiRunnable)
         dismissPasteImagePopup()
-        for (t in pendingAttachmentThumbTasks) ThumbnailCache.cancel(t)
-        pendingAttachmentThumbTasks.clear()
+        attachmentPreviewView?.clear()
+        attachmentPreviewView = null
         pendingAttachments.forEach { it.deleteOwnedCacheFile() }
         pendingAttachments.clear()
         mentionTrackers.clear()

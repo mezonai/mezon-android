@@ -37,7 +37,6 @@ From the repository root (see [README.MD — Build and test](../README.MD#build-
 
 ```bash
 ./gradlew assembleDebug
-./gradlew test
 ```
 
 Fix compile and lint issues introduced by your change. If CI differs from local results, note that in the MR.

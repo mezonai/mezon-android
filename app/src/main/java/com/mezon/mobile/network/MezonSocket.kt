@@ -148,6 +148,7 @@ class MezonSocket @Inject constructor(
         if (token.isNullOrEmpty()) "?" else token.takeLast(6)
 
     private val connectLock = Any()
+    private val pendingStreamingUnwatches = mutableMapOf<Long, ByteArray>()
 
     init {
         scope.launch {
@@ -267,6 +268,7 @@ class MezonSocket @Inject constructor(
     fun disconnect() {
         synchronized(connectLock) {
             userDisconnected = true
+            pendingStreamingUnwatches.clear()
             hasConnectedBefore = false
             currentWsUrl = null
             currentToken = null
@@ -374,16 +376,41 @@ class MezonSocket @Inject constructor(
         }
     }
 
-    suspend fun writeStreamingWatch(channelId: Long, watching: Boolean): Envelope = send {
-        streamingWatch = com.mezon.mezon.rtapi.StreamingWatch.newBuilder()
-            .setChannelId(channelId).setWatching(watching).build()
+    suspend fun writeStreamingWatch(channelId: Long, watching: Boolean): Envelope {
+        if (watching) {
+            synchronized(connectLock) { pendingStreamingUnwatches.remove(channelId) }
+        }
+        return send {
+            streamingWatch = com.mezon.mezon.rtapi.StreamingWatch.newBuilder()
+                .setChannelId(channelId).setWatching(watching).build()
+        }
     }
 
     fun sendStreamingUnwatch(channelId: Long) {
-        sendFireAndForget(envelope {
+        val bytes = encodeEnvelopeCidLast(envelope {
             streamingWatch = com.mezon.mezon.rtapi.StreamingWatch.newBuilder()
                 .setChannelId(channelId).setWatching(false).build()
         })
+        synchronized(connectLock) {
+            if (userDisconnected) return
+            pendingStreamingUnwatches[channelId] = bytes
+            val t = transport ?: return
+            if (_connectionState.value == ConnectionState.CONNECTED) {
+                sendPendingStreamingUnwatch(t, channelId, bytes)
+            }
+        }
+    }
+
+    private fun sendPendingStreamingUnwatch(t: AbridgedTcpTransport, channelId: Long, bytes: ByteArray) {
+        t.send(bytes) { error ->
+            if (error == null) {
+                synchronized(connectLock) {
+                    if (t === transport && pendingStreamingUnwatches[channelId] === bytes) {
+                        pendingStreamingUnwatches.remove(channelId)
+                    }
+                }
+            }
+        }
     }
 
     fun sendFireAndForget(env: Envelope) {
@@ -991,6 +1018,9 @@ class MezonSocket @Inject constructor(
 
             transportReadyPending = false
             cancelConnectReadyTimeout()
+            pendingStreamingUnwatches.forEach { (channelId, bytes) ->
+                sendPendingStreamingUnwatch(t, channelId, bytes)
+            }
             _connectionState.value = ConnectionState.CONNECTED
             isReconnecting = false
             lastPongAtMs = System.currentTimeMillis()

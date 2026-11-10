@@ -150,10 +150,12 @@ class LocationCardLayout(private val context: Context) {
         val bmp = mapBitmap
         when {
             bmp != null && !bmp.isRecycled -> drawStaticMap(canvas, bmp)
-            tiles.isNotEmpty() -> drawTiles(canvas)
+            tiles.isNotEmpty() && allTilesReady() -> drawTiles(canvas)
             else -> drawPlaceholder(canvas)
         }
     }
+
+    private fun allTilesReady(): Boolean = tiles.all { tileBitmaps[it.url]?.isRecycled == false }
 
     private fun drawPlaceholder(canvas: Canvas) {
         canvas.drawRect(mapRect, mapPlaceholderPaint)

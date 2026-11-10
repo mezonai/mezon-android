@@ -3,6 +3,7 @@ package com.mezon.mobile.util
 import android.content.Context
 import android.util.Base64
 import com.mezon.mobile.BuildConfig
+import com.mezon.mobile.network.CdnSigner
 import java.io.File
 import java.io.IOException
 import java.io.RandomAccessFile
@@ -53,6 +54,11 @@ object FileIngest {
         val isVideo = mimeType.lowercase().startsWith("video") ||
             (dot > 0 && filename.substring(dot + 1).lowercase() in VIDEO_EXTENSIONS)
         return isVideo && size in 1..MAX_SIZE && baseUrls().isNotEmpty()
+    }
+
+    fun isVideoName(filename: String): Boolean {
+        val dot = filename.lastIndexOf('.')
+        return dot > 0 && filename.substring(dot + 1).lowercase() in VIDEO_EXTENSIONS
     }
 
     fun ingestUrl(presignedUrl: String): String? {
@@ -187,8 +193,12 @@ object FileIngestPlaylist {
 
     private const val OUTPUT_PREFIX = "hls/"
     private const val INDEX_NAME = "index.m3u8"
+    private const val MASTER_NAME = "master.m3u8"
     private const val PLAYLIST_SUFFIX = ".m3u8"
     private const val PLAYLIST_TAG = "#EXTM3U"
+    private const val END_TAG = "#EXT-X-ENDLIST"
+    private const val VARIANT_TAG = "#EXT-X-STREAM-INF"
+    private const val MAP_PREFIX = "#EXT-X-MAP:URI=\""
     private const val MAX_REMEMBERED = 512
     private val ATTACHMENT_REGEX = Regex("^(https?://[^/?#]+)/(.+)$", RegexOption.IGNORE_CASE)
 
@@ -237,6 +247,80 @@ object FileIngestPlaylist {
             if (coalescing) probesInFlight.remove(attachmentUrl)
         }
     }
+
+    sealed interface FinishedParts {
+        class Parts(val urls: List<String>) : FinishedParts
+        object Missing : FinishedParts
+        object Unfinished : FinishedParts
+        object Unreachable : FinishedParts
+    }
+
+    suspend fun finishedParts(attachmentUrl: String): FinishedParts {
+        val playlist = indexPlaylistUrl(attachmentUrl) ?: return FinishedParts.Missing
+        val probeUrl = "$playlist?probe=${System.currentTimeMillis() / PROBE_INTERVAL_MS}"
+        return runInterruptible(Dispatchers.IO) {
+            try {
+                client.newCall(Request.Builder().url(probeUrl).get().build()).execute().use { response ->
+                    when {
+                        response.isSuccessful -> finishedParts(playlist, response.body?.string().orEmpty())
+                        response.code == 403 || response.code == 404 -> FinishedParts.Missing
+                        else -> FinishedParts.Unreachable
+                    }
+                }
+            } catch (_: IOException) {
+                FinishedParts.Unreachable
+            }
+        }
+    }
+
+    suspend fun linkForCopy(attachmentUrl: String): String {
+        val playlist = indexPlaylistUrl(attachmentUrl) ?: return attachmentUrl
+        val original = CdnSigner.requestUrl(attachmentUrl).url
+        val originalCode = statusCode(Request.Builder().url(original).head().build())
+        if (originalCode != 403 && originalCode != 404) return attachmentUrl
+        val master = "${playlist.substringBeforeLast('/')}/$MASTER_NAME"
+        val probe = "$master?probe=${System.currentTimeMillis() / PROBE_INTERVAL_MS}"
+        return if (statusCode(Request.Builder().url(probe).head().build()) == 200) master else attachmentUrl
+    }
+
+    private suspend fun statusCode(request: Request): Int? = runInterruptible(Dispatchers.IO) {
+        try {
+            client.newCall(request).execute().use { it.code }
+        } catch (_: IOException) {
+            null
+        }
+    }
+
+    private fun finishedParts(playlist: String, text: String): FinishedParts {
+        if (text.startsWith(PLAYLIST_TAG) && !text.contains(END_TAG) && !text.contains(VARIANT_TAG)) {
+            return FinishedParts.Unfinished
+        }
+        return downloadParts(playlist, text)?.let { FinishedParts.Parts(it) } ?: FinishedParts.Missing
+    }
+
+    fun downloadParts(playlist: String, text: String): List<String>? {
+        if (!text.startsWith(PLAYLIST_TAG) || !text.contains(END_TAG) || text.contains(VARIANT_TAG)) return null
+        val directory = playlist.substringBefore('?').substringBeforeLast('/')
+        var initPart: String? = null
+        val segments = mutableListOf<String>()
+        for (rawLine in text.lineSequence()) {
+            val line = rawLine.trim()
+            if (line.isEmpty()) continue
+            if (line.startsWith(MAP_PREFIX)) {
+                val uri = line.removePrefix(MAP_PREFIX).substringBefore('"', "")
+                if (uri.isEmpty() || initPart != null) return null
+                initPart = absolutePartUrl(directory, uri)
+            } else if (!line.startsWith("#")) {
+                segments += absolutePartUrl(directory, line)
+            }
+        }
+        val init = initPart ?: return null
+        if (segments.isEmpty()) return null
+        return listOf(init) + segments
+    }
+
+    private fun absolutePartUrl(directory: String, uri: String): String =
+        if (uri.contains("://")) uri else "$directory/$uri"
 }
 
 class FileIngestException(val reason: Reason, val statusCode: Int = 0) :

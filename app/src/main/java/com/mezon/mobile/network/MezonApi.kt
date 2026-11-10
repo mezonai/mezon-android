@@ -639,6 +639,9 @@ class MezonApi @Inject constructor(
         retryableRead: Boolean,
         httpOnly: Boolean
     ): ByteArray {
+        // Stream grants require the realtime connection used by StreamingWatch.
+        if (method == "GetStreamPlayback") return rpcOverSocket(method, body, token)
+
         if (httpOnly || method in HTTP_ONLY_API_NAMES || isSocketDegraded()) {
             return rpcOverHttpWithRetry(apiUrl, token, method, body, retryableRead)
         }
@@ -1847,7 +1850,11 @@ class MezonApi @Inject constructor(
     }
 
     suspend fun unblockFriends(apiUrl: String, token: String, ids: List<Long>, usernames: List<String>): ByteArray {
-        return deleteFriends(apiUrl, token, ids, usernames)
+        val request = blockFriendsRequest {
+            this.ids.addAll(ids)
+            this.usernames.addAll(usernames)
+        }
+        return rpc(apiUrl, token, "UnblockFriends", request.toByteArray())
     }
 
     suspend fun sendChannelMessage(

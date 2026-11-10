@@ -36,6 +36,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.mezon.mobile.network.CdnRequestUrl
 import com.mezon.mobile.network.CdnSigner
@@ -56,6 +57,7 @@ import com.mezon.mobile.ui.cells.PopupMenu
 import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.util.avatarImgproxyUrl
 import com.mezon.mobile.util.FileIngestPlaylist
+import com.mezon.mobile.util.HlsVideoCopy
 import com.mezon.mobile.util.VideoCache
 import com.mezon.mobile.util.VideoPrefetcher
 import com.mezon.mobile.ui.theme.ThemeMode
@@ -133,12 +135,14 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
     private var ingestResolveJob: Job? = null
     private var ingestPlaylistUrl: String? = null
     private var ingestFallbackDone = false
+    private var hlsFallbackTried = false
     private lateinit var currentItem: VideoItem
     private var senderInfoJob: Job? = null
     private var resolvedSender: MediaViewerSender? = null
     private var optionsMenu: PopupMenu? = null
     private var lastMenuDismissTime = 0L
     private var saveProgressJob: Job? = null
+    private var hlsCopyJob: Job? = null
     private var pendingDownloadId = NO_PENDING_DOWNLOAD_ID
     private var pendingDownloadSourceUrl = ""
     private var pendingDownloadRequest: CdnRequestUrl? = null
@@ -430,6 +434,8 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
         setOnDismissListener {
             optionsMenu?.dismiss()
             cancelPendingDownload()
+            hlsCopyJob?.cancel()
+            hlsCopyJob = null
             releasePlayer()
         }
     }
@@ -445,6 +451,7 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
         ingestResolveJob = null
         ingestPlaylistUrl = null
         ingestFallbackDone = false
+        hlsFallbackTried = false
         if (item.isIngest) {
             ingestResolveJob = entryPoint.applicationScope().launch(entryPoint.mainDispatcher()) {
                 val playlist = FileIngestPlaylist.resolve(item.url)
@@ -556,7 +563,21 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
                     }
 
                     override fun onPlayerError(error: PlaybackException) {
-                        if (ingestPlaylist == null || ingestFallbackDone || player !== exoPlayer) return
+                        if (player !== exoPlayer || !isShowing) return
+                        if (ingestPlaylist == null) {
+                            if (!hlsFallbackTried && isOriginalMissing(error)) {
+                                hlsFallbackTried = true
+                                ingestFallbackDone = true
+                                playFinishedHlsInstead(exoPlayer)
+                                return
+                            }
+                            showToast(ToastOverlay.ToastType.ERROR, R.string.video_playback_failed)
+                            return
+                        }
+                        if (ingestFallbackDone) {
+                            showToast(ToastOverlay.ToastType.ERROR, R.string.video_playback_failed)
+                            return
+                        }
                         ingestFallbackDone = true
                         val position = exoPlayer.currentPosition
                         playerView.post {
@@ -588,6 +609,34 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
                 exoPlayer.prepare()
                 exoPlayer.playWhenReady = playWhenReady
             }
+    }
+
+    private fun isOriginalMissing(error: PlaybackException): Boolean {
+        var cause: Throwable? = error.cause
+        while (cause != null) {
+            if (cause is HttpDataSource.InvalidResponseCodeException) {
+                return cause.responseCode == 403 || cause.responseCode == 404
+            }
+            cause = cause.cause
+        }
+        return false
+    }
+
+    private fun playFinishedHlsInstead(failedPlayer: ExoPlayer) {
+        val item = currentItem
+        val position = failedPlayer.currentPosition
+        ingestResolveJob?.cancel()
+        ingestResolveJob = entryPoint.applicationScope().launch(entryPoint.mainDispatcher()) {
+            val playlist = FileIngestPlaylist.resolve(item.url)
+            ingestResolveJob = null
+            if (currentItem !== item || !isShowing || player !== failedPlayer) return@launch
+            if (playlist == null) {
+                showToast(ToastOverlay.ToastType.ERROR, R.string.video_playback_failed)
+                return@launch
+            }
+            ingestPlaylistUrl = playlist
+            initializePlayer(startPositionMs = position, playWhenReady = true)
+        }
     }
 
     private fun logPlayerState(exoPlayer: ExoPlayer, event: String) {
@@ -712,7 +761,7 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
 
     private fun saveVideo() {
         val url = currentItem.url
-        if (url.isEmpty() || pendingDownloadId != NO_PENDING_DOWNLOAD_ID) return
+        if (url.isEmpty() || pendingDownloadId != NO_PENDING_DOWNLOAD_ID || hlsCopyJob != null) return
         CdnSigner.requestUrlOnMain(url) { signed ->
             if (isShowing && pendingDownloadId == NO_PENDING_DOWNLOAD_ID) {
                 enqueueVideoDownload(url, signed, retried = false)
@@ -810,14 +859,53 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
     private fun handleDownloadTerminalStatus(downloadId: Long, status: Int?, reason: Int): Boolean {
         if (downloadId != pendingDownloadId) return false
         if (status == DownloadManager.STATUS_FAILED && retryDownloadWithFreshSignature(reason)) return true
+        if (status == DownloadManager.STATUS_FAILED && (reason == 403 || reason == 404) && saveFinishedHlsCopy()) return true
         val toast = when (status) {
             DownloadManager.STATUS_SUCCESSFUL -> ToastOverlay.ToastType.SUCCESS to R.string.message_toast_save_success
-            DownloadManager.STATUS_FAILED -> ToastOverlay.ToastType.ERROR to R.string.message_toast_save_failed
+            DownloadManager.STATUS_FAILED -> ToastOverlay.ToastType.ERROR to downloadFailureMessage(reason)
             else -> return false
         }
         clearPendingDownloadObserver()
         if (isShowing) showToast(toast.first, toast.second)
         return true
+    }
+
+    private fun saveFinishedHlsCopy(): Boolean {
+        val url = pendingDownloadSourceUrl
+        if (url.isEmpty()) return false
+        cancelPendingDownload()
+        showHlsCopyProgress(0)
+        hlsCopyJob = entryPoint.applicationScope().launch(entryPoint.mainDispatcher()) {
+            val outcome = HlsVideoCopy.saveToDownloads(context.applicationContext, url) { percent ->
+                saveProgressOverlay.post {
+                    if (hlsCopyJob != null) showHlsCopyProgress(percent)
+                }
+            }
+            hlsCopyJob = null
+            stopSaveProgress()
+            if (isShowing) {
+                if (outcome == HlsVideoCopy.Outcome.SAVED) {
+                    showToast(ToastOverlay.ToastType.SUCCESS, R.string.message_toast_save_success)
+                } else {
+                    showToast(ToastOverlay.ToastType.ERROR, HlsVideoCopy.failureMessage(outcome))
+                }
+            }
+        }
+        return true
+    }
+
+    private fun downloadFailureMessage(reason: Int): Int = when (reason) {
+        DownloadManager.ERROR_INSUFFICIENT_SPACE -> R.string.video_save_no_space
+        DownloadManager.ERROR_HTTP_DATA_ERROR,
+        DownloadManager.ERROR_CANNOT_RESUME -> R.string.video_save_network_failed
+        else -> R.string.message_toast_save_failed
+    }
+
+    private fun showHlsCopyProgress(percent: Int) {
+        saveProgressLabel.text = context.getString(R.string.video_save_downloading_progress, percent)
+        saveProgressBar.isIndeterminate = false
+        saveProgressBar.progress = percent
+        saveProgressOverlay.visibility = View.VISIBLE
     }
 
     private fun updateSaveProgress(snapshot: DownloadProgressSnapshot) {
