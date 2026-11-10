@@ -266,7 +266,7 @@ class FriendsHomeFragment : BaseFragment() {
             setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_send_24, ThemeColors.defaultIconTint))
             colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
         }
-        row.addView(icon, LayoutHelper.createLinear(22, 22, rightMargin = 10f))
+        row.addView(icon, LayoutHelper.createLinear(22, 22, gravity = Gravity.CENTER_VERTICAL, rightMargin = 10f))
 
         val textWrap = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
         row.addView(textWrap, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f))
@@ -288,13 +288,13 @@ class FriendsHomeFragment : BaseFragment() {
         requestBadgeText = createFriendRequestBadgeView(context)
         row.addView(
             requestBadgeText,
-            LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, 18, rightMargin = 8f)
+            LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, 18, gravity = Gravity.CENTER_VERTICAL, rightMargin = 8f)
         )
 
         val chevron = ImageView(context).apply {
             setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_chevron_right_16, ThemeColors.defaultIconTint))
         }
-        row.addView(chevron, LayoutHelper.createLinear(16, 16))
+        row.addView(chevron, LayoutHelper.createLinear(16, 16, gravity = Gravity.CENTER_VERTICAL))
 
         return row
     }
