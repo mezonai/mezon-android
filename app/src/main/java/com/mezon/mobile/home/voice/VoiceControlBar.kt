@@ -58,9 +58,7 @@ class VoiceControlBar(
         private val PTT_LABEL_GAP_H = LayoutHelper.dp(10)
         private val PTT_ROW_TOP_GAP = LayoutHelper.dp(12)
         private val PTT_BOTTOM_HEIGHT = LayoutHelper.dp(56)
-        private val PTT_BOTTOM_ICON = LayoutHelper.dp(26)
-        private val PTT_RAISE_ICON = LayoutHelper.dp(34)
-        private val PTT_END_ICON = LayoutHelper.dp(34)
+        private val PTT_BOTTOM_ICON = LayoutHelper.dp(28)
         private val PTT_BOTTOM_RADIUS = LayoutHelper.dp(28).toFloat()
         private val PTT_BOTTOM_GAP = LayoutHelper.dp(10)
         private val PTT_END_WEIGHT = 1f
@@ -294,20 +292,18 @@ class VoiceControlBar(
 
         val endPill = makePttPill(
             MezonIcon.loadDrawable(context, R.drawable.mz_call_end_32, ThemeMode.DARK.iconTint),
-            LEAVE_ROOM_COLOR,
-            PTT_END_ICON
+            LEAVE_ROOM_COLOR
         )
         endPill.setOnClickListener { onEndCallClick?.invoke() }
 
         pttRaisePill = makePttPill(
             MezonIcon.loadDrawable(context, R.drawable.mz_hand_raise_32, themeColors.iconTint),
-            themeColors.tertiary,
-            PTT_RAISE_ICON
+            themeColors.tertiary
         )
         pttRaisePill.setOnClickListener { onRaiseHandClick?.invoke() }
 
         pttChatIcon = ImageView(context).apply {
-            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            scaleType = ImageView.ScaleType.FIT_CENTER
             setImageDrawable(tintedIcon(R.drawable.mz_chat_24, controlIconTint))
         }
         val chatPill = FrameLayout(context).apply {
@@ -381,7 +377,7 @@ class VoiceControlBar(
         row.addView(pill, lp)
     }
 
-    private fun makePttPill(icon: android.graphics.drawable.Drawable, bgColor: Int, iconSize: Int): FrameLayout {
+    private fun makePttPill(icon: android.graphics.drawable.Drawable, bgColor: Int): FrameLayout {
         val iconView = ImageView(context).apply {
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             setImageDrawable(icon)
@@ -389,7 +385,7 @@ class VoiceControlBar(
         val pill = FrameLayout(context).apply {
             background = roundedBg(bgColor, PTT_BOTTOM_RADIUS)
             isClickable = true
-            addView(iconView, LayoutParams(iconSize, iconSize, Gravity.CENTER))
+            addView(iconView, LayoutParams(PTT_BOTTOM_ICON, PTT_BOTTOM_ICON, Gravity.CENTER))
         }
         return pill
     }
