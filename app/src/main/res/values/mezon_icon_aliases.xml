@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item type="drawable" name="ic_email_outline">@drawable/mz_mail_24</item>
+    <item type="drawable" name="ic_lock_outline">@drawable/mz_lock_24</item>
+    <item type="drawable" name="ic_clans">@drawable/mz_clans_24</item>
+    <item type="drawable" name="ic_messages">@drawable/mz_messages_24</item>
+    <item type="drawable" name="ic_notifications">@drawable/mz_bell_24</item>
+    <item type="drawable" name="ic_profile">@drawable/mz_user_24</item>
+</resources>

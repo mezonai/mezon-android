@@ -44,8 +44,7 @@
         android:id="@+id/btnClose"
         android:layout_width="24dp"
         android:layout_height="24dp"
-        android:src="@drawable/ic_close_24"
-        app:tint="@android:color/white"
+
         app:layout_constraintEnd_toEndOf="@+id/guideline_end"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintBottom_toBottomOf="@+id/tvSheetTitle" />
@@ -76,8 +75,7 @@
         android:layout_width="16dp"
         android:layout_height="16dp"
         android:layout_marginStart="8dp"
-        android:src="@drawable/ic_copy_24"
-        app:tint="#9CA3AF"
+
         app:layout_constraintBottom_toBottomOf="@+id/tvIdLabel"
         app:layout_constraintStart_toEndOf="@+id/tvIdLabel"
         app:layout_constraintTop_toTopOf="@+id/tvIdLabel" />

@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.chat.channelinfo.permissions
 
+import com.mezon.mobile.core.ThemeColors
 import android.content.Context
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
@@ -150,7 +151,7 @@ class ChannelPermissionsFragment : BaseFragment() {
         actionBar = ActionBarView(context, themeColors).apply {
             setTitle(getString(R.string.channel_permissions_title))
             setSubtitle(channelName)
-            setBackButtonImage(R.drawable.ic_arrow_back)
+            setBackButtonImage(R.drawable.mz_arrow_left_24)
             setBackButtonContentDescription(getString(R.string.clan_roles_back_content_desc))
             setCenterTitle(true)
             ClanRolesUiTheme.applyPrimaryFlowActionBar(this, themeColors)
@@ -301,7 +302,7 @@ class ChannelPermissionsFragment : BaseFragment() {
             isClickable = true
             setOnClickListener { showAddSheet(context) }
         }
-        row.addView(iconCircle(context, MezonIcon.circlePlusPrimaryIcon, themeColors.blurple))
+        row.addView(iconCircle(context, R.drawable.mz_plus_circle_24, themeColors.blurple))
         row.addView(
             TextView(context).apply {
                 text = getString(R.string.channel_permissions_add_members_or_roles)
@@ -349,7 +350,7 @@ class ChannelPermissionsFragment : BaseFragment() {
             }
         }
         if (!advanced) {
-            row.addView(iconCircle(context, MezonIcon.bravePermission, role.color.takeIf { it != 0 } ?: themeColors.blurple))
+            row.addView(iconCircle(context, R.drawable.mz_role_20, role.color.takeIf { it != 0 } ?: themeColors.blurple))
         }
         row.addView(
             TextView(context).apply {
@@ -418,9 +419,7 @@ class ChannelPermissionsFragment : BaseFragment() {
         if (member.userId == ownerUserId()) {
             row.addView(
                 ImageView(context).apply {
-                    setImageDrawable(MezonIcon.ownerIcon.getDrawable(context).apply {
-                        colorFilter = PorterDuffColorFilter(0xFFFAA61A.toInt(), PorterDuff.Mode.SRC_IN)
-                    })
+                    setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_owner_16, 0xFFFAA61A.toInt()))
                 },
                 LayoutHelper.createLinear(16, 16, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, 8f, 0f)
             )
@@ -706,7 +705,7 @@ class ChannelPermissionsFragment : BaseFragment() {
             isClickable = true
         }
 
-    private fun iconCircle(context: Context, icon: MezonIcon, color: Int): View {
+    private fun iconCircle(context: Context, icon: Int, color: Int): View {
         val circle = FrameLayout(context).apply {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
@@ -715,9 +714,8 @@ class ChannelPermissionsFragment : BaseFragment() {
         }
         circle.addView(
             ImageView(context).apply {
-                setImageDrawable(icon.getDrawable(context).apply {
-                    colorFilter = PorterDuffColorFilter(0xFFFFFFFF.toInt(), PorterDuff.Mode.SRC_IN)
-                })
+                val tint = ClanRolesUiTheme.badgeIconTint(color, themeColors) ?: themeColors.iconTint
+                setImageDrawable(MezonIcon.loadDrawable(context, icon, tint))
             },
             LayoutHelper.createFrame(18, 18, Gravity.CENTER)
         )
@@ -736,14 +734,14 @@ class ChannelPermissionsFragment : BaseFragment() {
 
     private fun chevron(context: Context): ImageView =
         ImageView(context).apply {
-            setImageDrawable(MezonIcon.chevronSmallRightIcon.getDrawable(context).apply {
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_chevron_right_16, ThemeColors.defaultIconTint).apply {
                 colorFilter = PorterDuffColorFilter(themeColors.colorText, PorterDuff.Mode.SRC_IN)
             })
         }
 
     private fun deleteIcon(context: Context, onClick: () -> Unit): ImageView =
         ImageView(context).apply {
-            setImageDrawable(MezonIcon.closeIcon.getDrawable(context).apply {
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_close_20, ThemeColors.defaultIconTint).apply {
                 colorFilter = PorterDuffColorFilter(themeColors.colorText, PorterDuff.Mode.SRC_IN)
             })
             isClickable = true

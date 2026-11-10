@@ -4,8 +4,6 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.graphics.RectF
 import android.graphics.drawable.Drawable
 import android.text.StaticLayout
@@ -336,15 +334,11 @@ class InputSuggestionCell(
         if (role.iconUrl.isBlank()) {
             leadingMode = LEADING_ICON
             setLeadingEffectiveDp(20)
-            leadingDrawable = MezonIcon.shieldUserIcon.getDrawable(context).apply {
-                colorFilter = PorterDuffColorFilter(color, PorterDuff.Mode.SRC_IN)
-            }
+            leadingDrawable = MezonIcon.loadDrawable(context, R.drawable.mz_role_16, color)
         } else {
             leadingMode = LEADING_ICON
             setLeadingEffectiveDp(20)
-            leadingDrawable = MezonIcon.shieldUserIcon.getDrawable(context).apply {
-                colorFilter = PorterDuffColorFilter(color, PorterDuff.Mode.SRC_IN)
-            }
+            leadingDrawable = MezonIcon.loadDrawable(context, R.drawable.mz_role_16, color)
             loadLeadingDrawable(role.iconUrl, 20)
         }
     }
@@ -356,11 +350,9 @@ class InputSuggestionCell(
         setLeadingEffectiveDp(16)
         val iconEnum = resolveChannelIcon(entity)
         leadingDrawable = if (entity.isThread) {
-            iconEnum.getDrawable(context, theme)
+            MezonIcon.loadDrawable(context, iconEnum, theme.iconTint)
         } else {
-            iconEnum.getDrawable(context).apply {
-                colorFilter = PorterDuffColorFilter(theme.onSurface, PorterDuff.Mode.SRC_IN)
-            }
+            MezonIcon.loadDrawable(context, iconEnum, theme.onSurface)
         }
         namePaint.color = theme.onSurface
         subPaint.color = theme.textDisabled
@@ -454,9 +446,9 @@ class InputSuggestionCell(
         currentImageUrl = null
     }
 
-    private fun resolveChannelIcon(entity: ClanChannelEntity): MezonIcon {
+    private fun resolveChannelIcon(entity: ClanChannelEntity): Int {
         val type = if (entity.isThread) CHANNEL_TYPE_THREAD else entity.type
-        return ChannelItemCell.resolveChannelIcon(type, entity.isPrivate, entity.isAgeRestricted)
+        return ChannelItemCell.resolveChannelIcon(type, entity.isPrivate, entity.isAgeRestricted, compact = true)
     }
 
     companion object {

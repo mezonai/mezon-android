@@ -1,9 +1,12 @@
 package com.mezon.mobile.home.wallet
 
+import com.mezon.mobile.ui.cells.withDefaultIconTint
+import com.mezon.mobile.core.ThemeColors
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
@@ -111,7 +114,7 @@ class TransferSuccessFragment : BaseFragment() {
             background = circleBg
         }
         val checkImg = ImageView(context).apply {
-            setImageDrawable(MezonIcon.checkmarkLargeIcon.getDrawable(context, 0xFFFFFFFF.toInt()))
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_check_40, Color.WHITE))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
         }
         circleWrap.addView(checkImg, FrameLayout.LayoutParams(
@@ -169,15 +172,15 @@ class TransferSuccessFragment : BaseFragment() {
         ))
 
         actionRow.addView(
-            buildActionButton(context, MezonIcon.shareIcon, getString(R.string.transfer_success_share)) { onShareClick() },
+            buildActionButton(context, R.drawable.mz_share_24, getString(R.string.transfer_success_share)) { onShareClick() },
             LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         )
         actionRow.addView(
-            buildActionButton(context, MezonIcon.downloadIcon, getString(R.string.transfer_success_save_image)) { onSaveImageClick() },
+            buildActionButton(context, R.drawable.mz_download_24, getString(R.string.transfer_success_save_image)) { onSaveImageClick() },
             LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         )
         actionRow.addView(
-            buildActionButton(context, MezonIcon.arrowLeftRightIcon, getString(R.string.transfer_success_new_transfer)) { onNewTransferClick() },
+            buildActionButton(context, R.drawable.mz_swap_24, getString(R.string.transfer_success_new_transfer)) { onNewTransferClick() },
             LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         )
 
@@ -246,7 +249,7 @@ class TransferSuccessFragment : BaseFragment() {
 
     private fun buildActionButton(
         context: Context,
-        icon: MezonIcon,
+        icon: Int,
         label: String,
         onClick: () -> Unit
     ): LinearLayout {
@@ -262,7 +265,7 @@ class TransferSuccessFragment : BaseFragment() {
             setOnClickListener { onClick() }
         }
         val img = ImageView(context).apply {
-            setImageDrawable(icon.getDrawable(context, themeColors.onSurface))
+            setImageDrawable(MezonIcon.loadDrawable(context, icon).withDefaultIconTint(context, icon, ThemeColors.defaultIconTint))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
         }
         col.addView(img, LinearLayout.LayoutParams(LayoutHelper.dp(28), LayoutHelper.dp(28)))

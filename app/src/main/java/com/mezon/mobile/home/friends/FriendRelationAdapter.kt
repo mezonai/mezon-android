@@ -1,6 +1,9 @@
 package com.mezon.mobile.home.friends
 
+import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.ui.cells.setMezonIconResource
 import android.content.Context
+import android.graphics.Color
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.Paint
@@ -219,8 +222,8 @@ class FriendRowCell(
         }
         row.addView(actionContainer, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, 40))
 
-        callButton = createActionButton(R.drawable.ic_phone_call_icon)
-        messageButton = createActionButton(R.drawable.ic_chat_icon)
+        callButton = createActionButton(R.drawable.mz_call_20)
+        messageButton = createActionButton(R.drawable.mz_chat_20)
         deleteButton = createPendingDeleteButton()
         approveButton = createPendingApproveButton()
 
@@ -301,7 +304,7 @@ class FriendRowCell(
     private fun createActionButton(iconRes: Int, withPrimaryBackground: Boolean = false): ImageView {
         return ImageView(context).apply {
             val iconColor = if (withPrimaryBackground) themeColors.onPrimary else themeColors.onSurface
-            setImageResource(iconRes)
+            setMezonIconResource(iconRes)
             colorFilter = PorterDuffColorFilter(iconColor, PorterDuff.Mode.SRC_IN)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             val touchBg = GradientDrawable().apply {
@@ -316,8 +319,7 @@ class FriendRowCell(
 
     private fun createPendingDeleteButton(): ImageView {
         return ImageView(context).apply {
-            setImageResource(R.drawable.ic_close_icon)
-            colorFilter = PorterDuffColorFilter(0xFFC7C7C7.toInt(), PorterDuff.Mode.SRC_IN)
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_close_20, 0xFFC7C7C7.toInt()))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             background = null
             val pad = LayoutHelper.dp(8)
@@ -327,8 +329,7 @@ class FriendRowCell(
 
     private fun createPendingApproveButton(): ImageView {
         return ImageView(context).apply {
-            setImageResource(R.drawable.ic_checkmark_small_icon)
-            colorFilter = PorterDuffColorFilter(0xFFFFFFFF.toInt(), PorterDuff.Mode.SRC_IN)
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_check_20, Color.WHITE))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL

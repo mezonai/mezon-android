@@ -88,8 +88,7 @@ class AddFriendBottomSheet(
         addByUsernameRow.addView(addLabel, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f))
 
         val chevron = ImageView(context).apply {
-            setImageDrawable(MezonIcon.chevronSmallRightIcon.getDrawable(context))
-            setColorFilter(themeColors.onSurfaceVariant)
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_chevron_right_20, themeColors.iconTint))
         }
         addByUsernameRow.addView(chevron, LayoutHelper.createLinear(18, 18))
 

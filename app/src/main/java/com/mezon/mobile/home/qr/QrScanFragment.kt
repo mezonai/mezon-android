@@ -193,8 +193,7 @@ class QrScanFragment : BaseFragment() {
                 setColor(themeColors.qrPillBackground)
             }
             background = bg
-            setImageDrawable(MezonIcon.closeIcon.getDrawable(context, themeColors))
-            setColorFilter(themeColors.qrPillContent)
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_close_24, themeColors.qrPillContent))
             val pad = LayoutHelper.dp(10)
             setPadding(pad, pad, pad, pad)
             setOnClickListener { finishFragment() }
@@ -230,8 +229,7 @@ class QrScanFragment : BaseFragment() {
             isClickable = true
         }
         val icon = ImageView(context).apply {
-            setImageDrawable(MezonIcon.myQRcodeIcon.getDrawable(context, themeColors))
-            setColorFilter(themeColors.qrPillContent)
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_qr_20, themeColors.qrPillContent))
         }
         pill.addView(icon, LinearLayout.LayoutParams(LayoutHelper.dp(18), LayoutHelper.dp(18)))
 
@@ -253,8 +251,7 @@ class QrScanFragment : BaseFragment() {
                 setColor(themeColors.qrPillBackground)
             }
             background = bg
-            setImageDrawable(MezonIcon.imageIcon.getDrawable(context, themeColors))
-            setColorFilter(themeColors.qrPillContent)
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_image_24, themeColors.qrPillContent))
             val pad = LayoutHelper.dp(14)
             setPadding(pad, pad, pad, pad)
             setOnClickListener { openGallery() }

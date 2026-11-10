@@ -79,7 +79,7 @@ class CreateNewRoleFragment : BaseFragment() {
         ClanRolesUiTheme.applyPrimaryFlowRoot(root, themeColors)
         actionBar = ActionBarView(context, themeColors).apply {
             setTitle(getString(R.string.clan_roles_create_step_title))
-            setBackButtonImage(R.drawable.ic_close_24)
+            setBackButtonImage(R.drawable.mz_close_24)
             setBackButtonContentDescription(getString(R.string.clan_roles_back_content_desc))
             setCenterTitle(true)
             ClanRolesUiTheme.applyPrimaryFlowActionBar(this, themeColors)

@@ -26,7 +26,7 @@ object CreateClanTemplates {
         ClanTemplateSpec(
             id = "gaming",
             titleResId = R.string.clan_template_gaming,
-            iconResId = R.drawable.ic_gaming,
+            iconResId = R.drawable.mz_gamepad_40,
             categories = listOf(
                 ClanTemplateCategory(
                     name = "",

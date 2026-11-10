@@ -3,7 +3,6 @@ package com.mezon.mobile.ui.cells
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.RippleDrawable
@@ -35,6 +34,7 @@ class ActionBarView(
     private var interceptTouches = true
     private var forceSkipTouches = false
     private var backButtonImageView: ImageView? = null
+    private var backButtonUsesIconTint = false
     private var titleTextView: TextView? = null
     private var subtitleTextView: TextView? = null
     private var titleStartImageView: ImageView? = null
@@ -130,17 +130,23 @@ class ActionBarView(
     fun setBackButtonImage(resource: Int) {
         if (backButtonImageView == null) createBackButtonImage()
         backButtonImageView!!.visibility = if (resource == 0) GONE else VISIBLE
-        backButtonImageView!!.setImageResource(resource)
-        val color = itemsColor.takeIf { it != 0 } ?: theme.onSurface
-        backButtonImageView!!.colorFilter = PorterDuffColorFilter(color, PorterDuff.Mode.SRC_IN)
+        backButtonUsesIconTint = context.isPackagedIcon(resource)
+        backButtonImageView!!.setMezonIconResource(resource, theme)
+        applyBackButtonTint()
     }
 
     fun setBackButtonDrawable(drawable: android.graphics.drawable.Drawable?) {
         if (backButtonImageView == null) createBackButtonImage()
         backButtonImageView!!.visibility = if (drawable == null) GONE else VISIBLE
+        backButtonUsesIconTint = false
         backButtonImageView!!.setImageDrawable(drawable)
-        val color = itemsColor.takeIf { it != 0 } ?: theme.onSurface
-        backButtonImageView!!.colorFilter = PorterDuffColorFilter(color, PorterDuff.Mode.SRC_IN)
+        applyBackButtonTint()
+    }
+
+    private fun applyBackButtonTint() {
+        val defaultColor = if (backButtonUsesIconTint) theme.iconTint else theme.onSurface
+        val color = itemsColor.takeIf { it != 0 } ?: defaultColor
+        backButtonImageView?.setColorFilter(color, PorterDuff.Mode.SRC_IN)
     }
 
     fun setTitle(title: CharSequence?) {
@@ -413,7 +419,7 @@ class ActionBarView(
             actionMode?.setItemColor(color)
         } else {
             itemsColor = color
-            backButtonImageView?.colorFilter = PorterDuffColorFilter(color, PorterDuff.Mode.SRC_IN)
+            applyBackButtonTint()
             menu?.setItemColor(color)
         }
     }
@@ -544,8 +550,7 @@ class ActionBarView(
         setBackgroundColor(if (transparentBackground) android.graphics.Color.TRANSPARENT else theme.surface)
         titleTextView?.setTextColor(theme.onSurface)
         subtitleTextView?.setTextColor(theme.onSurface)
-        val color = itemsColor.takeIf { it != 0 } ?: theme.onSurface
-        backButtonImageView?.colorFilter = PorterDuffColorFilter(color, PorterDuff.Mode.SRC_IN)
+        applyBackButtonTint()
         backButtonImageView?.background = rippleBackground()
         invalidate()
     }
@@ -814,7 +819,7 @@ class ActionBarView(
 
     fun setBackClickListener(listener: () -> Unit) {
         if (backButtonImageView == null) {
-            setBackButtonImage(R.drawable.ic_arrow_back)
+            setBackButtonImage(R.drawable.mz_arrow_left_24)
         }
         actionBarMenuOnItemClick = object : ActionBarMenuOnItemClick() {
             override fun onItemClick(id: Int) {

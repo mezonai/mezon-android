@@ -26,6 +26,7 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.PhotoAttachPhotoCell
+import com.mezon.mobile.ui.theme.ThemeMode
 
 private const val ITEMS_PER_ROW = 3
 private const val GRID_GAP = 2
@@ -105,7 +106,7 @@ class ChatAttachAlert(
             setPadding(LayoutHelper.dp(12f), 0, LayoutHelper.dp(12f), 0)
         }
         headerRowView = headerRow
-        buildHeaderButton(headerRow, MezonIcon.fileIconGray, R.string.file_selection_upload) {
+        buildHeaderButton(headerRow, R.drawable.mz_file_24, R.string.file_selection_upload) {
             dismiss()
             attachDelegate?.onFilesRequested()
         }
@@ -192,7 +193,7 @@ class ChatAttachAlert(
 
     private fun buildHeaderButton(
         parent: LinearLayout,
-        icon: MezonIcon,
+        icon: Int,
         textRes: Int,
         onClick: () -> Unit
     ) {
@@ -207,7 +208,7 @@ class ChatAttachAlert(
         }
 
         val iconView = ImageView(context).apply {
-            setImageDrawable(icon.getDrawable(context).mutate())
+            setImageDrawable(MezonIcon.loadDrawable(context, icon, ThemeColors.defaultIconTint).mutate())
         }
         val iconSize = LayoutHelper.dp(20f)
         btn.addView(iconView, LinearLayout.LayoutParams(iconSize, iconSize))
@@ -357,7 +358,7 @@ class ChatAttachAlert(
                     setOnClickListener { attachDelegate?.onCameraRequested() }
                 }
                 val icon = ImageView(parent.context).apply {
-                    setImageDrawable(MezonIcon.cameraIcon.getDrawable(parent.context, Color.WHITE))
+                    setImageDrawable(MezonIcon.loadDrawable(parent.context, R.drawable.mz_camera_32, ThemeMode.DARK.iconTint))
                     scaleType = ImageView.ScaleType.CENTER_INSIDE
                 }
                 cell.addView(

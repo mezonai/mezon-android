@@ -4,8 +4,6 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
@@ -17,6 +15,7 @@ import android.widget.TextView
 import com.mezon.mobile.R
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.ui.theme.ThemeMode
 import kotlin.math.min
 
 class VoiceNetworkWarningHintView(context: Context, title: String, body: String) : LinearLayout(context) {
@@ -25,7 +24,6 @@ class VoiceNetworkWarningHintView(context: Context, title: String, body: String)
         private const val FILL_COLOR = 0xFFFDE8D7.toInt()
         private const val TEXT_COLOR = 0xFF202124.toInt()
         private const val BODY_COLOR = 0xBF202124.toInt()
-        private const val CLOSE_TINT = 0xB3202124.toInt()
         private const val ICON_COLOR = 0xFFB45309.toInt()
         private const val ICON_BADGE_COLOR = 0x26B45309
         private val SHADOW_INSET = LayoutHelper.dp(8)
@@ -63,7 +61,7 @@ class VoiceNetworkWarningHintView(context: Context, title: String, body: String)
             }
         }
         val iconView = ImageView(context).apply {
-            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.ic_voice_network_warning, ICON_COLOR))
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_warning_24, ICON_COLOR))
             scaleType = ImageView.ScaleType.FIT_CENTER
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
@@ -91,9 +89,7 @@ class VoiceNetworkWarningHintView(context: Context, title: String, body: String)
         })
         bubble.addView(textColumn, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
         val closeButton = ImageView(context).apply {
-            setImageDrawable(MezonIcon.closeSmallBold.getDrawable(context).mutate().apply {
-                colorFilter = PorterDuffColorFilter(CLOSE_TINT, PorterDuff.Mode.SRC_IN)
-            })
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_close_16, ThemeMode.LIGHT.iconTint))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             val inset = LayoutHelper.dp(4)
             setPadding(inset, inset, inset, inset)

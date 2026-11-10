@@ -1,10 +1,12 @@
 package com.mezon.mobile.home.clans.settings
 
+import com.mezon.mobile.ui.cells.withDefaultIconTint
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.Typeface
@@ -124,17 +126,17 @@ class InvitePeopleBottomSheet(
         }
         shareActionBtn = addActionButton(
             actionsRow,
-            MezonIcon.shareIcon,
+            R.drawable.mz_share_20,
             context.getString(R.string.invite_share),
         ) { shareInviteLink() }
         copyActionBtn = addActionButton(
             actionsRow,
-            MezonIcon.linkIcon,
+            R.drawable.mz_link_20,
             context.getString(R.string.invite_copy_link),
         ) { copyInviteLink() }
         qrActionBtn = addActionButton(
             actionsRow,
-            MezonIcon.myQRcodeIcon,
+            R.drawable.mz_qr_20,
             context.getString(R.string.invite_qr_code),
         ) { showInviteQrSheet() }
         root.addView(actionsRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
@@ -184,14 +186,14 @@ class InvitePeopleBottomSheet(
             })
         }
         val searchIcon = ImageView(context).apply {
-            val d = MezonIcon.magnifyingIcon.getDrawable(context).mutate()
+            val d = MezonIcon.loadDrawable(context, R.drawable.mz_search_24, ThemeColors.defaultIconTint).mutate()
             d.colorFilter = PorterDuffColorFilter(theme.textDisabled, PorterDuff.Mode.SRC_IN)
             d.setBounds(0, 0, iconSize, iconSize)
             setImageDrawable(d)
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
         searchClearBtn = ImageView(context).apply {
-            val d = MezonIcon.circleXIcon.getDrawable(context).mutate()
+            val d = MezonIcon.loadDrawable(context, R.drawable.mz_close_circle_16, ThemeColors.defaultIconTint).mutate()
             d.colorFilter = PorterDuffColorFilter(theme.colorText, PorterDuff.Mode.SRC_IN)
             d.setBounds(0, 0, clearSize, clearSize)
             setImageDrawable(d)
@@ -284,7 +286,7 @@ class InvitePeopleBottomSheet(
 
     private fun addActionButton(
         parent: LinearLayout,
-        icon: MezonIcon,
+        icon: Int,
         label: String,
         onClick: () -> Unit,
     ): View {
@@ -305,7 +307,7 @@ class InvitePeopleBottomSheet(
             }
         }
         val iconView = ImageView(context).apply {
-            setImageDrawable(icon.getDrawable(context, theme.textStrong))
+            setImageDrawable(MezonIcon.loadDrawable(context, icon).withDefaultIconTint(context, icon, ThemeColors.defaultIconTint))
             scaleType = ImageView.ScaleType.FIT_CENTER
             adjustViewBounds = true
         }
@@ -337,7 +339,7 @@ class InvitePeopleBottomSheet(
             setPadding(LayoutHelper.dp(24f), LayoutHelper.dp(16f), LayoutHelper.dp(24f), LayoutHelper.dp(16f))
 
             addView(ImageView(context).apply {
-                setImageDrawable(MezonIcon.searchFriendIcon.getDrawable(context, theme.textDisabled))
+                setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.ic_search_friend, theme.textDisabled))
                 scaleType = ImageView.ScaleType.FIT_CENTER
                 alpha = 0.85f
             }, LinearLayout.LayoutParams(LayoutHelper.dp(96f), LayoutHelper.dp(96f)).apply {
@@ -588,7 +590,7 @@ class InvitePeopleBottomSheet(
             avatarWrap.addView(avatar, FrameLayout.LayoutParams(LayoutHelper.dp(40f), LayoutHelper.dp(40f), Gravity.CENTER))
             val groupIcon = ImageView(context).apply {
                 visibility = View.GONE
-                setImageDrawable(MezonIcon.groupIcon.getDrawable(context, 0xFFFFFFFF.toInt()))
+                setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_members_20, Color.WHITE))
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
             }
             avatarWrap.addView(groupIcon, FrameLayout.LayoutParams(LayoutHelper.dp(20f), LayoutHelper.dp(20f), Gravity.CENTER))

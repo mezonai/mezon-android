@@ -74,7 +74,7 @@ class ActionBarMenuItem(
     }
 
     fun setIcon(resId: Int) {
-        iconView.setImageResource(resId)
+        iconView.setMezonIconResource(resId)
         if (iconColor != 0) {
             iconView.colorFilter = PorterDuffColorFilter(iconColor, PorterDuff.Mode.SRC_IN)
         }
@@ -152,7 +152,7 @@ class ActionBarMenuItem(
             context.theme.resolveAttribute(android.R.attr.selectableItemBackground, outValue, true)
             setBackgroundResource(outValue.resourceId)
             if (icon != 0) {
-                setCompoundDrawablesWithIntrinsicBounds(icon, 0, 0, 0)
+                setCompoundDrawablesWithIntrinsicBounds(MezonIcon.loadDrawable(context, icon).withDefaultIconTint(context, icon, ThemeColors.defaultIconTint), null, null, null)
                 compoundDrawablePadding = LayoutHelper.dp(12)
             }
             setOnClickListener {

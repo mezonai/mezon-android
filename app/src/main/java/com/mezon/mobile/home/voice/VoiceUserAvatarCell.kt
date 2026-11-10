@@ -3,8 +3,6 @@ package com.mezon.mobile.home.voice
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.graphics.RectF
 import android.graphics.drawable.Drawable
 import android.text.StaticLayout
@@ -15,7 +13,6 @@ import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.chat.MezonImageLoader
-import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.util.avatarImgproxyUrl
 
 class VoiceUserAvatarCell(
@@ -172,9 +169,8 @@ class VoiceUserAvatarCell(
 
         if (isSharingScreen) {
             val drawable = shareScreenDrawable
-                ?: MezonIcon.voiceScreenShareIcon.getDrawable(context).mutate().apply {
-                    colorFilter = PorterDuffColorFilter(themeColors.voiceActiveGreen, PorterDuff.Mode.SRC_IN)
-                }.also { shareScreenDrawable = it }
+                ?: VoiceActivityBadge.SHARING_SCREEN.loadIcon(context, themeColors)
+                    .also { shareScreenDrawable = it }
             val iconRight = width - PADDING_RIGHT
             val iconTop = (cy - SHARE_ICON_SIZE / 2f).toInt()
             drawable.setBounds(iconRight - SHARE_ICON_SIZE, iconTop, iconRight, iconTop + SHARE_ICON_SIZE)

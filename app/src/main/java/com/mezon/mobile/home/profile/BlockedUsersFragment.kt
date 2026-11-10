@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.profile
 
+import com.mezon.mobile.ui.cells.setMezonIconResource
 import android.content.Context
 import android.view.Gravity
 import android.view.View
@@ -212,7 +213,7 @@ class BlockedUsersFragment : BaseFragment() {
                     return
                 }
                 currentAvatarUrl = proxyUrl
-                avatar.setImageResource(R.drawable.ic_profile)
+                avatar.setMezonIconResource(R.drawable.mz_user_24)
 
                 val loader = MezonImageLoader.getInstance(context)
                 val cached = loader.getBitmapFromMemory(proxyUrl, sizePx, sizePx)
@@ -225,7 +226,7 @@ class BlockedUsersFragment : BaseFragment() {
                 }
             } else {
                 currentAvatarUrl = null
-                avatar.setImageResource(R.drawable.ic_profile)
+                avatar.setMezonIconResource(R.drawable.mz_user_24)
             }
 
             unblockBtn.setOnClickListener { onUnblockClicked(friend) }

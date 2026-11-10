@@ -1,5 +1,6 @@
 package com.mezon.mobile.ui.cells
 
+import com.mezon.mobile.R
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.graphics.drawable.BitmapDrawable
@@ -50,7 +51,7 @@ class ImagePickerView(context: Context, private val theme: ThemeColors) : FrameL
         addView(imageView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
         placeholderIcon = ImageView(context).apply {
-            setImageResource(android.R.drawable.ic_menu_camera)
+            setMezonIconResource(R.drawable.mz_camera_24)
             setColorFilter(theme.onSurfaceVariant)
         }
         addView(placeholderIcon, LayoutHelper.createFrame(24, 24, Gravity.CENTER))

@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.clans
 
+import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.core.theme.DesktopThemeToken
 import android.content.Context
 import android.graphics.Typeface
@@ -87,7 +88,7 @@ class CreateChannelFragment : BaseFragment() {
 
         actionBar = ActionBarView(context, themeColors).apply {
             occupyStatusBar = false
-            setBackButtonImage(MezonIcon.closeLargeIcon.resId)
+            setBackButtonImage(R.drawable.mz_close_24)
             setTitle(getString(R.string.channel_creator_screen_title))
             setTitleColor(themeColors.textStrong)
             setCenterTitle(true)
@@ -156,13 +157,13 @@ class CreateChannelFragment : BaseFragment() {
             }
         }
 
-        addTypeOption(context, typeBox, CHANNEL_TYPE_CHANNEL, MezonIcon.channelText,
+        addTypeOption(context, typeBox, CHANNEL_TYPE_CHANNEL, R.drawable.mz_channel_24,
             R.string.channel_creator_type_text_title, R.string.channel_creator_type_text_desc,
             showTopDivider = false, rowPad = typeAndPrivateCardInnerPadding)
-        addTypeOption(context, typeBox, CHANNEL_TYPE_VOICE, MezonIcon.channelVoice,
+        addTypeOption(context, typeBox, CHANNEL_TYPE_VOICE, R.drawable.mz_speaker_24,
             R.string.channel_creator_type_voice_title, R.string.channel_creator_type_voice_desc,
             showTopDivider = true, rowPad = typeAndPrivateCardInnerPadding)
-        addTypeOption(context, typeBox, CHANNEL_TYPE_STREAMING, MezonIcon.channelStream,
+        addTypeOption(context, typeBox, CHANNEL_TYPE_STREAMING, R.drawable.mz_live_24,
             R.string.channel_creator_type_stream_title, R.string.channel_creator_type_stream_desc,
             showTopDivider = true, rowPad = typeAndPrivateCardInnerPadding)
 
@@ -244,7 +245,7 @@ class CreateChannelFragment : BaseFragment() {
             setChecked(false, animated = false)
         }
         val lock = ImageView(context).apply {
-            setImageDrawable(MezonIcon.lockIcon.getDrawable(context, themeColors.textStrong))
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_lock_24, ThemeColors.defaultIconTint))
             scaleType = ImageView.ScaleType.FIT_CENTER
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
@@ -278,7 +279,7 @@ class CreateChannelFragment : BaseFragment() {
         context: Context,
         parent: LinearLayout,
         typeConst: Int,
-        icon: MezonIcon,
+        icon: Int,
         titleRes: Int,
         descRes: Int,
         showTopDivider: Boolean,
@@ -310,7 +311,7 @@ class CreateChannelFragment : BaseFragment() {
         }
 
         val iconView = ImageView(context).apply {
-            setImageDrawable(icon.getDrawable(context, themeColors.textStrong))
+            setImageDrawable(MezonIcon.loadDrawable(context, icon, themeColors.textStrong))
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
         row.addView(

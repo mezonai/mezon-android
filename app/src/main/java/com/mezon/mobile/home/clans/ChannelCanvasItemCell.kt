@@ -1,5 +1,7 @@
 package com.mezon.mobile.home.clans
 
+import com.mezon.mobile.ui.cells.withDefaultIconTint
+import com.mezon.mobile.R
 import android.content.Context
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
@@ -42,7 +44,7 @@ class ChannelCanvasItemCell(
         }
         addView(titleView, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.CENTER_VERTICAL, 10f, 0f, 8f, 0f))
 
-        copyButton = createIconButton(MezonIcon.linkIcon, theme.onSurface)
+        copyButton = createIconButton(R.drawable.mz_link_16, theme.onSurface)
         copyButton.setOnClickListener { onCopyLinkClick?.invoke() }
         addView(
             copyButton,
@@ -54,7 +56,7 @@ class ChannelCanvasItemCell(
         if (titleView.text != title) titleView.text = title
     }
 
-    private fun createIconButton(icon: MezonIcon, tint: Int): FrameLayout {
+    private fun createIconButton(icon: Int, tint: Int): FrameLayout {
         return FrameLayout(context).apply {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
@@ -62,7 +64,7 @@ class ChannelCanvasItemCell(
                 setStroke(LayoutHelper.dp(1f), theme.outlineVariant)
             }
             val iconView = ImageView(context).apply {
-                val d = icon.getDrawable(context).mutate()
+                val d = MezonIcon.loadDrawable(context, icon).withDefaultIconTint(context, icon, ThemeColors.defaultIconTint).mutate()
                 d.colorFilter = PorterDuffColorFilter(tint, PorterDuff.Mode.SRC_IN)
                 setImageDrawable(d)
             }

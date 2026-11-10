@@ -3,8 +3,6 @@ package com.mezon.mobile.home.chat.channelinfo
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.Drawable
 import android.text.StaticLayout
 import android.text.TextPaint
@@ -16,6 +14,7 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.home.chat.MezonImageLoader
+import com.mezon.mobile.home.voice.VoiceActivityBadge
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.util.avatarImgproxyUrl
 
@@ -156,7 +155,7 @@ class MemberCell(context: Context, private val theme: ThemeColors) : BaseCell(co
             displayName, 0, displayName.length, namePaint, maxWidth
         ).setMaxLines(1).setEllipsize(TextUtils.TruncateAt.END).build()
 
-        val statusWidth = measuredWidth - NAME_LEFT - PADDING_RIGHT - STATUS_ICON_SIZE - STATUS_ICON_GAP
+        val statusWidth = measuredWidth - NAME_LEFT - PADDING_RIGHT - statusIconSize - STATUS_ICON_GAP
         inVoiceLayout = if (inVoice && statusWidth > 0) {
             val label = context.getString(R.string.voice_profile_in_voice)
             statusTextPaint.color = (theme.onSurface and 0x00FFFFFF) or STATUS_ALPHA
@@ -196,9 +195,7 @@ class MemberCell(context: Context, private val theme: ThemeColors) : BaseCell(co
 
         if (isOwner) {
             if (ownerDrawable == null) {
-                ownerDrawable = MezonIcon.ownerIcon.getDrawable(context).apply {
-                    colorFilter = PorterDuffColorFilter(0xFFFAA61A.toInt(), PorterDuff.Mode.SRC_IN)
-                }
+                ownerDrawable = MezonIcon.loadDrawable(context, R.drawable.mz_owner_16, 0xFFFAA61A.toInt())
             }
             val iconY = textY.toInt() + (nameHeight - OWNER_ICON_SIZE) / 2
             ownerDrawable!!.setBounds(
@@ -211,14 +208,13 @@ class MemberCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         if (statusLayout != null) {
             val statusTop = textY + nameHeight + STATUS_GAP
             val drawable = inVoiceDrawable
-                ?: MezonIcon.channelVoice.getDrawable(context).mutate().apply {
-                    colorFilter = PorterDuffColorFilter(theme.voiceActiveGreen, PorterDuff.Mode.SRC_IN)
-                }.also { inVoiceDrawable = it }
-            val iconTop = (statusTop + (statusLayout.height - STATUS_ICON_SIZE) / 2f).toInt()
-            drawable.setBounds(NAME_LEFT, iconTop, NAME_LEFT + STATUS_ICON_SIZE, iconTop + STATUS_ICON_SIZE)
+                ?: VoiceActivityBadge.IN_VOICE.loadIcon(context, theme)
+                    .also { inVoiceDrawable = it }
+            val iconTop = (statusTop + (statusLayout.height - statusIconSize) / 2f).toInt()
+            drawable.setBounds(NAME_LEFT, iconTop, NAME_LEFT + statusIconSize, iconTop + statusIconSize)
             drawable.draw(canvas)
             canvas.save()
-            canvas.translate((NAME_LEFT + STATUS_ICON_SIZE + STATUS_ICON_GAP).toFloat(), statusTop)
+            canvas.translate((NAME_LEFT + statusIconSize + STATUS_ICON_GAP).toFloat(), statusTop)
             statusLayout.draw(canvas)
             canvas.restore()
         }
@@ -242,7 +238,8 @@ class MemberCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         private val NAME_LEFT = PADDING_LEFT + AVATAR_SIZE + LayoutHelper.dp(12f)
         private val OWNER_ICON_SIZE = LayoutHelper.dp(16f)
         private val NAME_OWNER_GAP = LayoutHelper.dp(4)
-        private val STATUS_ICON_SIZE = LayoutHelper.dp(12f)
+        private val statusIconSize: Int
+            get() = statusTextPaint.textSize.toInt().coerceAtLeast(1)
         private val STATUS_ICON_GAP = LayoutHelper.dp(4)
         private val STATUS_GAP = LayoutHelper.dp(2)
         private const val STATUS_ALPHA = 0x99 shl 24

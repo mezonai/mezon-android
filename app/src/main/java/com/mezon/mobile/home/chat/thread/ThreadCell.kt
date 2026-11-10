@@ -1,10 +1,9 @@
 package com.mezon.mobile.home.chat.thread
 
+import com.mezon.mobile.ui.cells.setIconColor
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
@@ -163,12 +162,11 @@ class ThreadCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         }
 
         if (chevronDrawable == null) {
-            chevronDrawable = MezonIcon.chevronSmallRightIcon.getDrawable(context).apply {
-                colorFilter = PorterDuffColorFilter(theme.textDisabled, PorterDuff.Mode.SRC_IN)
-            }
+            chevronDrawable = MezonIcon.loadDrawable(context, R.drawable.mz_chevron_right_16, ThemeColors.defaultIconTint)
         }
         val chevronX = measuredWidth - CHEVRON_SIZE - CHEVRON_MARGIN_RIGHT_ABS
         val chevronY = (CELL_HEIGHT - CHEVRON_SIZE) / 2
+        chevronDrawable!!.setIconColor(theme.textDisabled)
         chevronDrawable!!.setBounds(chevronX, chevronY, chevronX + CHEVRON_SIZE, chevronY + CHEVRON_SIZE)
         chevronDrawable!!.draw(canvas)
     }

@@ -96,7 +96,7 @@ class StreamingWebRtcSession @Inject constructor(
     val defaultQuality: StreamingQuality get() = StreamingQuality.entries.firstOrNull {
         it.layer == preferences.getString("default-quality", "auto")
     } ?: StreamingQuality.AUTO
-    val audioOutputIcon: com.mezon.mobile.ui.cells.MezonIcon get() = audioRouting.currentOutputIcon()
+    val audioOutputIcon: Int get() = audioRouting.currentOutputIcon()
     val isSpeakerOutput: Boolean get() = audioRouting.isSpeaker
     val audioOutputName: String get() = audioRouting.deviceName
     val eglContext get() = webRtcInfra.eglContext

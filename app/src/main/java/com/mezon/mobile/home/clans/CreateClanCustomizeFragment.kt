@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.clans
 
+import com.mezon.mobile.core.ThemeColors
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
@@ -8,8 +9,6 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.DashPathEffect
 import android.graphics.Paint
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.graphics.Rect
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
@@ -192,7 +191,7 @@ class CreateClanCustomizeFragment : BaseFragment() {
         }
         backWrap.addView(
             ImageView(context).apply {
-                setImageDrawable(MezonIcon.arrowLargeLeftIcon.getDrawable(context, CreateClanRnUiTokens.menuText(themeColors)))
+                setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_arrow_left_24, ThemeColors.defaultIconTint))
                 scaleType = ImageView.ScaleType.FIT_CENTER
                 adjustViewBounds = true
             },
@@ -262,8 +261,7 @@ class CreateClanCustomizeFragment : BaseFragment() {
             gravity = Gravity.CENTER
         }
         cameraIcon = ImageView(context).apply {
-            setImageDrawable(MezonIcon.cameraIcon.getDrawable(context, Color.WHITE))
-            colorFilter = PorterDuffColorFilter(themeColors.createClanCameraGray, PorterDuff.Mode.SRC_IN)
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_camera_20, themeColors.createClanCameraGray))
         }
         column.addView(
             cameraIcon,
@@ -289,7 +287,11 @@ class CreateClanCustomizeFragment : BaseFragment() {
             }
         )
         plusIcon = ImageView(context).apply {
-            setImageDrawable(MezonIcon.circlePlusPrimaryIcon.getDrawable(context, themeColors.createClanDiscordBlurple))
+            setImageDrawable(MezonIcon.loadDrawable(
+                context,
+                R.drawable.mz_plus_circle_32,
+                themeColors.createClanDiscordBlurple,
+            ))
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
         wrapper.addView(
@@ -342,10 +344,7 @@ class CreateClanCustomizeFragment : BaseFragment() {
             visibility = View.GONE
             scaleType = ImageView.ScaleType.FIT_CENTER
             setImageDrawable(
-                MezonIcon.circleXIcon.getDrawable(
-                    context,
-                    CreateClanRnUiTokens.textDisabled(themeColors)
-                )
+                MezonIcon.loadDrawable(context, R.drawable.mz_close_circle_24, ThemeColors.defaultIconTint)
             )
             setOnClickListener {
                 nameInput.setText("")

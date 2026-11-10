@@ -61,7 +61,7 @@ class QrExternalLinkBottomSheet(
             }
         }
         val linkIcon = ImageView(context).apply {
-            setImageDrawable(MezonIcon.linkIcon.getDrawable(context, themeColors.primary))
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_link_24, themeColors.primary))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
         }
         iconWrap.addView(linkIcon, FrameLayout.LayoutParams(

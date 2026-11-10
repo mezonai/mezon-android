@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.chat
 
+import com.mezon.mobile.core.ThemeColors
 import android.content.Context
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
@@ -204,7 +205,7 @@ class ShareContactFragment : BaseFragment() {
             background = roundedBg(themeColors.secondaryLight, 40f)
         }
         val searchIcon = ImageView(context).apply {
-            val d = MezonIcon.searchIcon.getDrawable(context)
+            val d = MezonIcon.loadDrawable(context, R.drawable.mz_search_20, ThemeColors.defaultIconTint)
             d.colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
             setImageDrawable(d)
         }

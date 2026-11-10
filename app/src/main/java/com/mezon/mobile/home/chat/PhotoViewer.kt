@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.chat
 
+import com.mezon.mobile.ui.cells.MezonIcon
 import android.animation.ObjectAnimator
 import android.app.Dialog
 import android.content.Context
@@ -35,6 +36,7 @@ import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.ui.cells.BackupImageView
 import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.util.createImgproxyUrl
+import com.mezon.mobile.ui.theme.ThemeMode
 import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
@@ -127,8 +129,8 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
         }
         
         val backBtn = ImageView(context).apply {
-            setImageResource(R.drawable.ic_arrow_back)
-            setColorFilter(Color.WHITE)
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_arrow_left_24, ThemeMode.DARK.iconTint))
+            scaleType = ImageView.ScaleType.CENTER
             val p = LayoutHelper.dp(16)
             setPadding(p, p, p, p)
             setOnClickListener { dismissWithAnimation() }
@@ -167,8 +169,8 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
         topBar.addView(textLayout, textParams)
 
         val moreBtn = ImageView(context).apply {
-            setImageResource(R.drawable.ic_more_vertical_24)
-            setColorFilter(Color.WHITE)
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_more_vertical_24, ThemeMode.DARK.iconTint))
+            scaleType = ImageView.ScaleType.CENTER
             val p = LayoutHelper.dp(16)
             setPadding(p, p, p, p)
             setOnClickListener { showMoreOptions(it) }
@@ -489,7 +491,7 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
 
         avatarView?.let { view ->
             if (item.uploaderId == ANONYMOUS_USER_ID && sender.avatarUrl == null) {
-                view.setImageDrawable(com.mezon.mobile.ui.cells.MezonIcon.anonymousAvatar.getDrawable(context))
+                view.setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_anonymous_24, ThemeColors.defaultIconTint))
             } else if (sender.avatarUrl != null) {
                 val proxyUrl = com.mezon.mobile.util.avatarImgproxyUrl(sender.avatarUrl, LayoutHelper.dp(40))
                 view.setImage(proxyUrl, item.uploaderId)

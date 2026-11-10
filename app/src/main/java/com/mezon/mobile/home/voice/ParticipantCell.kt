@@ -1,10 +1,10 @@
 package com.mezon.mobile.home.voice
 
+import com.mezon.mobile.ui.cells.setIconColor
+import com.mezon.mobile.R
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
@@ -25,6 +25,7 @@ import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.util.avatarImgproxyUrl
 import com.mezon.mobile.home.call.EglBaseProvider
+import com.mezon.mobile.ui.theme.ThemeMode
 import org.webrtc.RendererCommon
 import org.webrtc.SurfaceViewRenderer
 import org.webrtc.VideoTrack
@@ -82,7 +83,17 @@ class ParticipantCell(
     private var nameLayout: StaticLayout? = null
     private var micDrawable: Drawable? = null
     private var micMutedDrawable: Drawable? = null
-    private var shareScreenDrawable: Drawable? = null
+    private val shareScreenOverlayIcon by lazy { MezonIcon.loadDrawable(
+        context,
+        R.drawable.mz_screen_share_16,
+        ThemeMode.DARK.iconTint,
+    ) }
+    private val micOverlayIcon by lazy { MezonIcon.loadDrawable(context, R.drawable.mz_mic_16, ThemeMode.DARK.iconTint) }
+    private val mutedMicOverlayIcon by lazy { MezonIcon.loadDrawable(
+        context,
+        R.drawable.mz_mic_off_16,
+        ThemeMode.DARK.iconTint,
+    ) }
     private var currentAvatarUrl: String? = null
     private var avatarDisposable: MezonImageLoader.Cancellable? = null
     private var attachedToWindow = false
@@ -120,9 +131,8 @@ class ParticipantCell(
             bottomMargin = LayoutHelper.dp(10)
         })
 
-        micDrawable = MezonIcon.microphoneIcon.getDrawable(context).mutate()
-        micMutedDrawable = MezonIcon.microphoneSlashIcon.getDrawable(context).mutate()
-        shareScreenDrawable = MezonIcon.shareScreenIcon.getDrawable(context).mutate()
+        micDrawable = MezonIcon.loadDrawable(context, R.drawable.mz_mic_16, ThemeColors.defaultIconTint).mutate()
+        micMutedDrawable = MezonIcon.loadDrawable(context, R.drawable.mz_mic_off_16, ThemeColors.defaultIconTint).mutate()
 
         nameOverlayIcon = ImageView(context).apply {
             scaleType = ImageView.ScaleType.CENTER_INSIDE
@@ -424,15 +434,19 @@ class ParticipantCell(
                 reactionBadge.visibility = GONE
             }
             ReactionBadgeType.SOUND_EFFECT -> {
-                val icon = MezonIcon.activityIcon.getDrawable(context).mutate()
-                icon.colorFilter = PorterDuffColorFilter(0xFFFFFFFF.toInt(), PorterDuff.Mode.SRC_IN)
-                reactionBadgeIcon.setImageDrawable(icon)
+                reactionBadgeIcon.setImageDrawable(MezonIcon.loadDrawable(
+                    context,
+                    R.drawable.mz_soundboard_20,
+                    ThemeMode.DARK.iconTint,
+                ))
                 reactionBadge.visibility = VISIBLE
             }
             ReactionBadgeType.RAISE_HAND -> {
-                val icon = MezonIcon.raiseHandIcon.getDrawable(context).mutate()
-                icon.colorFilter = PorterDuffColorFilter(0xFFFFFFFF.toInt(), PorterDuff.Mode.SRC_IN)
-                reactionBadgeIcon.setImageDrawable(icon)
+                reactionBadgeIcon.setImageDrawable(MezonIcon.loadDrawable(
+                    context,
+                    R.drawable.mz_hand_raise_20,
+                    ThemeMode.DARK.iconTint,
+                ))
                 reactionBadge.visibility = VISIBLE
             }
         }
@@ -443,14 +457,10 @@ class ParticipantCell(
     }
 
     private fun updateNameOverlayContent() {
-        val icon = if (isScreenShare) {
-            shareScreenDrawable?.apply {
-                colorFilter = PorterDuffColorFilter(0xFFFFFFFF.toInt(), PorterDuff.Mode.SRC_IN)
-            }
-        } else {
-            (if (isMuted) micMutedDrawable else micDrawable)?.apply {
-                colorFilter = PorterDuffColorFilter(0xFFFFFFFF.toInt(), PorterDuff.Mode.SRC_IN)
-            }
+        val icon = when {
+            isScreenShare -> shareScreenOverlayIcon
+            isMuted -> mutedMicOverlayIcon
+            else -> micOverlayIcon
         }
         nameOverlayIcon.setImageDrawable(icon)
         nameOverlayText.text = displayName
@@ -503,7 +513,7 @@ class ParticipantCell(
     private fun drawMicIcon(canvas: Canvas, x: Int, y: Int) {
         val drawable = if (isMuted) micMutedDrawable else micDrawable
         drawable?.let {
-            it.colorFilter = PorterDuffColorFilter(themeColors.colorText, PorterDuff.Mode.SRC_IN)
+            it.setIconColor(themeColors.colorText)
             it.setBounds(x, y, x + MIC_ICON_SIZE, y + MIC_ICON_SIZE)
             it.draw(canvas)
         }

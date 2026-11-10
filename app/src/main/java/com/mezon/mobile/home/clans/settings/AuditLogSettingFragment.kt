@@ -2,7 +2,6 @@ package com.mezon.mobile.home.clans.settings
 import android.app.DatePickerDialog
 import android.content.Context
 import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
@@ -141,7 +140,7 @@ class AuditLogSettingFragment : BaseFragment() {
 
         actionBar = ActionBarView(context, themeColors).apply {
             setTitle(getString(R.string.menu_clan_audit_log))
-            setBackButtonImage(R.drawable.ic_close_24)
+            setBackButtonImage(R.drawable.mz_close_24)
             setBackButtonContentDescription(getString(R.string.common_close))
             setCenterTitle(true)
             setMenuOnItemClick(object : ActionBarView.ActionBarMenuOnItemClick() {
@@ -201,7 +200,7 @@ class AuditLogSettingFragment : BaseFragment() {
         }
         filterRow.addView(tagWrap, LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1f))
         val chev = ImageView(context).apply {
-            setImageDrawable(MezonIcon.chevronSmallRightIcon.getDrawable(context))
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_chevron_right_20, ThemeColors.defaultIconTint))
             setColorFilter(CreateClanRnUiTokens.textDisabled(themeColors), PorterDuff.Mode.SRC_IN)
         }
         filterRow.addView(chev, LayoutHelper.createLinear(18, 18, 0f, Gravity.CENTER_VERTICAL))

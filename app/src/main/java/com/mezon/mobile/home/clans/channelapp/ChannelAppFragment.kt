@@ -1,13 +1,13 @@
 package com.mezon.mobile.home.clans.channelapp
 
+import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.R
 import android.annotation.SuppressLint
 import android.animation.ValueAnimator
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.os.Handler
@@ -282,7 +282,7 @@ class ChannelAppFragment : BaseFragment() {
         }
         headerContentRow = row
         val closeBtn = android.widget.ImageView(context).apply {
-            setImageDrawable(MezonIcon.closeIcon.getDrawable(context, themeColors.colorText))
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_close_24, ThemeColors.defaultIconTint))
             layoutParams = LinearLayout.LayoutParams(LayoutHelper.dp(40), LayoutHelper.dp(40))
             setPadding(
                 LayoutHelper.dp(8),
@@ -311,7 +311,7 @@ class ChannelAppFragment : BaseFragment() {
         row.addView(title)
 
         val collapseBtn = ImageView(context).apply {
-            setImageDrawable(MezonIcon.chevronDownSmallIcon.getDrawable(context, themeColors.colorText))
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_chevron_down_16, ThemeColors.defaultIconTint))
             val sz = LayoutHelper.dp(32)
             layoutParams = LinearLayout.LayoutParams(sz, sz)
             val pad = LayoutHelper.dp(4)
@@ -328,9 +328,7 @@ class ChannelAppFragment : BaseFragment() {
 
     private fun buildFloatingExpandButton(context: Context): View {
         return ImageView(context).apply {
-            val drawable = MezonIcon.chevronDownSmallIcon.getDrawable(context)
-            drawable.colorFilter = PorterDuffColorFilter(Color.WHITE, PorterDuff.Mode.SRC_IN)
-            setImageDrawable(drawable)
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_chevron_down_16, Color.WHITE))
             rotation = 180f
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL

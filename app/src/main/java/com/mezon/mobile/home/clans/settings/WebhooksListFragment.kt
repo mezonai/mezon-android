@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.clans.settings
 
+import com.mezon.mobile.core.ThemeColors
 import android.content.Context
 import android.content.Intent
 import android.graphics.Typeface
@@ -133,7 +134,7 @@ class WebhooksListFragment : BaseFragment() {
 
         actionBar = ActionBarView(context, themeColors).apply {
             setTitle(getString(titleRes))
-            setBackButtonImage(R.drawable.ic_close_24)
+            setBackButtonImage(R.drawable.mz_close_24)
             setBackButtonContentDescription(getString(R.string.common_close))
             setCenterTitle(true)
             setMenuOnItemClick(object : ActionBarView.ActionBarMenuOnItemClick() {
@@ -463,7 +464,7 @@ class WebhooksListFragment : BaseFragment() {
         row.addView(
             ImageView(ctx).apply {
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
-                val d = MezonIcon.chevronSmallRightIcon.getDrawable(ctx)
+                val d = MezonIcon.loadDrawable(ctx, R.drawable.mz_chevron_right_20, ThemeColors.defaultIconTint)
                 d.mutate()
                 d.colorFilter = PorterDuffColorFilter(themeColors.textStrong, PorterDuff.Mode.SRC_IN)
                 setImageDrawable(d)

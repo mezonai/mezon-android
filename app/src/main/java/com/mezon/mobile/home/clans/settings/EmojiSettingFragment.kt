@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.clans.settings
 
+import com.mezon.mobile.core.ThemeColors
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
@@ -62,6 +63,7 @@ import com.mezon.mobile.util.getEmojiUrl
 import com.mezon.mobile.util.AttachmentUploader
 import com.mezon.mobile.util.CLAN_EMOJI_NAME_MAX_LENGTH
 import com.mezon.mobile.util.CLAN_EMOJI_NAME_MIN_LENGTH
+import com.mezon.mobile.ui.theme.ThemeMode
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -182,7 +184,7 @@ class EmojiSettingFragment : BaseFragment() {
 
         actionBar = ActionBarView(context, themeColors).apply {
             setTitle(getString(R.string.menu_clan_emoji))
-            setBackButtonImage(R.drawable.ic_close_24)
+            setBackButtonImage(R.drawable.mz_close_24)
             setBackButtonContentDescription(getString(R.string.common_close))
             setCenterTitle(true)
             setMenuOnItemClick(object : ActionBarView.ActionBarMenuOnItemClick() {
@@ -859,7 +861,7 @@ class EmojiSettingFragment : BaseFragment() {
                     gravity = Gravity.CENTER
                     setPadding(LayoutHelper.dp(24f), 0, LayoutHelper.dp(24f), 0)
                     
-                    val icon = MezonIcon.uploadPlusIcon.getDrawable(ctx, android.graphics.Color.WHITE)
+                    val icon = MezonIcon.loadDrawable(ctx, R.drawable.mz_image_add_24, ThemeMode.DARK.iconTint)
                     val iconSize = LayoutHelper.dp(20f)
                     icon.setBounds(0, 0, iconSize, iconSize)
                     setCompoundDrawables(icon, null, null, null)
@@ -999,7 +1001,7 @@ class EmojiSettingFragment : BaseFragment() {
                 FrameLayout.LayoutParams(EMOJI_SIZE, EMOJI_SIZE, Gravity.CENTER),
             )
             val forSaleBadge = ImageView(ctx).apply {
-                setImageDrawable(MezonIcon.saleIcon.getDrawable(ctx))
+                setImageDrawable(MezonIcon.loadDrawable(ctx, R.drawable.mz_shop_16, ThemeColors.defaultIconTint))
                 scaleType = ImageView.ScaleType.FIT_CENTER
                 visibility = View.GONE
             }
@@ -1238,7 +1240,7 @@ class EmojiSettingFragment : BaseFragment() {
             holder.avatarView.setUserId(creatorId)
             if (avUrl.isNotBlank()) holder.avatarView.setImageUrl(avUrl) else holder.avatarView.setImageUrl(null)
 
-            val del = MezonIcon.closeSmallBold.getDrawable(holder.deleteBtn.context, themeColors.error)
+            val del = MezonIcon.loadDrawable(holder.deleteBtn.context, R.drawable.mz_close_16, themeColors.error)
             holder.deleteBtn.setImageDrawable(del)
             holder.deleteBtn.visibility = if (allow) View.VISIBLE else View.INVISIBLE
         }

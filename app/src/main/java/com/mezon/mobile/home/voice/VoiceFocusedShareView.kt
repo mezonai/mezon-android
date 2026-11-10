@@ -1,8 +1,6 @@
 package com.mezon.mobile.home.voice
 
 import android.content.Context
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.GradientDrawable
 import android.os.SystemClock
 import android.view.GestureDetector
@@ -20,6 +18,7 @@ import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.R
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.home.call.EglBaseProvider
+import com.mezon.mobile.ui.theme.ThemeMode
 import org.webrtc.RendererCommon
 import org.webrtc.SurfaceViewRenderer
 import org.webrtc.VideoTrack
@@ -155,15 +154,15 @@ class VoiceFocusedShareView(
             gravity = Gravity.END
         }
 
-        emojiButton = createFocusActionButton(context, MezonIcon.faceIcon) {
+        emojiButton = createFocusActionButton(context, R.drawable.mz_emoji_20) {
             onEmojiClick?.invoke()
         }
-        fullScreenButton = createFocusActionButton(context, MezonIcon.expandIcon) {
+        fullScreenButton = createFocusActionButton(context, R.drawable.mz_fullscreen_20) {
             onFullScreenClick?.invoke()
         }.apply {
             visibility = View.GONE
         }
-        minimizeButton = createFocusActionButton(context, MezonIcon.minimizeIcon) {
+        minimizeButton = createFocusActionButton(context, R.drawable.mz_fullscreen_exit_20) {
             onMinimizeClick?.invoke()
         }
 
@@ -270,7 +269,7 @@ class VoiceFocusedShareView(
         attachScheduled = false
     }
 
-    private fun createFocusActionButton(context: Context, icon: MezonIcon, onClick: () -> Unit): FrameLayout {
+    private fun createFocusActionButton(context: Context, icon: Int, onClick: () -> Unit): FrameLayout {
         return FrameLayout(context).apply {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
@@ -281,9 +280,7 @@ class VoiceFocusedShareView(
             setOnClickListener { onClick() }
             applyVoiceButtonPressFeedback()
             val iconView = ImageView(context).apply {
-                setImageDrawable(icon.getDrawable(context).apply {
-                    colorFilter = PorterDuffColorFilter(0xFFFFFFFF.toInt(), PorterDuff.Mode.SRC_IN)
-                })
+                setImageDrawable(MezonIcon.loadDrawable(context, icon, ThemeMode.DARK.iconTint))
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
             }
             addView(iconView, LayoutParams(LayoutHelper.dp(16), LayoutHelper.dp(16), Gravity.CENTER))

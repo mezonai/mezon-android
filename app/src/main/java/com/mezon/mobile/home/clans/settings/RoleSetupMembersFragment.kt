@@ -135,7 +135,7 @@ class RoleSetupMembersFragment : BaseFragment() {
         actionBar = ActionBarView(context, themeColors).apply {
             setTitle(getString(if (isEditMode) R.string.clan_roles_detail_members else R.string.clan_roles_members_step_title))
             if (isEditMode) setSubtitle(getString(R.string.clan_roles_detail_role))
-            setBackButtonImage(R.drawable.ic_close_24)
+            setBackButtonImage(R.drawable.mz_close_24)
             setBackButtonContentDescription(getString(R.string.clan_roles_back_content_desc))
             setCenterTitle(true)
             ClanRolesUiTheme.applyPrimaryFlowActionBar(this, themeColors)

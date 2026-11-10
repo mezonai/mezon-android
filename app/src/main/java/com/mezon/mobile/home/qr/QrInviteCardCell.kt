@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.qr
 
+import com.mezon.mobile.ui.cells.drawCenteredIcon
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -62,7 +63,7 @@ class QrInviteCardCell(
         private val QR_AVATAR_SIZE = LayoutHelper.dp(48)
         private val TYPE_BADGE_HEIGHT = LayoutHelper.dp(20f).toFloat()
         private val TYPE_BADGE_HORIZONTAL_PADDING = LayoutHelper.dp(8f).toFloat()
-        private val VERIFIED_ICON_SIZE = LayoutHelper.dp(14)
+        private val VERIFIED_ICON_SIZE = LayoutHelper.dp(16)
         private val VERIFIED_ICON_TEXT_GAP = LayoutHelper.dp(4f).toFloat()
     }
 
@@ -126,10 +127,12 @@ class QrInviteCardCell(
     private val inviteBrandText = context.getString(R.string.qr_brand_title)
     private val brandText = context.getString(R.string.qr_brand_title).uppercase()
     private val verifiedText = context.getString(R.string.qr_verified_by).uppercase()
-    private val mezonLogo = MezonIcon.logoMezon.getDrawable(context)
-    private val verifyIcon = MezonIcon.verifyIcon.getDrawable(context).apply {
-        setTint(MyQrSnapshotStyle.badgeIcon)
-    }
+    private val mezonLogo = MezonIcon.loadDrawable(context, R.drawable.ic_logo_mezon)
+    private val verifyIcon = MezonIcon.loadDrawable(
+        context,
+        R.drawable.mz_verified_16,
+        MyQrSnapshotStyle.badgeIcon,
+    )
 
     private val avatarView = AvatarView(context).apply {
         setSizeDp(48)
@@ -319,13 +322,7 @@ class QrInviteCardCell(
 
         val verifiedIconCenterX = verifiedBadgeLeft +
             TYPE_BADGE_HORIZONTAL_PADDING + VERIFIED_ICON_SIZE / 2f
-        MezonIcon.drawIcon(
-            canvas,
-            verifyIcon,
-            verifiedIconCenterX.toInt(),
-            footerCenterY.toInt(),
-            VERIFIED_ICON_SIZE
-        )
+        verifyIcon.drawCenteredIcon(canvas, verifiedIconCenterX.toInt(), footerCenterY.toInt())
         val verifiedTextX = verifiedBadgeLeft + TYPE_BADGE_HORIZONTAL_PADDING +
             VERIFIED_ICON_SIZE + VERIFIED_ICON_TEXT_GAP
         val verifiedTextY = footerCenterY -

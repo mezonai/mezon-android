@@ -120,7 +120,7 @@ class RoleSetupPermissionsFragment : BaseFragment() {
         actionBar = ActionBarView(context, themeColors).apply {
             setTitle(getString(if (wizardMode) R.string.clan_roles_perm_step_title else R.string.clan_roles_detail_permissions))
             if (!wizardMode) setSubtitle(getString(R.string.clan_roles_detail_role))
-            setBackButtonImage(R.drawable.ic_close_24)
+            setBackButtonImage(R.drawable.mz_close_24)
             setBackButtonContentDescription(getString(R.string.clan_roles_back_content_desc))
             setCenterTitle(true)
             ClanRolesUiTheme.applyPrimaryFlowActionBar(this, themeColors)

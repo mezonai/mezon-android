@@ -115,7 +115,7 @@ class InstallPickerSheet(
         }
         searchField = searchInput
         val searchIcon = ImageView(context).apply {
-            val d = MezonIcon.magnifyingIcon.getDrawable(context).mutate()
+            val d = MezonIcon.loadDrawable(context, R.drawable.mz_search_20, ThemeColors.defaultIconTint).mutate()
             d.colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
             setImageDrawable(d)
             scaleType = ImageView.ScaleType.CENTER_INSIDE

@@ -1,8 +1,8 @@
 package com.mezon.mobile.home.stream
 
+import com.mezon.mobile.R
 import android.content.Context
 import com.mezon.mobile.home.call.MezonAudioSwitch
-import com.mezon.mobile.ui.cells.MezonIcon
 import com.twilio.audioswitch.AudioDevice
 import com.twilio.audioswitch.AudioDeviceChangeListener
 
@@ -31,10 +31,10 @@ class StreamingAudioManager(context: Context) {
     }
 
     // Match the SFU voice room's VoiceAudioManager.currentOutputIcon mapping.
-    fun currentOutputIcon(): MezonIcon = when (audioSwitch.selectedAudioDevice) {
-        is AudioDevice.Speakerphone -> MezonIcon.voiceWaveDoubleIcon
-        is AudioDevice.BluetoothHeadset -> MezonIcon.bluetoothIcon
-        else -> MezonIcon.voiceWaveIcon
+    fun currentOutputIcon(): Int = when (audioSwitch.selectedAudioDevice) {
+        is AudioDevice.Speakerphone -> R.drawable.mz_speaker_24
+        is AudioDevice.BluetoothHeadset -> R.drawable.ic_bluetooth_icon
+        else -> R.drawable.mz_speaker_low_24
     }
 
     fun toggleSpeaker() {

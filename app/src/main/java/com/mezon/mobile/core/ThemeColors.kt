@@ -130,6 +130,8 @@ class ThemeColors @Inject constructor() {
     val switchThumbPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
     val shadowPaint = Paint().apply { color = 0x12000000 }
 
+    val iconTint: Int get() = resolvedMode.iconTint
+
     val desktop: DesktopThemePalette get() = DesktopThemePalette.forTheme(resolvedMode)
     internal var mobile: MobileThemeColors = MobileThemeColors.forMode(resolvedMode, desktop)
         private set
@@ -395,14 +397,6 @@ class ThemeColors @Inject constructor() {
     val qrBrandAccent: Int get() = 0xFFE91E8C.toInt()
     val qrAvatarBackground: Int get() = Color.WHITE
 
-    val tabIconPrimary: Int get() = 0xFFCECECE.toInt()
-
-    val tabIconActivePrimary: Int get() = 0xFF939BF6.toInt()
-
-    val tabIconActiveDetail: Int get() = 0xFF5F66C9.toInt()
-
-    internal val bottomTabIconDetail: Int get() = 0xFF6B6B6B.toInt()
-
     internal val bottomTabLabelActive: Int
         get() = if (resolvedMode.isLight) 0xFF070709.toInt() else 0xFFDFE0E4.toInt()
 
@@ -450,6 +444,9 @@ class ThemeColors @Inject constructor() {
     val codeFenceBorder: Int get() = outline
 
     companion object {
+        val defaultIconTint: Int
+            get() = if (::instance.isInitialized) instance.iconTint else ThemeMode.DARK.iconTint
+
         @Volatile
         lateinit var instance: ThemeColors
             private set

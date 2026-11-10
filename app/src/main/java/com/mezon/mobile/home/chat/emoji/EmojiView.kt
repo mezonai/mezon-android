@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.chat.emoji
 
+import com.mezon.mobile.ui.cells.setIconColor
 import com.mezon.mobile.core.theme.MobileThemeColors
 import android.animation.ValueAnimator
 import android.content.Context
@@ -193,13 +194,13 @@ class EmojiView(
         }
 
         val searchIcon = ImageView(context).apply {
-            val d = MezonIcon.magnifyingIcon.getDrawable(context).mutate()
+            val d = MezonIcon.loadDrawable(context, R.drawable.mz_search_24, ThemeColors.defaultIconTint).mutate()
             d.colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
             setImageDrawable(d)
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
         soundFilterButton = ImageView(context).apply {
-            val d = MezonIcon.voiceWaveDoubleIcon.getDrawable(context).mutate()
+            val d = MezonIcon.loadDrawable(context, R.drawable.mz_speaker_24, ThemeColors.defaultIconTint).mutate()
             setImageDrawable(d)
             scaleType = ImageView.ScaleType.FIT_CENTER
             setPadding(LayoutHelper.dp(10f), LayoutHelper.dp(10f), LayoutHelper.dp(10f), LayoutHelper.dp(10f))
@@ -241,7 +242,7 @@ class EmojiView(
             setPadding(LayoutHelper.dp(16f), LayoutHelper.dp(12f), LayoutHelper.dp(16f), LayoutHelper.dp(12f))
             
             val backBtn = ImageView(context).apply {
-                val d = MezonIcon.backArrowLarge.getDrawable(context).mutate()
+                val d = MezonIcon.loadDrawable(context, R.drawable.mz_arrow_left_24, ThemeColors.defaultIconTint).mutate()
                 d.colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
                 setImageDrawable(d)
                 setOnClickListener {
@@ -291,7 +292,7 @@ class EmojiView(
             setBackgroundColor(themeColors.background)
         }
         backspaceButton = ImageView(context).apply {
-            val d = MezonIcon.backspaceIcon.getDrawable(context)
+            val d = MezonIcon.loadDrawable(context, R.drawable.mz_backspace_24, ThemeColors.defaultIconTint)
             d.colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
             setImageDrawable(d)
             scaleType = ImageView.ScaleType.CENTER
@@ -559,7 +560,7 @@ class EmojiView(
                         visibility = View.GONE
                         
                         val icon = ImageView(context).apply {
-                            val d = MezonIcon.magnifyingIcon.getDrawable(context).mutate()
+                            val d = MezonIcon.loadDrawable(context, R.drawable.mz_search_48, ThemeColors.defaultIconTint).mutate()
                             d.colorFilter = PorterDuffColorFilter(themeColors.textDisabled, PorterDuff.Mode.SRC_IN)
                             setImageDrawable(d)
                             alpha = 0.5f
@@ -721,10 +722,8 @@ class EmojiView(
             setColor(backgroundColor)
             cornerRadius = LayoutHelper.dp(10f).toFloat()
         }
-        soundFilterButton.drawable?.colorFilter = PorterDuffColorFilter(
-            if (soundStickerMode) themeColors.onPrimary else themeColors.onSurface,
-            PorterDuff.Mode.SRC_IN
-        )
+        val iconColor = if (soundStickerMode) themeColors.onPrimary else themeColors.onSurface
+        soundFilterButton.drawable?.let { it.setIconColor(iconColor) }
     }
 
     private fun updateStickerGridColumns() {

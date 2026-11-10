@@ -1,5 +1,7 @@
 package com.mezon.mobile.home.chat.emoji
 
+import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.R
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -11,7 +13,6 @@ import android.widget.FrameLayout
 import com.mezon.mobile.core.BaseCell
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
-import com.mezon.mobile.ui.cells.MezonIcon
 
 private val CELL_HEIGHT = LayoutHelper.dp(36f)
 private val TEXT_LEFT = LayoutHelper.dp(12f)
@@ -51,12 +52,12 @@ class CollapsibleHeaderCell(context: Context, private val themeColors: ThemeColo
         canvas.drawText(title.uppercase(), TEXT_LEFT.toFloat(), cy - (textPaint.ascent() + textPaint.descent()) / 2f, textPaint)
 
         val chevron = if (isExpanded) {
-            chevronDown ?: MezonIcon.chevronDownSmallIcon.getDrawable(context).mutate().also {
+            chevronDown ?: MezonIcon.loadDrawable(context, R.drawable.mz_chevron_down_16, ThemeColors.defaultIconTint).mutate().also {
                 it.colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
                 chevronDown = it
             }
         } else {
-            chevronRight ?: MezonIcon.chevronSmallRightIcon.getDrawable(context).mutate().also {
+            chevronRight ?: MezonIcon.loadDrawable(context, R.drawable.mz_chevron_right_16, ThemeColors.defaultIconTint).mutate().also {
                 it.colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
                 chevronRight = it
             }

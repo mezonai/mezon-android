@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.chat.emoji
 
+import com.mezon.mobile.R
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -186,7 +187,7 @@ class EmojiCell(context: Context, private val themeColors: ThemeColors) : BaseCe
 
         if (isLocked) {
             val ld = lockDrawable ?: run {
-                MezonIcon.lockIcon.getDrawable(context).mutate().also {
+                MezonIcon.loadDrawable(context, R.drawable.mz_lock_24, ThemeColors.defaultIconTint).mutate().also {
                     it.colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
                     lockDrawable = it
                 }

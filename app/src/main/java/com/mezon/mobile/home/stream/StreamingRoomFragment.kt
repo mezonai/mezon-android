@@ -1,10 +1,11 @@
 package com.mezon.mobile.home.stream
 
+import com.mezon.mobile.ui.cells.withDefaultIconTint
+import com.mezon.mobile.ui.cells.setIconColor
 import android.content.Context
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Color
-import android.graphics.PorterDuff
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.text.TextUtils
@@ -38,6 +39,7 @@ import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.util.absoluteResourceUrl
 import com.mezon.mobile.util.avatarImgproxyUrl
 import com.mezon.mobile.util.createImgproxyUrl
+import com.mezon.mobile.ui.theme.ThemeMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -158,7 +160,7 @@ class StreamingRoomFragment : BaseFragment() {
             setBackgroundColor(STREAM_CHROME_COLOR)
             setPadding(LayoutHelper.dp(6), 0, LayoutHelper.dp(6), 0)
         }
-        minimizeButton = headerButton(context, MezonIcon.chevronDownSmallIcon, 18) { minimizeToOverlay() }
+        minimizeButton = headerButton(context, R.drawable.mz_chevron_down_16, 18) { minimizeToOverlay() }
         header.addView(minimizeButton, LinearLayout.LayoutParams(LayoutHelper.dp(44), LayoutHelper.dp(44)))
         title = label(context, channelLabel, 16f).apply {
             setTextColor(Color.WHITE)
@@ -182,16 +184,15 @@ class StreamingRoomFragment : BaseFragment() {
             gravity = Gravity.CENTER_VERTICAL
             includeFontPadding = false
             setPadding(LayoutHelper.dp(12), 0, LayoutHelper.dp(4), 0)
-            val eye = MezonIcon.eyeIcon.getDrawable(context).mutate().apply {
-                setTint(Color.WHITE)
-                setBounds(0, 0, LayoutHelper.dp(14), LayoutHelper.dp(12))
+            val eye = MezonIcon.loadDrawable(context, R.drawable.mz_eye_16, ThemeMode.DARK.iconTint).apply {
+                setBounds(0, 0, intrinsicWidth, intrinsicHeight)
             }
             setCompoundDrawablesRelative(eye, null, null, null)
             compoundDrawablePadding = LayoutHelper.dp(4)
             setOnClickListener { showsViewers = !showsViewers; refreshMembersRow() }
         }
         header.addView(viewerCount, LinearLayout.LayoutParams(-2, LayoutHelper.dp(44)))
-        fullscreenButton = headerButton(context, MezonIcon.expandIcon, 16) { setFullscreen(!isFullscreen) }
+        fullscreenButton = headerButton(context, R.drawable.mz_fullscreen_16, 16) { setFullscreen(!isFullscreen) }
         header.addView(fullscreenButton, LinearLayout.LayoutParams(LayoutHelper.dp(44), LayoutHelper.dp(44)))
         root.addView(header, FrameLayout.LayoutParams(-1, -2, Gravity.TOP).apply {
             topMargin = AndroidUtilities.statusBarHeight + LayoutHelper.dp(8)
@@ -207,20 +208,19 @@ class StreamingRoomFragment : BaseFragment() {
             gravity = Gravity.CENTER_VERTICAL
             setBackgroundColor(STREAM_CHROME_COLOR)
         }
-        speaker = button(context, MezonIcon.voiceWaveDoubleIcon) { session.toggleSpeakerOutput() }
+        speaker = button(context, R.drawable.mz_speaker_24) { session.toggleSpeakerOutput() }
         speakerIcon = speaker.getChildAt(0) as ImageView
-        qualityButton = button(context, MezonIcon.settingIcon) {
+        qualityButton = button(context, R.drawable.mz_settings_24) {
             qualitySheet?.dismiss()
             qualitySheet = StreamingQualitySheet(context, session, themeColors).also { it.show() }
         }.apply { contentDescription = context.getString(R.string.stream_quality_title) }
-        chatButton = button(context, MezonIcon.chatIcon) {
+        chatButton = button(context, R.drawable.mz_chat_20) {
             (getParentActivity() as? MainActivity)?.openChat(channelId, channelLabel, clanId, CHANNEL_TYPE_STREAMING)
         }
-        val leave = button(context, MezonIcon.callCancelIcon) {
+        val leave = button(context, R.drawable.mz_call_cancel_20, onDarkSurface = true) {
             (getParentActivity() as? MainActivity)?.dismissStreamingRoom()
         }.apply {
             background = rounded(0xFFFF3535.toInt(), 25)
-            (getChildAt(0) as ImageView).setColorFilter(Color.WHITE)
         }
         footerButtons = listOf(speaker, qualityButton, chatButton, leave)
         footerSpacers.clear()
@@ -356,7 +356,11 @@ class StreamingRoomFragment : BaseFragment() {
     private fun updateFullscreenButton() {
         fullscreenButton.contentDescription = getString(if (isFullscreen) R.string.stream_exit_fullscreen else R.string.stream_enter_fullscreen)
         (fullscreenButton.getChildAt(0) as ImageView).setImageDrawable(
-            (if (isFullscreen) MezonIcon.minimizeIcon else MezonIcon.expandIcon).getDrawable(requireContext())
+            MezonIcon.loadDrawable(
+                requireContext(),
+                if (isFullscreen) R.drawable.mz_fullscreen_exit_16 else R.drawable.mz_fullscreen_16,
+                ThemeMode.DARK.iconTint,
+            )
         )
     }
 
@@ -421,8 +425,10 @@ class StreamingRoomFragment : BaseFragment() {
     }
 
     private fun refreshAudioOutputUi() {
-        speakerIcon.setImageDrawable(session.audioOutputIcon.getDrawable(speaker.context))
-        speakerIcon.setColorFilter(if (session.isSpeakerOutput) themeColors.onPrimaryContainer else themeColors.textStrong, PorterDuff.Mode.SRC_IN)
+        val tint = if (session.isSpeakerOutput) themeColors.onPrimaryContainer else themeColors.textStrong
+        val icon = MezonIcon.loadDrawable(speaker.context, session.audioOutputIcon, themeColors.iconTint)
+        icon.setIconColor(tint)
+        speakerIcon.setImageDrawable(icon)
         speaker.background = controlBackground(session.isSpeakerOutput)
         speaker.contentDescription = session.audioOutputName + ". " + speaker.context.getString(if (session.isSpeakerOutput) R.string.stream_receiver else R.string.stream_speaker)
         speaker.isSelected = session.isSpeakerOutput
@@ -501,20 +507,32 @@ class StreamingRoomFragment : BaseFragment() {
         membersRow.visibility = if (controlsVisible && showsViewers && (next.isNotEmpty() || extra > 0)) View.VISIBLE else View.GONE
     }
 
-    private fun headerButton(context: Context, icon: MezonIcon, iconSize: Int, action: () -> Unit) =
-        button(context, icon, action).apply {
+    private fun headerButton(context: Context, icon: Int, iconSize: Int, action: () -> Unit) =
+        button(context, icon, onDarkSurface = true, action = action).apply {
             background = null
             (getChildAt(0) as ImageView).apply {
-                setColorFilter(Color.WHITE)
                 layoutParams = FrameLayout.LayoutParams(LayoutHelper.dp(iconSize), LayoutHelper.dp(iconSize), Gravity.CENTER)
             }
             applyVoiceButtonPressFeedback()
         }
 
-    private fun button(context: Context, icon: MezonIcon, action: () -> Unit) = FrameLayout(context).apply {
+    private fun button(
+        context: Context,
+        icon: Int,
+        onDarkSurface: Boolean = false,
+        action: () -> Unit
+    ) = FrameLayout(context).apply {
         background = controlBackground()
         isClickable = true; isFocusable = true
-        addView(ImageView(context).apply { setImageDrawable(icon.getDrawable(context)); setColorFilter(themeColors.textStrong); scaleType = ImageView.ScaleType.CENTER_INSIDE }, FrameLayout.LayoutParams(LayoutHelper.dp(20), LayoutHelper.dp(20), Gravity.CENTER))
+        addView(ImageView(context).apply {
+            val drawable = if (onDarkSurface) {
+                MezonIcon.loadDrawable(context, icon, ThemeMode.DARK.iconTint)
+            } else {
+                MezonIcon.loadDrawable(context, icon).withDefaultIconTint(context, icon, themeColors.iconTint)
+            }
+            setImageDrawable(drawable)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+        }, FrameLayout.LayoutParams(LayoutHelper.dp(20), LayoutHelper.dp(20), Gravity.CENTER))
         setOnClickListener { action() }
     }
     private fun label(context: Context, value: String, size: Float, bold: Boolean = false) = TextView(context).apply {

@@ -1,5 +1,7 @@
 package com.mezon.mobile.wallet.history
 
+import com.mezon.mobile.ui.cells.setIconColor
+import com.mezon.mobile.ui.cells.setMezonIconResource
 import android.graphics.Color
 import android.view.LayoutInflater
 import android.view.View
@@ -77,20 +79,20 @@ class HistoryTransactionAdapter(
             val isIncoming = transaction.toAddress.equals(currentWalletAddress, ignoreCase = true)
             
             if (isIncoming) {
-                ivIcon.setImageResource(R.drawable.ic_chevron_left_24)
-                ivIcon.setColorFilter(Color.parseColor("#22C55E"))
+                ivIcon.setMezonIconResource(R.drawable.mz_chevron_left_24)
                 iconContainer.background = incomingIconBg
                 tvAmount.text = "+ ${HistoryTransactionFragment.formatAmount(itemView.context, transaction.value)}"
-                tvAmount.setTextColor(Color.parseColor("#22C55E"))
                 tvStatus.text = itemView.context.getString(R.string.transaction_status_received)
             } else {
-                ivIcon.setImageResource(R.drawable.ic_chevron_right_24)
-                ivIcon.setColorFilter(Color.parseColor("#EF4444"))
+                ivIcon.setMezonIconResource(R.drawable.mz_chevron_right_24)
                 iconContainer.background = outgoingIconBg
                 tvAmount.text = "- ${HistoryTransactionFragment.formatAmount(itemView.context, transaction.value)}"
-                tvAmount.setTextColor(Color.parseColor("#EF4444"))
                 tvStatus.text = itemView.context.getString(R.string.transaction_status_sent)
             }
+
+            val amountColor = Color.parseColor(if (isIncoming) "#22C55E" else "#EF4444")
+            ivIcon.drawable?.let { it.setIconColor(amountColor) }
+            tvAmount.setTextColor(amountColor)
 
             val themeColors = com.mezon.mobile.core.ThemeColors.instance
             tvStatus.setTextColor(themeColors.textDisabled)

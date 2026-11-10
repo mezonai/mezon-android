@@ -1,5 +1,7 @@
 package com.mezon.mobile.home.notifications
 
+import com.mezon.mobile.ui.cells.withDefaultIconTint
+import com.mezon.mobile.ui.cells.setIconColor
 import com.mezon.mobile.core.theme.MobileThemeColors
 import android.content.Context
 import android.text.TextUtils
@@ -38,13 +40,14 @@ import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.MezonToast
 import com.mezon.mobile.ui.cells.ToastOverlay
+import com.mezon.mobile.ui.theme.ThemeMode
 import com.mezon.mobile.util.NetworkErrorMessages
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
-private data class TabDef(val category: Int, val labelRes: Int, val icon: MezonIcon)
+private data class TabDef(val category: Int, val labelRes: Int, val icon: Int)
 
 class NotificationsFragment : BaseFragment() {
 
@@ -70,10 +73,10 @@ class NotificationsFragment : BaseFragment() {
     private var topicOpeningProgress: ProgressBar? = null
 
     private val tabs = listOf(
-        TabDef(NOTIF_CATEGORY_MENTIONS, R.string.notif_tab_mentions, MezonIcon.notificationTabMention),
-        TabDef(NOTIF_CATEGORY_MESSAGES, R.string.notif_tab_messages, MezonIcon.notificationTabMessages),
-        TabDef(NOTIF_TAB_TOPICS_UI, R.string.notif_tab_topics, MezonIcon.notificationTabTopic),
-        TabDef(NOTIF_CATEGORY_FOR_YOU, R.string.notif_tab_for_you, MezonIcon.notificationTabForYou)
+        TabDef(NOTIF_CATEGORY_MENTIONS, R.string.notif_tab_mentions, R.drawable.mz_mention_24),
+        TabDef(NOTIF_CATEGORY_MESSAGES, R.string.notif_tab_messages, R.drawable.mz_chat_24),
+        TabDef(NOTIF_TAB_TOPICS_UI, R.string.notif_tab_topics, R.drawable.mz_topic_24),
+        TabDef(NOTIF_CATEGORY_FOR_YOU, R.string.notif_tab_for_you, R.drawable.mz_bell_24)
     )
     private var currentCategory = NOTIF_CATEGORY_MENTIONS
     private val tabChipViews = mutableListOf<LinearLayout>()
@@ -304,7 +307,7 @@ class NotificationsFragment : BaseFragment() {
         val sheet = BottomSheet.Builder(context)
             .setItems(
                 arrayOf(getString(R.string.notif_remove_notification)),
-                intArrayOf(MezonIcon.trashIcon.resId)
+                intArrayOf(R.drawable.mz_trash_24)
             ) { _, index ->
                 if (index == 0) {
                     store.deleteNotification(entity.id, entity.category)
@@ -646,7 +649,7 @@ class NotificationsFragment : BaseFragment() {
         }
     }
 
-    private fun buildChip(context: Context, label: String, icon: MezonIcon, active: Boolean): LinearLayout {
+    private fun buildChip(context: Context, label: String, icon: Int, active: Boolean): LinearLayout {
         val iconPx = LayoutHelper.dp(16)
         val gap = LayoutHelper.dp(4)
         val padStart = LayoutHelper.dp(8)
@@ -656,9 +659,8 @@ class NotificationsFragment : BaseFragment() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPaddingRelative(padStart, vPad, padEnd, vPad)
-            background = buildChipBackground(active)
             addView(ImageView(context).apply {
-                setImageDrawable(icon.getDrawable(context))
+                setImageDrawable(MezonIcon.loadDrawable(context, icon).withDefaultIconTint(context, icon, themeColors.iconTint))
                 scaleType = ImageView.ScaleType.FIT_CENTER
                 layoutParams = LinearLayout.LayoutParams(iconPx, iconPx).apply { marginEnd = gap }
             })
@@ -669,8 +671,8 @@ class NotificationsFragment : BaseFragment() {
                 ellipsize = TextUtils.TruncateAt.END
                 gravity = Gravity.CENTER_VERTICAL
                 includeFontPadding = false
-                setTextColor(if (active) android.graphics.Color.WHITE else themeColors.textDisabled)
             }, LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1f))
+            applyTabChipColors(this, active)
         }
     }
 
@@ -753,11 +755,18 @@ class NotificationsFragment : BaseFragment() {
     private fun rebuildTabChipColors() {
         tabs.forEachIndexed { index, tab ->
             val chip = tabChipViews.getOrNull(index) ?: return@forEachIndexed
-            val active = tab.category == currentCategory
-            chip.background = buildChipBackground(active)
-            val labelTv = chip.getChildAt(1) as TextView
-            labelTv.setTextColor(if (active) android.graphics.Color.WHITE else themeColors.textDisabled)
+            applyTabChipColors(chip, tab.category == currentCategory)
         }
+    }
+
+    private fun applyTabChipColors(chip: LinearLayout, active: Boolean) {
+        chip.background = buildChipBackground(active)
+        val iconView = chip.getChildAt(0) as ImageView
+        val iconColor = if (active) ThemeMode.DARK.iconTint else themeColors.iconTint
+        iconView.drawable.setIconColor(iconColor)
+
+        val labelView = chip.getChildAt(1) as TextView
+        labelView.setTextColor(if (active) android.graphics.Color.WHITE else themeColors.textDisabled)
     }
 
     private fun updateVisibleRows(mask: Int) {

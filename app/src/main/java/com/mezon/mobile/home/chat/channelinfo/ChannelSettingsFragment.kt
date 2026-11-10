@@ -1,5 +1,7 @@
 package com.mezon.mobile.home.chat.channelinfo
 
+import com.mezon.mobile.ui.cells.withDefaultIconTint
+import com.mezon.mobile.core.ThemeColors
 import android.content.Context
 import android.graphics.Color
 import android.graphics.PorterDuff
@@ -271,7 +273,7 @@ class ChannelSettingsFragment : BaseFragment() {
             setBackgroundColor(themeColors.background)
 
             addView(
-                iconButton(context, MezonIcon.closeIcon) { finishFragment() },
+                iconButton(context, R.drawable.mz_close_24) { finishFragment() },
                 FrameLayout.LayoutParams(LayoutHelper.dp(56f), LayoutHelper.dp(56f), Gravity.START or Gravity.BOTTOM)
             )
 
@@ -305,7 +307,7 @@ class ChannelSettingsFragment : BaseFragment() {
         }
     }
 
-    private fun iconButton(context: Context, icon: MezonIcon, onPress: () -> Unit): FrameLayout {
+    private fun iconButton(context: Context, icon: Int, onPress: () -> Unit): FrameLayout {
         return FrameLayout(context).apply {
             isClickable = true
             isFocusable = true
@@ -320,7 +322,7 @@ class ChannelSettingsFragment : BaseFragment() {
             setOnClickListener { onPress() }
             addView(
                 ImageView(context).apply {
-                    val d = icon.getDrawable(context)
+                    val d = MezonIcon.loadDrawable(context, icon).withDefaultIconTint(context, icon, ThemeColors.defaultIconTint)
                     d.colorFilter = PorterDuffColorFilter(themeColors.colorText, PorterDuff.Mode.SRC_IN)
                     setImageDrawable(d)
                     scaleType = ImageView.ScaleType.FIT_CENTER
@@ -379,7 +381,7 @@ class ChannelSettingsFragment : BaseFragment() {
         if (!isThread && showChangeCategory()) {
             rows.add(
                 ClanSettingsUiHelpers.buildMezonChevronRow(
-                    context, themeColors, MezonIcon.clipboardIcon,
+                    context, themeColors, R.drawable.mz_paste_24,
                     getString(R.string.channel_settings_change_category), null,
                     Runnable { openChangeCategory(context) }
                 )
@@ -388,7 +390,7 @@ class ChannelSettingsFragment : BaseFragment() {
         if (showPermissions()) {
             rows.add(
                 ClanSettingsUiHelpers.buildMezonChevronRow(
-                    context, themeColors, MezonIcon.bravePermission,
+                    context, themeColors, R.drawable.mz_role_24,
                     getString(R.string.channel_settings_permissions), null,
                     Runnable { openChannelPermissions(context) }
                 )
@@ -397,7 +399,7 @@ class ChannelSettingsFragment : BaseFragment() {
         if (showQuickAction()) {
             rows.add(
                 ClanSettingsUiHelpers.buildMezonChevronRow(
-                    context, themeColors, MezonIcon.quickAction,
+                    context, themeColors, R.drawable.mz_bolt_24,
                     getString(R.string.channel_settings_quick_action), null,
                     Runnable { openQuickAction() }
                 )
@@ -406,7 +408,7 @@ class ChannelSettingsFragment : BaseFragment() {
         if (showBanList()) {
             rows.add(
                 ClanSettingsUiHelpers.buildMezonChevronRow(
-                    context, themeColors, MezonIcon.hammerIcon,
+                    context, themeColors, R.drawable.mz_ban_24,
                     getString(R.string.channel_settings_ban_list), null,
                     Runnable { openBanList() }
                 )
@@ -420,7 +422,7 @@ class ChannelSettingsFragment : BaseFragment() {
         if (showWebhooks()) {
             rows.add(
                 ClanSettingsUiHelpers.buildMezonChevronRow(
-                    context, themeColors, MezonIcon.webhookIcon,
+                    context, themeColors, R.drawable.mz_webhook_24,
                     getString(R.string.channel_settings_webhooks), null,
                     Runnable { openWebhooks() }
                 )
@@ -429,7 +431,7 @@ class ChannelSettingsFragment : BaseFragment() {
         if (isThread) {
             rows.add(
                 ClanSettingsUiHelpers.buildMezonChevronRow(
-                    context, themeColors, MezonIcon.doorExitIcon,
+                    context, themeColors, R.drawable.mz_leave_24,
                     getString(R.string.channel_settings_menu_leave_thread), null,
                     Runnable { confirmLeaveThread() }
                 )
@@ -440,7 +442,7 @@ class ChannelSettingsFragment : BaseFragment() {
             else R.string.channel_settings_delete_channel
             rows.add(
                 ClanSettingsUiHelpers.buildMezonChevronRow(
-                    context, themeColors, MezonIcon.trashIcon,
+                    context, themeColors, R.drawable.mz_trash_24,
                     getString(deleteLabel), themeColors.redStrong,
                     Runnable { confirmDelete() }
                 )

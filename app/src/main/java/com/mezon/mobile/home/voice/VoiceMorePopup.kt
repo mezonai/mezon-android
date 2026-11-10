@@ -1,5 +1,8 @@
 package com.mezon.mobile.home.voice
 
+import com.mezon.mobile.ui.cells.withDefaultIconTint
+import com.mezon.mobile.ui.cells.setIconColor
+import com.mezon.mobile.ui.cells.setMezonIconResource
 import android.app.Activity
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
@@ -61,11 +64,11 @@ class VoiceMorePopup(private val themeColors: ThemeColors) {
             clipToOutline = true
         }
 
-        val emojiButton = createMoreActionIconButton(anchor.context, MezonIcon.faceIcon) {
+        val emojiButton = createMoreActionIconButton(anchor.context, R.drawable.mz_emoji_20) {
             dismiss()
             onEmojiClick()
         }
-        val soundButton = createMoreActionIconButton(anchor.context, MezonIcon.activityIcon) {
+        val soundButton = createMoreActionIconButton(anchor.context, R.drawable.mz_soundboard_20) {
             dismiss()
             onSoundClick()
         }
@@ -73,13 +76,13 @@ class VoiceMorePopup(private val themeColors: ThemeColors) {
         val buttons = if (showAudienceActions) {
             val raiseHandButton = createMoreActionIconButton(
                 anchor.context,
-                MezonIcon.raiseHandIcon,
+                R.drawable.mz_hand_raise_20,
                 if (raiseHandActive) RAISE_HAND_ACTIVE else null
             ) {
                 dismiss()
                 onRaiseHandClick()
             }
-            val messageButton = createMoreActionIconButton(anchor.context, MezonIcon.notificationTabMessages, applyTint = false) {
+            val messageButton = createMoreActionIconButton(anchor.context, R.drawable.mz_chat_24, applyTint = false) {
                 dismiss()
                 onMessageClick()
             }
@@ -225,8 +228,12 @@ class VoiceMorePopup(private val themeColors: ThemeColors) {
     fun updateNoiseState(state: NoiseSuppressionState, captureConfirmed: Boolean, showApplied: Boolean = true) {
         val status = noiseStatus ?: return
         val showWaveform = state == NoiseSuppressionState.ON || state == NoiseSuppressionState.APPLYING
-        noiseIcon?.setImageResource(if (showWaveform) R.drawable.ic_noise_suppression else R.drawable.ic_noise_suppression_off)
-        noiseIcon?.setColorFilter(if (showWaveform) themeColors.onSurface else NOISE_OFF_COLOR, PorterDuff.Mode.SRC_IN)
+        noiseIcon?.apply {
+            val icon = if (showWaveform) R.drawable.mz_noise_suppression_20 else R.drawable.mz_noise_suppression_off_20
+            val tint = if (showWaveform) themeColors.onSurface else NOISE_OFF_COLOR
+            setMezonIconResource(icon, themeColors)
+            drawable?.let { it.setIconColor(tint) }
+        }
         noiseAction?.isEnabled = state != NoiseSuppressionState.APPLYING
         noiseProgress?.visibility = if (state == NoiseSuppressionState.APPLYING) View.VISIBLE else View.GONE
         status.text = when (state) {
@@ -245,7 +252,7 @@ class VoiceMorePopup(private val themeColors: ThemeColors) {
 
     private fun createMoreActionIconButton(
         context: android.content.Context,
-        icon: MezonIcon,
+        icon: Int,
         tint: Int? = null,
         applyTint: Boolean = true,
         onClick: () -> Unit
@@ -259,9 +266,11 @@ class VoiceMorePopup(private val themeColors: ThemeColors) {
             isFocusable = true
             setOnClickListener { onClick() }
             addView(ImageView(context).apply {
-                setImageDrawable(icon.getDrawable(context).apply {
-                    if (applyTint) {
-                        colorFilter = PorterDuffColorFilter(tint ?: themeColors.onSurface, PorterDuff.Mode.SRC_IN)
+                setImageDrawable(MezonIcon.loadDrawable(context, icon).withDefaultIconTint(context, icon, ThemeColors.defaultIconTint).apply {
+                    if (applyTint && tint != null) {
+                        this.setIconColor(tint)
+                    } else if (applyTint) {
+                        colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
                     }
                 })
                 scaleType = ImageView.ScaleType.CENTER_INSIDE

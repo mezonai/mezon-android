@@ -137,7 +137,11 @@ class ChannelSearchCell(context: Context, private val theme: ThemeColors) : Base
         if (newDisplay != null) {
             display = newDisplay
             val ch = d.channel
-            iconDrawable = ChannelItemCell.resolveChannelIcon(ch.type, ch.isPrivate, ch.isAgeRestricted).getDrawable(context)
+            iconDrawable = MezonIcon.loadDrawable(
+                context,
+                ChannelItemCell.resolveChannelIcon(ch.type, ch.isPrivate, ch.isAgeRestricted),
+                ThemeColors.defaultIconTint,
+            )
             showJoin = d.showJoinUi
             isJoinTouch = false
             joinButton.isPressed = false
@@ -205,7 +209,11 @@ class ChannelSearchCell(context: Context, private val theme: ThemeColors) : Base
         val h = measuredHeight - ROW_MARGIN_BOTTOM
 
         val icon = iconDrawable
-            ?: ChannelItemCell.resolveChannelIcon(ch.type, ch.isPrivate, ch.isAgeRestricted).getDrawable(context).also { iconDrawable = it }
+            ?: MezonIcon.loadDrawable(
+                context,
+                ChannelItemCell.resolveChannelIcon(ch.type, ch.isPrivate, ch.isAgeRestricted),
+                ThemeColors.defaultIconTint,
+            ).also { iconDrawable = it }
         val iconTop = (h - ICON_SIZE) / 2
         icon.setBounds(ICON_LEFT, iconTop, ICON_LEFT + ICON_SIZE, iconTop + ICON_SIZE)
         icon.draw(canvas)

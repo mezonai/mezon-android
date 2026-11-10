@@ -14,7 +14,6 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.ui.cells.AvatarView
-import com.mezon.mobile.ui.cells.MezonIcon
 
 data class DmMenuOptions(
     val showLeaveGroup: Boolean,
@@ -56,12 +55,12 @@ class DmMenuBottomSheet(
     override fun onCreate(savedInstanceState: Bundle?) {
         val sectionGap = 14f
         val newOriginalColorIcons = setOf(
-            MezonIcon.markUnreadIcon,
-            MezonIcon.pinIcon,
-            MezonIcon.unpinIcon,
-            MezonIcon.bellIcon,
-            MezonIcon.bellSlashIcon,
-            MezonIcon.userFriendIcon,
+            R.drawable.mz_eye_20,
+            R.drawable.mz_pin_20,
+            R.drawable.mz_pin_off_20,
+            R.drawable.mz_bell_20,
+            R.drawable.mz_bell_off_20,
+            R.drawable.mz_user_plus_20,
         )
 
         fun dismissAndRun(action: () -> Unit): Runnable = Runnable {
@@ -71,7 +70,7 @@ class DmMenuBottomSheet(
 
         fun buildRow(
             label: String,
-            icon: MezonIcon,
+            icon: Int,
             labelColor: Int = theme.textStrong,
             iconColor: Int = theme.textStrong,
             onClick: () -> Unit,
@@ -138,7 +137,7 @@ class DmMenuBottomSheet(
                 add(
                     buildRow(
                         context.getString(R.string.dm_menu_delete_group),
-                        com.mezon.mobile.ui.cells.MezonIcon.closeSmallBold,
+                        R.drawable.mz_close_16,
                         labelColor = theme.error,
                         iconColor = theme.error,
                         onClick = onDeleteGroup,
@@ -148,7 +147,7 @@ class DmMenuBottomSheet(
                 add(
                     buildRow(
                         context.getString(R.string.dm_menu_leave_group),
-                        com.mezon.mobile.ui.cells.MezonIcon.leaveGroupIcon,
+                        R.drawable.mz_leave_20,
                         labelColor = theme.error,
                         iconColor = theme.error,
                         onClick = onLeaveGroup,
@@ -162,7 +161,7 @@ class DmMenuBottomSheet(
                 add(
                     buildRow(
                         context.getString(R.string.dm_menu_close_dm),
-                        com.mezon.mobile.ui.cells.MezonIcon.closeDMIcon,
+                        R.drawable.mz_close_20,
                         labelColor = theme.error,
                         iconColor = theme.error,
                         onClick = onCloseDm,
@@ -173,7 +172,7 @@ class DmMenuBottomSheet(
                 add(
                     buildRow(
                         context.getString(R.string.dm_menu_remove_friend),
-                        com.mezon.mobile.ui.cells.MezonIcon.removeFriend,
+                        R.drawable.mz_user_minus_24,
                         labelColor = theme.error,
                         iconColor = theme.error,
                         onClick = onRemoveFriend,
@@ -183,7 +182,7 @@ class DmMenuBottomSheet(
                 add(
                     buildRow(
                         context.getString(R.string.dm_add_friend),
-                        MezonIcon.userFriendIcon,
+                        R.drawable.mz_user_plus_20,
                         onClick = onAddFriend,
                     )
                 )
@@ -192,7 +191,7 @@ class DmMenuBottomSheet(
                 add(
                     buildRow(
                         context.getString(R.string.dm_menu_unblock_user),
-                        com.mezon.mobile.ui.cells.MezonIcon.unblockUser,
+                        R.drawable.mz_user_unblock_20,
                         onClick = onUnblockUser,
                     )
                 )
@@ -200,7 +199,7 @@ class DmMenuBottomSheet(
                 add(
                     buildRow(
                         context.getString(R.string.dm_menu_block_user),
-                        com.mezon.mobile.ui.cells.MezonIcon.blockUser,
+                        R.drawable.mz_user_block_20,
                         labelColor = theme.error,
                         iconColor = theme.error,
                         onClick = onBlockUser,
@@ -214,7 +213,7 @@ class DmMenuBottomSheet(
                 add(
                     buildRow(
                         context.getString(R.string.dm_menu_mark_as_read),
-                        MezonIcon.markUnreadIcon,
+                        R.drawable.mz_eye_20,
                         onClick = onMarkAsRead,
                     )
                 )
@@ -228,7 +227,7 @@ class DmMenuBottomSheet(
                 add(
                     buildRow(
                         pinLabel,
-                        if (options.isPinned) MezonIcon.unpinIcon else MezonIcon.pinIcon,
+                        if (options.isPinned) R.drawable.mz_pin_off_20 else R.drawable.mz_pin_20,
                         onClick = onTogglePin,
                     )
                 )
@@ -243,9 +242,9 @@ class DmMenuBottomSheet(
                     context.getString(R.string.dm_menu_mute)
                 }
                 val muteIcon = if (options.isMuted) {
-                    MezonIcon.bellIcon
+                    R.drawable.mz_bell_20
                 } else {
-                    MezonIcon.bellSlashIcon
+                    R.drawable.mz_bell_off_20
                 }
                 add(
                     buildRow(

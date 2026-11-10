@@ -255,14 +255,14 @@ class ClanMemberManageFragment : BaseFragment() {
         val rows = ArrayList<View>()
         if (!isSelf && permission.isClanOwner) {
             rows.add(ClanSettingsUiHelpers.buildMezonMenuRow(
-                requireContext(), themeColors, MezonIcon.transferOwnershipIcon,
+                requireContext(), themeColors, R.drawable.mz_owner_transfer_24,
                 getString(R.string.clan_member_transfer_ownership), destructiveRed, destructiveRed,
                 Runnable { presentFragment(ClanTransferOwnershipFragment.newInstance(clanId, member.userId)) }
             ))
         }
         if (!isSelf && member.userId != clanOwnerId && (permission.isClanOwner || permission.hasAdminPermission)) {
             rows.add(ClanSettingsUiHelpers.buildMezonMenuRow(
-                requireContext(), themeColors, MezonIcon.removeFriend,
+                requireContext(), themeColors, R.drawable.mz_user_minus_24,
                 getString(R.string.clan_member_kick), destructiveRed, destructiveRed,
                 Runnable { presentFragment(ClanKickMemberFragment.newInstance(clanId, member.userId)) }
             ))
@@ -424,7 +424,7 @@ class ClanTransferOwnershipFragment : BaseFragment() {
         if (showCrown) {
             addView(ImageView(context).apply {
                 scaleType = ImageView.ScaleType.FIT_CENTER
-                setImageDrawable(MezonIcon.ownerIcon.getDrawable(context, Color.rgb(255, 204, 0)))
+                setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_owner_24, Color.rgb(255, 204, 0)))
             }, LayoutHelper.createFrame(30, 30, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
         }
     }
@@ -578,7 +578,7 @@ class ClanKickMemberFragment : BaseFragment() {
 
 private fun BaseFragment.simpleActionBar(context: Context, title: String) = ActionBarView(context, themeColors).apply {
     setTitle(title)
-    setBackButtonImage(R.drawable.ic_arrow_back)
+    setBackButtonImage(R.drawable.mz_arrow_left_24)
     setCenterTitle(true)
     ClanRolesUiTheme.applyPrimaryFlowActionBar(this, themeColors)
     setBackClickListener { finishFragment() }

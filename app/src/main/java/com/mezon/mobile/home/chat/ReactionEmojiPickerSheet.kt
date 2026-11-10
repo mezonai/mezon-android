@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.chat
 
+import com.mezon.mobile.R
 import android.content.Context
 import android.text.Editable
 import android.text.TextWatcher
@@ -103,7 +104,7 @@ class ReactionEmojiPickerSheet(
         }
         searchField = searchInput
         val searchIcon = ImageView(context).apply {
-            setImageDrawable(MezonIcon.magnifyingIcon.getDrawable(context).apply {
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_search_24, ThemeColors.defaultIconTint).apply {
                 colorFilter = android.graphics.PorterDuffColorFilter(
                     themeColors.onSurface,
                     android.graphics.PorterDuff.Mode.SRC_IN

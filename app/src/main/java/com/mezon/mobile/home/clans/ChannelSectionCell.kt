@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.clans
 
+import com.mezon.mobile.R
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -84,6 +85,6 @@ class ChannelSectionCell(
         val existing = arrowDrawable
         if (existing != null && arrowTint == tint) return existing
         arrowTint = tint
-        return MezonIcon.chevronDownSmallIcon.getDrawable(context, tint).also { arrowDrawable = it }
+        return MezonIcon.loadDrawable(context, R.drawable.mz_chevron_down_16, tint).also { arrowDrawable = it }
     }
 }

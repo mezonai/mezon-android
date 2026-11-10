@@ -1,5 +1,8 @@
 package com.mezon.mobile.home.chat
 
+import com.mezon.mobile.ui.cells.withDefaultIconTint
+import com.mezon.mobile.ui.cells.drawCenteredIcon
+import com.mezon.mobile.ui.cells.setIconColor
 import com.mezon.mobile.core.theme.DesktopThemeToken
 import android.app.DatePickerDialog
 import android.content.Context
@@ -92,6 +95,7 @@ import com.mezon.mobile.util.EmbedRadioSpec
 import com.mezon.mobile.util.EmbedSelectOptionSpec
 import com.mezon.mobile.util.EmbedSelectSpec
 import com.mezon.mobile.util.parseOgpData
+import com.mezon.mobile.ui.theme.ThemeMode
 import android.graphics.Bitmap
 import android.graphics.Typeface
 import android.text.TextPaint
@@ -104,8 +108,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import android.graphics.Color
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.text.Editable
 import android.text.InputType
 import android.text.TextWatcher
@@ -158,7 +160,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     init {
         val chevronSz = LayoutHelper.dp(18)
-        embedSelectChevronDrawable = MezonIcon.chevronDownSmallIcon.getDrawable(context).mutate()
+        embedSelectChevronDrawable = MezonIcon.loadDrawable(context, R.drawable.mz_chevron_down_16, ThemeColors.defaultIconTint).mutate()
         embedSelectChevronDrawable.setBounds(0, 0, chevronSz, chevronSz)
     }
 
@@ -256,11 +258,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private val callLogCallbackRect = RectF()
     private var callLogCardHeight = 0
     private var callLogInnerWidth = 0
-    private var callLogIconEnum = MezonIcon.callLogOutgoing
-    private var callLogIconTint = 0
+    private var callLogIconResId = R.drawable.mz_call_outgoing_16
     private var callLogIconDrawable: Drawable? = null
-    private var callLogIconDrawableEnum: MezonIcon? = null
-    private var callLogIconDrawableTint = 0
+    private var callLogDrawableResId: Int? = null
     private var callLogCallbackLayout: StaticLayout? = null
     private var callLogTitleIsRed = false
     private val callLogTitlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
@@ -315,7 +315,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var audioDurationProbeUrl = ""
     private var audioWaveTimeMs: Long = 0
     private var audioLastFrameTimeMs: Long = 0
-    private val audioWavePath = Path()
 
     private val photoImage = ImageReceiver(this).apply {
         retryFailedLoads = true
@@ -347,13 +346,27 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     }
     private val ogpImage = ImageReceiver(this)
     private val shimmerEffect = ShimmerEffect()
+    private val audioPlayIcon by lazy(LazyThreadSafetyMode.NONE) {
+        MezonIcon.loadDrawable(context, R.drawable.mz_play_16, ThemeMode.DARK.iconTint)
+    }
+    private val audioPauseIcon by lazy(LazyThreadSafetyMode.NONE) {
+        MezonIcon.loadDrawable(context, R.drawable.mz_pause_16, ThemeMode.DARK.iconTint)
+    }
+    private val videoPlayIcon by lazy(LazyThreadSafetyMode.NONE) {
+        MezonIcon.loadDrawable(context, R.drawable.mz_play_24, ThemeMode.DARK.iconTint)
+    }
+    private val forwardIcon by lazy(LazyThreadSafetyMode.NONE) {
+        MezonIcon.loadDrawable(context, R.drawable.mz_forward_16, theme.iconTint)
+    }
+    private val sendingIcon by lazy(LazyThreadSafetyMode.NONE) {
+        MezonIcon.loadDrawable(context, R.drawable.mz_clock_16, theme.iconTint)
+    }
     private var brokenImageDrawable: Drawable? = null
-    private var brokenImageDrawableTint = 0
+    private var brokenImageResId = 0
     private var photoWidth = 0
     private var photoHeight = 0
     private var mediaGridCount = 0
     private var mediaGridTotalH = 0
-    private val playTriPath = Path()
     private val connectorPath = Path()
     private val tmpRect = RectF()
     private var ogpData: OgpData? = null
@@ -398,7 +411,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var cachedFileSizeW = 0f
     private var cachedEphW = 0f
     private var cachedInnerWidth = 0
-    private val forwardArrowPath = Path()
 
     private var reactionGroups: List<ReactionGroup> = emptyList()
     private var reactionCountLayouts: Array<StaticLayout?> = emptyArray()
@@ -1395,7 +1407,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     private fun applyAnonymousSenderBadge() {
         clearSenderRoleIcon()
-        val icon = MezonIcon.anonymousIconGray.getDrawable(context)
+        val icon = MezonIcon.loadDrawable(context, R.drawable.mz_anonymous_24, ThemeColors.defaultIconTint)
         icon.callback = this
         senderRoleIconDrawable = icon
         reserveSenderRoleIcon = true
@@ -1538,25 +1550,16 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val descW = (innerContentW - CALL_LOG_ICON_SLOT).coerceAtLeast(1)
         callLogDescLayout = StaticLayout.Builder.obtain(descText, 0, descText.length, callLogDescPaint, descW).build()
 
-        callLogIconEnum = when (parsed.callLogType) {
+        callLogIconResId = when (parsed.callLogType) {
             CallLogMessageType.TIMEOUTCALL ->
-                if (isMe) MezonIcon.callLogOutgoing else MezonIcon.callLogMissed
-            CallLogMessageType.REJECTCALL -> MezonIcon.callLogCancel
+                if (isMe) R.drawable.mz_call_outgoing_16 else R.drawable.mz_call_missed_16
+            CallLogMessageType.REJECTCALL -> R.drawable.mz_call_cancel_16
             CallLogMessageType.CANCELCALL ->
-                if (isMe) MezonIcon.callLogCancel else MezonIcon.callLogMissed
+                if (isMe) R.drawable.mz_call_cancel_16 else R.drawable.mz_call_missed_16
             CallLogMessageType.FINISHCALL,
             CallLogMessageType.STARTCALL ->
-                if (isMe) MezonIcon.callLogOutgoing else MezonIcon.callLogIncoming
-            else -> MezonIcon.callLogOutgoing
-        }
-        callLogIconTint = when (parsed.callLogType) {
-            CallLogMessageType.TIMEOUTCALL ->
-                if (isMe) theme.textDisabled else theme.redStrong
-            CallLogMessageType.REJECTCALL -> theme.redStrong
-            CallLogMessageType.CANCELCALL -> theme.redStrong
-            CallLogMessageType.FINISHCALL,
-            CallLogMessageType.STARTCALL -> theme.textDisabled
-            else -> theme.textDisabled
+                if (isMe) R.drawable.mz_call_outgoing_16 else R.drawable.mz_call_incoming_16
+            else -> R.drawable.mz_call_outgoing_16
         }
 
         val blocked = delegate?.isDmPeerBlockedForCallLog() == true
@@ -1591,16 +1594,22 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     private fun obtainCallLogIconDrawable(): Drawable {
         val cached = callLogIconDrawable
-        if (cached != null && callLogIconDrawableEnum == callLogIconEnum && callLogIconDrawableTint == callLogIconTint) {
-            return cached
+        val drawable = if (cached != null && callLogDrawableResId == callLogIconResId) {
+            cached
+        } else {
+            MezonIcon.loadDrawable(context, callLogIconResId).also {
+                callLogIconDrawable = it
+                callLogDrawableResId = callLogIconResId
+            }
         }
-        val d = callLogIconEnum.getDrawable(context).mutate()
-        d.colorFilter = PorterDuffColorFilter(callLogIconTint, PorterDuff.Mode.SRC_IN)
-        d.setBounds(0, 0, CALL_LOG_ICON_SIZE, CALL_LOG_ICON_SIZE)
-        callLogIconDrawable = d
-        callLogIconDrawableEnum = callLogIconEnum
-        callLogIconDrawableTint = callLogIconTint
-        return d
+        val tint = when (callLogParsed?.callLogType) {
+            CallLogMessageType.TIMEOUTCALL -> if (messageEntity?.isMe == true) theme.textDisabled else theme.redStrong
+            CallLogMessageType.REJECTCALL, CallLogMessageType.CANCELCALL -> theme.redStrong
+            else -> theme.textDisabled
+        }
+        drawable.setIconColor(tint)
+        drawable.setBounds(0, 0, drawable.intrinsicWidth, drawable.intrinsicHeight)
+        return drawable
     }
 
     private fun drawCallLogCard(canvas: Canvas, contentLeft: Float, yOff: Float): Float {
@@ -2355,7 +2364,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         } else emptyList()
 
         fileRowWidth = cardInnerW
-        fileIconDrawable = MezonIcon.fileIconNew.getDrawable(context)
+        fileIconDrawable = MezonIcon.loadDrawable(context, R.drawable.mz_file_24, ThemeColors.defaultIconTint)
     }
 
     private fun buildAudioLayouts(msg: MessageEntity) {
@@ -2490,9 +2499,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val label = context.getString(R.string.ephemeral_only_visible_to_recipient)
         val textAvail = (textWidth - iconW - gap).coerceAtLeast(1)
         ephemeralLayout = EphemeralMessageUi.buildIndicatorLayout(label, textAvail, ephemeralIndicatorPaint)
-        val d = ContextCompat.getDrawable(context, R.drawable.ic_ephemeral_icon_gray)?.mutate()
-        d?.setTint(theme.textDisabled)
-        ephemeralIconDrawable = d
+        ephemeralIconDrawable = MezonIcon.loadDrawable(context, R.drawable.mz_eye_24, theme.textDisabled)
     }
 
     private fun buildErrorLayout(msg: MessageEntity, textWidth: Int) {
@@ -2716,9 +2723,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
         bgPaint.color = bgColor
         c.drawCircle(size / 2f, size / 2f, size / 2f, bgPaint)
-        val icon = ContextCompat.getDrawable(context, com.mezon.mobile.R.drawable.ic_anonymous_icon)?.mutate()
+        val icon = ContextCompat.getDrawable(context, R.drawable.mz_anonymous_24)?.mutate()
         if (icon != null) {
-            icon.colorFilter = PorterDuffColorFilter(Color.WHITE, PorterDuff.Mode.SRC_IN)
+            icon.setIconColor(Color.WHITE)
             val iconSize = (size * 0.5f).toInt()
             val pad = (size - iconSize) / 2
             icon.setBounds(pad, pad, pad + iconSize, pad + iconSize)
@@ -3575,12 +3582,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val y = (measuredHeight - topPad - SENDING_ICON_SIZE).toFloat()
         val cx = x + SENDING_ICON_SIZE / 2f
         val cy = y + SENDING_ICON_SIZE / 2f
-        val r = SENDING_ICON_SIZE / 2f - SENDING_STROKE_W
-        SENDING_CIRCLE_PAINT.color = theme.onSurfaceVariant
-        canvas.drawCircle(cx, cy, r, SENDING_CIRCLE_PAINT)
-        val handLen = r * 0.55f
-        canvas.drawLine(cx, cy, cx, cy - handLen, SENDING_HAND_PAINT)
-        canvas.drawLine(cx, cy, cx + handLen * 0.7f, cy, SENDING_HAND_PAINT)
+        sendingIcon.drawCenteredIcon(canvas, cx.toInt(), cy.toInt())
     }
 
     private fun drawPresignPendingPlaceholder(
@@ -3891,15 +3893,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         layout.draw(canvas)
         canvas.restore()
 
-        FORWARD_ARROW_PAINT.color = FORWARD_PAINT.color
         val cx = x + iconSize / 2
         val cy = y + layout.height / 2f
-        val half = iconSize * 0.3f
-        forwardArrowPath.reset()
-        forwardArrowPath.moveTo(cx - half * 0.5f, cy - half)
-        forwardArrowPath.lineTo(cx + half * 0.5f, cy)
-        forwardArrowPath.lineTo(cx - half * 0.5f, cy + half)
-        canvas.drawPath(forwardArrowPath, FORWARD_ARROW_PAINT)
+        forwardIcon.drawCenteredIcon(canvas, cx.toInt(), cy.toInt())
     }
 
     private fun drawFileBlock(canvas: Canvas, x: Float, y: Float): Float {
@@ -4026,11 +4022,13 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         AUDIO_PLAY_BG_PAINT.alpha = (255 * pillAlpha).toInt()
         canvas.drawCircle(btnCx, btnCy, btnSize / 2f, AUDIO_PLAY_BG_PAINT)
 
-        AUDIO_PLAY_ICON_PAINT.alpha = (255 * pillAlpha).toInt()
-        when {
-            audioIsLoading -> drawAudioSpinner(canvas, btnCx, btnCy)
-            audioIsPlaying -> drawAudioPauseIcon(canvas, btnCx, btnCy)
-            else -> drawAudioPlayIcon(canvas, btnCx, btnCy)
+        val iconAlpha = (255 * pillAlpha).toInt()
+        if (audioIsLoading) {
+            drawAudioSpinner(canvas, btnCx, btnCy, iconAlpha)
+        } else {
+            val icon = if (audioIsPlaying) audioPauseIcon else audioPlayIcon
+            icon.alpha = iconAlpha
+            icon.drawCenteredIcon(canvas, btnCx.toInt(), btnCy.toInt())
         }
 
         val waveStart = x + pad + btnSize + AUDIO_CONTENT_H_PAD
@@ -4060,29 +4058,11 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         return y + pillH + GAP_V_INNER
     }
 
-    private fun drawAudioPlayIcon(canvas: Canvas, cx: Float, cy: Float) {
-        val size = AUDIO_PLAY_ICON_SIZE.toFloat()
-        audioWavePath.reset()
-        audioWavePath.moveTo(cx - size * 0.3f, cy - size * 0.4f)
-        audioWavePath.lineTo(cx + size * 0.45f, cy)
-        audioWavePath.lineTo(cx - size * 0.3f, cy + size * 0.4f)
-        audioWavePath.close()
-        canvas.drawPath(audioWavePath, AUDIO_PLAY_ICON_PAINT)
-    }
-
-    private fun drawAudioPauseIcon(canvas: Canvas, cx: Float, cy: Float) {
-        val size = AUDIO_PLAY_ICON_SIZE.toFloat()
-        val barW = size * 0.2f
-        val barH = size * 0.8f
-        canvas.drawRect(cx - size * 0.3f, cy - barH / 2, cx - size * 0.3f + barW, cy + barH / 2, AUDIO_PLAY_ICON_PAINT)
-        canvas.drawRect(cx + size * 0.1f, cy - barH / 2, cx + size * 0.1f + barW, cy + barH / 2, AUDIO_PLAY_ICON_PAINT)
-    }
-
-    private fun drawAudioSpinner(canvas: Canvas, cx: Float, cy: Float) {
+    private fun drawAudioSpinner(canvas: Canvas, cx: Float, cy: Float, alpha: Int) {
         val radius = AUDIO_PLAY_ICON_SIZE * 0.45f
         val sweep = 270f
         val angle = ((System.currentTimeMillis() / 3L) % 360L).toFloat()
-        AUDIO_SPINNER_PAINT.alpha = AUDIO_PLAY_ICON_PAINT.alpha
+        AUDIO_SPINNER_PAINT.alpha = alpha
         audioRoundRect.set(cx - radius, cy - radius, cx + radius, cy + radius)
         canvas.drawArc(audioRoundRect, angle, sweep, false, AUDIO_SPINNER_PAINT)
         invalidate()
@@ -4327,14 +4307,19 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
         val size = min(BROKEN_IMAGE_ICON_SIZE, (min(w, h) * 0.45f).toInt())
         if (size < BROKEN_IMAGE_ICON_MIN) return
-        val tint = theme.onSurfaceVariant
-        var icon = brokenImageDrawable
-        if (icon == null || brokenImageDrawableTint != tint) {
-            icon = MezonIcon.imageIcon.getDrawable(context, tint)
-            brokenImageDrawable = icon
-            brokenImageDrawableTint = tint
+        val resId = when {
+            size < LayoutHelper.dp(18) -> R.drawable.mz_image_16
+            size < LayoutHelper.dp(22) -> R.drawable.mz_image_20
+            size < LayoutHelper.dp(28) -> R.drawable.mz_image_24
+            size < LayoutHelper.dp(36) -> R.drawable.mz_image_32
+            else -> R.drawable.mz_image_40
         }
-        MezonIcon.drawIcon(canvas, icon, (x + w / 2f).toInt(), (y + h / 2f).toInt(), size)
+        val icon = brokenImageDrawable?.takeIf { brokenImageResId == resId }
+            ?: MezonIcon.loadDrawable(context, resId).withDefaultIconTint(context, resId, theme.iconTint).also {
+                brokenImageDrawable = it
+                brokenImageResId = resId
+            }
+        icon.drawCenteredIcon(canvas, (x + w / 2f).toInt(), (y + h / 2f).toInt())
     }
 
     private fun drawVideoPlayButton(canvas: Canvas, x: Float, y: Float, w: Float, h: Float) {
@@ -4343,15 +4328,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val r = (min(w, h) * 0.2f).coerceIn(PLAY_BTN_MIN_RADIUS, PLAY_BTN_SIZE / 2f)
         canvas.drawCircle(cx, cy, r, PLAY_BG_PAINT)
 
-        playTriPath.reset()
-        val triSize = r * 0.7f
-        val left = cx - triSize * 0.35f
-        val top = cy - triSize * 0.5f
-        playTriPath.moveTo(left, top)
-        playTriPath.lineTo(left + triSize, cy)
-        playTriPath.lineTo(left, cy + triSize * 0.5f)
-        playTriPath.close()
-        canvas.drawPath(playTriPath, PLAY_ICON_PAINT)
+        videoPlayIcon.drawCenteredIcon(canvas, cx.toInt(), cy.toInt())
     }
 
     private fun drawDurationBadge(canvas: Canvas, layout: StaticLayout, imgX: Float, imgY: Float) {
@@ -4650,10 +4627,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             val addX = startX + addBounds.left
             val addY = startY + addBounds.top + (REACTION_CHIP_H - REACTION_ADD_SIZE) / 2f
             val icon = reactionAddIcon ?: run {
-                com.mezon.mobile.ui.cells.MezonIcon.reactionIcon.getDrawable(context).mutate().also {
-                    it.colorFilter = android.graphics.PorterDuffColorFilter(0xFF808080.toInt(), android.graphics.PorterDuff.Mode.SRC_IN)
-                    reactionAddIcon = it
-                }
+                MezonIcon.loadDrawable(context, R.drawable.mz_emoji_20, 0xFF808080.toInt())
+                    .also { reactionAddIcon = it }
             }
             icon.setBounds(addX.toInt(), addY.toInt(), (addX + REACTION_ADD_SIZE).toInt(), (addY + REACTION_ADD_SIZE).toInt())
             icon.draw(canvas)
@@ -4664,8 +4639,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         embedSelectBackground.cornerRadius = LayoutHelper.dpf(4f)
         embedSelectBackground.setColor(theme.surface)
         embedSelectBackground.setStroke(LayoutHelper.dp(1), ColorUtils.setAlphaComponent(theme.outline, 128))
-        embedSelectChevronDrawable.colorFilter =
-            PorterDuffColorFilter(theme.onSurface, PorterDuff.Mode.SRC_IN)
+        embedSelectChevronDrawable.setIconColor(theme.onSurface)
     }
 
     private fun embedSelectRowForeground(): Drawable? {
@@ -5521,10 +5495,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             style = Paint.Style.FILL
         }
 
-        private val AUDIO_PLAY_ICON_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = 0xFFFFFFFF.toInt()
-            style = Paint.Style.FILL
-        }
 
         private val AUDIO_SPINNER_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = 0xFFFFFFFF.toInt()
@@ -5543,23 +5513,12 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             textSize = LayoutHelper.dpf(13f)
             isFakeBoldText = true
         }
-        private val FORWARD_ICON_SIZE = LayoutHelper.dp(14)
+        private val FORWARD_ICON_SIZE = LayoutHelper.dp(16)
         private val FORWARD_ICON_GAP = LayoutHelper.dp(4).toFloat()
 
         private val SENDING_ICON_SIZE = LayoutHelper.dp(12)
-        private val SENDING_STROKE_W = LayoutHelper.dpf(1.5f)
 
-        private val SENDING_CIRCLE_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeWidth = SENDING_STROKE_W
-        }
 
-        private val SENDING_HAND_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeWidth = SENDING_STROKE_W
-            strokeCap = Paint.Cap.ROUND
-            color = 0xFF8B8D93.toInt()
-        }
 
         private const val FORWARD_TEXT = "Forwarded"
         private const val ERROR_TEXT = "Unable to send message"
@@ -5642,10 +5601,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         private val BROKEN_IMAGE_ICON_SIZE = LayoutHelper.dp(36)
         private val BROKEN_IMAGE_ICON_MIN = LayoutHelper.dp(14)
 
-        private val PLAY_ICON_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = 0xFFFFFFFF.toInt()
-            style = Paint.Style.FILL
-        }
 
         private val DURATION_BG_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = 0xAA000000.toInt()
@@ -5663,13 +5618,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             typeface = android.graphics.Typeface.DEFAULT_BOLD
         }
 
-        private val FORWARD_ARROW_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = 0xFF8B8D93.toInt()
-            style = Paint.Style.STROKE
-            strokeWidth = LayoutHelper.dpf(1.5f)
-            strokeCap = Paint.Cap.ROUND
-            strokeJoin = Paint.Join.ROUND
-        }
 
         private val ERROR_PAINT = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = 0xFFD30E0E.toInt()

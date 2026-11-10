@@ -5,11 +5,9 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
-import android.graphics.drawable.Drawable
 import android.view.MotionEvent
 import android.view.View
 import android.view.animation.DecelerateInterpolator
-import androidx.core.content.ContextCompat
 import com.mezon.mobile.R
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.SharedConfig
@@ -17,17 +15,17 @@ import com.mezon.mobile.core.ThemeColors
 
 class FloatingTabBar(context: Context, private val themeColors: ThemeColors) : View(context) {
 
-    data class Tab(val iconResId: Int, val iconSelectedResId: Int)
+    private data class Tab(val iconResId: Int)
 
     interface OnTabSelectedListener {
         fun onTabSelected(index: Int)
     }
 
     private val tabs = listOf(
-        Tab(R.drawable.ic_clans, R.drawable.ic_clans),
-        Tab(R.drawable.ic_messages, R.drawable.ic_messages),
-        Tab(R.drawable.ic_notifications, R.drawable.ic_notifications),
-        Tab(R.drawable.ic_profile, R.drawable.ic_profile)
+        Tab(R.drawable.mz_clans_24),
+        Tab(R.drawable.mz_messages_24),
+        Tab(R.drawable.mz_bell_24),
+        Tab(R.drawable.mz_user_24)
     )
 
     private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -41,8 +39,8 @@ class FloatingTabBar(context: Context, private val themeColors: ThemeColors) : V
 
     var onTabSelected: OnTabSelectedListener? = null
 
-    private val icons: List<Drawable?> = tabs.map { tab ->
-        ContextCompat.getDrawable(context, tab.iconResId)?.mutate()
+    private val icons = tabs.map { tab ->
+        MezonIcon.loadDrawable(context, tab.iconResId)
     }
 
     private val hideAnimDuration = 250L
@@ -130,21 +128,12 @@ class FloatingTabBar(context: Context, private val themeColors: ThemeColors) : V
         val indicatorRadius = (indicatorBottom - indicatorTop) / 2f
         canvas.drawRoundRect(indicatorRect, indicatorRadius, indicatorRadius, indicatorPaint)
 
-        val iconSize = LayoutHelper.dp(24)
         for (i in tabs.indices) {
-            val drawable = icons[i] ?: continue
             val centerX = (tabW * i + tabW / 2f).toInt()
             val centerY = (h / 2f).toInt()
-            val left = centerX - iconSize / 2
-            val top = centerY - iconSize / 2
-            drawable.setBounds(left, top, left + iconSize, top + iconSize)
-
-            val isSelected = i == selectedIndex
-            val alpha = if (isSelected) 255 else 153
-            val color = if (isSelected) themeColors.primary else themeColors.onSurfaceVariant
-            drawable.setTint(color)
-            drawable.alpha = alpha
-            drawable.draw(canvas)
+            val icon = icons[i]
+            icon.setTint(themeColors.iconTint)
+            icon.drawCenteredIcon(canvas, centerX, centerY)
         }
     }
 

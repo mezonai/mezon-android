@@ -1,5 +1,8 @@
 package com.mezon.mobile.home.clans
 
+import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.ui.cells.setIconColor
+import com.mezon.mobile.ui.cells.setMezonIconResource
 import android.app.Dialog
 import android.content.Context
 import android.graphics.BitmapFactory
@@ -370,7 +373,7 @@ class ClanEventEditorDialog private constructor(
                 addView(stepCount)
             }, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f))
             closeAction = ImageView(context).apply {
-                setImageDrawable(MezonIcon.closeLargeIcon.getDrawable(context, themeColors.onSurfaceVariant))
+                setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_close_20, ThemeColors.defaultIconTint))
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
                 setPadding(LayoutHelper.dp(12), LayoutHelper.dp(12), LayoutHelper.dp(12), LayoutHelper.dp(12))
                 contentDescription = getString(R.string.common_cancel)
@@ -456,13 +459,13 @@ class ClanEventEditorDialog private constructor(
         val typeBox = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
         }
-        addTypeOptionInCard(context, typeBox, ClanEventOption.SPEAKER, MezonIcon.channelVoice,
+        addTypeOptionInCard(context, typeBox, ClanEventOption.SPEAKER, R.drawable.mz_speaker_24,
             R.string.event_creator_type_voice_title, R.string.event_creator_type_voice_desc,
             voiceChannels.isNotEmpty(), rowPad = cardInnerPad)
-        addTypeOptionInCard(context, typeBox, ClanEventOption.LOCATION, MezonIcon.locationIcon,
+        addTypeOptionInCard(context, typeBox, ClanEventOption.LOCATION, R.drawable.mz_location_24,
             R.string.event_creator_type_location_title, R.string.event_creator_type_location_desc,
             true, rowPad = cardInnerPad)
-        addTypeOptionInCard(context, typeBox, ClanEventOption.PRIVATE, MezonIcon.lockIcon,
+        addTypeOptionInCard(context, typeBox, ClanEventOption.PRIVATE, R.drawable.mz_speaker_24,
             R.string.event_creator_type_private_title, R.string.event_creator_type_private_desc,
             true, rowPad = cardInnerPad)
         refreshTypeRadios()
@@ -471,7 +474,7 @@ class ClanEventEditorDialog private constructor(
             context,
             themeColors,
             getString(R.string.event_creator_voice_channel_label),
-            MezonIcon.channelVoice,
+            R.drawable.mz_speaker_24,
         ).apply {
             onPickRequested = { showVoiceChannelPicker(context, voiceChannels) }
             onClearRequested = {
@@ -579,7 +582,7 @@ class ClanEventEditorDialog private constructor(
             context,
             themeColors,
             R.string.event_creator_date_label,
-            MezonIcon.calendarIcon,
+            R.drawable.mz_calendar_24,
         ) {
             showChildDialog(ClanEventCreateUi.datePicker(context, eventDate, minDate = Calendar.getInstance()) {
                 refreshDateTimeLabels()
@@ -590,7 +593,7 @@ class ClanEventEditorDialog private constructor(
             context,
             themeColors,
             R.string.event_creator_start_time_label,
-            MezonIcon.eventTimeIcon,
+            R.drawable.mz_calendar_24,
         ) {
             showChildDialog(ClanEventCreateUi.timePicker(context, startTime) {
                 refreshDateTimeLabels()
@@ -601,7 +604,7 @@ class ClanEventEditorDialog private constructor(
             context,
             themeColors,
             R.string.event_creator_end_time_label,
-            MezonIcon.eventTimeIcon,
+            R.drawable.mz_calendar_24,
         ) {
             showChildDialog(ClanEventCreateUi.timePicker(context, endTime) {
                 refreshDateTimeLabels()
@@ -622,7 +625,7 @@ class ClanEventEditorDialog private constructor(
             context,
             themeColors,
             R.string.event_creator_repeat_label,
-            MezonIcon.calendarIcon,
+            R.drawable.mz_calendar_24,
         ) {
             showRepeatPicker(context)
         }
@@ -724,7 +727,7 @@ class ClanEventEditorDialog private constructor(
         context: Context,
         parent: LinearLayout,
         typeConst: Int,
-        icon: MezonIcon,
+        icon: Int,
         titleRes: Int,
         descRes: Int,
         enabled: Boolean,
@@ -747,7 +750,7 @@ class ClanEventEditorDialog private constructor(
         }
         row.addView(
             ImageView(context).apply {
-                setImageDrawable(icon.getDrawable(context, themeColors.textStrong))
+                setImageDrawable(MezonIcon.loadDrawable(context, icon, themeColors.textStrong))
                 scaleType = ImageView.ScaleType.FIT_CENTER
             },
             LayoutHelper.createLinear(24, 24, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, 12f, 0f),
@@ -1119,7 +1122,7 @@ class ClanEventEditorDialog private constructor(
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
                 addView(ImageView(context).apply {
-                    setImageDrawable(MezonIcon.eventTimeIcon.getDrawable(context, themeColors.textStrong))
+                    setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_calendar_20, themeColors.textStrong))
                 }, LayoutHelper.createLinear(18, 18))
                 addView(TextView(context).apply {
                     text = timeLabel
@@ -1179,13 +1182,14 @@ class ClanEventEditorDialog private constructor(
                     ?: context.getString(R.string.clan_event_private_room)
             else -> context.getString(R.string.clan_event_private_room)
         }
-        val locationIcon = if (draft.option == ClanEventOption.LOCATION) MezonIcon.locationIcon else MezonIcon.channelVoice
+        val locationIcon = if (draft.option == ClanEventOption.LOCATION) R.drawable.mz_location_20 else R.drawable.mz_speaker_20
         textCol.addView(
             LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
                 addView(ImageView(context).apply {
-                    setImageDrawable(locationIcon.getDrawable(context, themeColors.textStrong))
+                    setMezonIconResource(locationIcon, themeColors)
+                    drawable?.let { it.setIconColor(themeColors.textStrong) }
                 }, LayoutHelper.createLinear(18, 18))
                 addView(TextView(context).apply {
                     text = locationText

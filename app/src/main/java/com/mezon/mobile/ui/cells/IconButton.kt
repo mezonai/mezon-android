@@ -12,7 +12,6 @@ import android.graphics.drawable.RippleDrawable
 import android.view.View
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.annotation.DrawableRes
-import androidx.core.content.ContextCompat
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 
@@ -48,12 +47,9 @@ class IconButton(context: Context, private val theme: ThemeColors) : View(contex
     }
 
     fun setIcon(@DrawableRes resId: Int) {
-        setIcon(ContextCompat.getDrawable(context, resId)!!)
+        setIcon(MezonIcon.loadDrawable(context, resId).withDefaultIconTint(context, resId, ThemeColors.defaultIconTint))
     }
 
-    fun setIcon(mezonIcon: MezonIcon) {
-        setIcon(mezonIcon.resId)
-    }
 
     fun setIconTint(color: Int) {
         icon?.colorFilter = PorterDuffColorFilter(color, PorterDuff.Mode.SRC_IN)

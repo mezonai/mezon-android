@@ -1,8 +1,7 @@
 package com.mezon.mobile.home.voice
 
+import com.mezon.mobile.R
 import android.content.Context
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.GradientDrawable
 import android.text.TextUtils
 import android.util.LongSparseArray
@@ -142,9 +141,7 @@ class VoiceRaiseHandOverlayView(
         )
 
         val iconView = ImageView(context).apply {
-            setImageDrawable(MezonIcon.raiseHandIcon.getDrawable(context).apply {
-                colorFilter = PorterDuffColorFilter(0xFFEFBC39.toInt(), PorterDuff.Mode.SRC_IN)
-            })
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_hand_raise_20, 0xFFEFBC39.toInt()))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
         }
         root.addView(iconView, LinearLayout.LayoutParams(ICON_SIZE, ICON_SIZE))

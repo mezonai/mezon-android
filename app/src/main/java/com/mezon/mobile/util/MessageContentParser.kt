@@ -1,5 +1,6 @@
 package com.mezon.mobile.util
 
+import com.mezon.mobile.ui.cells.setIconColor
 import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
@@ -748,9 +749,9 @@ private fun resolveChannelEntity(
         ?: channelCtl.linkedChannelDetail(cid)?.takeIf { clanId == 0L || it.clanId == clanId }
 }
 
-private fun resolveHashtagIcon(entity: ClanChannelEntity): MezonIcon {
+private fun resolveHashtagIcon(entity: ClanChannelEntity): Int {
     val type = if (entity.isThread) CHANNEL_TYPE_THREAD else entity.type
-    return ChannelItemCell.resolveChannelIcon(type, entity.isPrivate, entity.isAgeRestricted)
+    return ChannelItemCell.resolveChannelIcon(type, entity.isPrivate, entity.isAgeRestricted, compact = true)
 }
 
 data class MezonChannelLink(val clanId: String, val channelId: String)
@@ -838,11 +839,11 @@ private fun appendHashtagPill(
     
     val iconDrawable = if (ctx != null) {
         if (entity != null) {
-            resolveHashtagIcon(entity).getDrawable(ctx)
+            MezonIcon.loadDrawable(ctx, resolveHashtagIcon(entity), theme.iconTint)
         } else if (!isAccessible) {
-            ChannelItemCell.resolveChannelIcon(
-                com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL, true, false
-            ).getDrawable(ctx)
+            MezonIcon.loadDrawable(ctx, ChannelItemCell.resolveChannelIcon(
+                com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL, true, false, compact = true
+            ), ThemeColors.defaultIconTint)
         } else null
     } else null
 
@@ -854,9 +855,10 @@ private fun appendHashtagPill(
         }
         sb.append("\u200B")
         val iconSpanEnd = sb.length
+        iconDrawable.setIconColor(fgColor)
         val span = ColoredImageSpan(iconDrawable, ColoredImageSpan.ALIGN_CENTER)
-        span.setSize(LayoutHelper.dp(14f))
-        span.overrideColor = fgColor
+        span.setSize(iconDrawable.intrinsicWidth)
+        span.usePaintColor = false
         span.backgroundColor = bgColor
         sb.setExclusiveSpan(span, spanStart, iconSpanEnd)
         sb.append(" ")

@@ -1,5 +1,10 @@
 package com.mezon.mobile.core
 
+import com.mezon.mobile.ui.cells.withDefaultIconTint
+import com.mezon.mobile.ui.cells.setIconColor
+import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.ui.cells.applyActionLabelColor
+import com.mezon.mobile.ui.cells.setMezonIconResource
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.animation.AnimatorSet
@@ -72,6 +77,7 @@ open class BottomSheet(
         val imageView: ImageView = ImageView(context).apply {
             scaleType = ImageView.ScaleType.CENTER
         }
+        private var iconResId = 0
         private var checked = false
         var isItemSelected = false
 
@@ -84,9 +90,10 @@ open class BottomSheet(
         }
 
         fun setTextAndIcon(text: CharSequence, icon: Int) {
+            iconResId = icon
             textView.text = text
             if (icon != 0) {
-                imageView.setImageResource(icon)
+                imageView.setMezonIconResource(icon)
                 imageView.visibility = VISIBLE
             } else {
                 imageView.visibility = GONE
@@ -95,7 +102,14 @@ open class BottomSheet(
         }
 
         fun setTextColor(color: Int) { textView.setTextColor(color) }
-        fun setIconColor(color: Int) { imageView.setColorFilter(color) }
+        fun setIconColor(color: Int) {
+            if (iconResId != 0) {
+                imageView.setImageDrawable(MezonIcon.loadDrawable(context, iconResId).withDefaultIconTint(context, iconResId, ThemeColors.defaultIconTint).apply {
+                    applyActionLabelColor(color, ThemeColors.instance)
+                })
+            }
+            imageView.setColorFilter(color)
+        }
         fun setChecked(value: Boolean) { checked = value }
         fun isChecked(): Boolean = checked
     }

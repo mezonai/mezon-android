@@ -1,5 +1,7 @@
 package com.mezon.mobile.home.clans
 
+import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.ui.cells.setMezonIconResource
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Color
@@ -121,7 +123,7 @@ class CreateClanTemplateFragment : BaseFragment() {
         }
         closeWrap.addView(
             ImageView(context).apply {
-                setImageDrawable(MezonIcon.closeIcon.getDrawable(context, CreateClanRnUiTokens.closeIcon(themeColors)))
+                setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_close_24, ThemeColors.defaultIconTint))
                 scaleType = ImageView.ScaleType.FIT_CENTER
                 adjustViewBounds = true
             },
@@ -157,7 +159,7 @@ class CreateClanTemplateFragment : BaseFragment() {
     }
 
     private fun buildCreateOwnItem(context: Context): View {
-        val row = buildTemplateRow(context, getString(R.string.clan_template_create_my_own), R.drawable.ic_sparkle)
+        val row = buildTemplateRow(context, getString(R.string.clan_template_create_my_own), R.drawable.mz_sparkles_40)
         row.setOnClickListener {
             val fragment = CreateClanCustomizeFragment()
             presentFragment(fragment)
@@ -201,7 +203,7 @@ class CreateClanTemplateFragment : BaseFragment() {
             )
         }
         val icon = ImageView(context).apply {
-            setImageResource(iconResId)
+            setMezonIconResource(iconResId)
             scaleType = ImageView.ScaleType.FIT_CENTER
             adjustViewBounds = true
         }

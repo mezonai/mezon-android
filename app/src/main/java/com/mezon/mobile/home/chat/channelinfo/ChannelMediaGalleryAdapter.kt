@@ -16,7 +16,6 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.core.graphics.drawable.DrawableCompat
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mobile.R
@@ -32,6 +31,7 @@ import com.mezon.mobile.ui.cells.BackupImageView
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.util.VideoFrameStore
 import com.mezon.mobile.util.channelMediaThumbnailImgproxyUrl
+import com.mezon.mobile.ui.theme.ThemeMode
 import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -237,9 +237,7 @@ internal class ChannelMediaGalleryAdapter(
         val play =
             ImageView(ctx).apply {
                 visibility = View.GONE
-                val d = MezonIcon.playCircleIcon.getDrawable(context).mutate()
-                DrawableCompat.setTint(d, Color.WHITE)
-                setImageDrawable(d)
+                setImageDrawable(MezonIcon.loadDrawable(ctx, R.drawable.mz_play_32, ThemeMode.DARK.iconTint))
             }
         root.addView(
             play,
@@ -271,7 +269,7 @@ internal class ChannelMediaGalleryAdapter(
             }
             val iconPadding = LayoutHelper.dp(6f)
             setPadding(iconPadding, iconPadding, iconPadding, iconPadding)
-            setImageDrawable(MezonIcon.loadDrawable(ctx, R.drawable.ic_anonymous_icon, Color.WHITE))
+            setImageDrawable(MezonIcon.loadDrawable(ctx, R.drawable.mz_anonymous_24, Color.WHITE))
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
         avRing.addView(anonymousAv, LayoutHelper.createFrame(24, 24, Gravity.CENTER))

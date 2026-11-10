@@ -49,9 +49,17 @@ object EphemeralMessageUi {
         iconSize: Int,
         gapAfterIcon: Int
     ) {
-        val iconTop = (y + (layout.height - iconSize) / 2f).toInt()
-        icon?.setBounds(x.toInt(), iconTop, x.toInt() + iconSize, iconTop + iconSize)
-        icon?.draw(canvas)
+        if (icon != null) {
+            val iconTop = (y + (layout.height - iconSize) / 2f).toInt()
+            val width = icon.intrinsicWidth.coerceAtLeast(iconSize)
+            val height = icon.intrinsicHeight.coerceAtLeast(iconSize)
+            icon.setBounds(0, 0, width, height)
+            canvas.save()
+            canvas.translate(x.toInt().toFloat(), iconTop.toFloat())
+            canvas.scale(iconSize.toFloat() / width, iconSize.toFloat() / height)
+            icon.draw(canvas)
+            canvas.restore()
+        }
         canvas.save()
         canvas.translate(x + iconSize + gapAfterIcon, y)
         layout.draw(canvas)

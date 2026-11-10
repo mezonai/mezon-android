@@ -3,11 +3,11 @@ package com.mezon.mobile.ui.cells
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
-import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.text.TextPaint
 import android.view.View
+import com.mezon.mobile.R
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 
@@ -20,12 +20,7 @@ class PageDownButton(context: Context, private val theme: ThemeColors) : View(co
         setShadowLayer(shadowRadius, 0f, LayoutHelper.dp(2f).toFloat(), 0x30000000)
     }
 
-    private val arrowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeWidth = LayoutHelper.dp(2.2f).toFloat()
-        strokeCap = Paint.Cap.ROUND
-        strokeJoin = Paint.Join.ROUND
-    }
+    private val arrow = MezonIcon.loadDrawable(context, R.drawable.mz_chevron_down_20, theme.iconTint)
 
     private val badgeBgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val badgeTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -35,14 +30,12 @@ class PageDownButton(context: Context, private val theme: ThemeColors) : View(co
         color = android.graphics.Color.WHITE
     }
 
-    private val arrowPath = Path()
     private val badgeRect = RectF()
     private var badgeCount = 0
     private var badgeText = ""
 
     companion object {
         private val MEASURE_PAD = LayoutHelper.dp(12f)
-        private val ARROW_SIZE = LayoutHelper.dp(8f).toFloat()
         private val BADGE_HEIGHT = LayoutHelper.dp(18f).toFloat()
         private val BADGE_PAD_H = LayoutHelper.dp(5f).toFloat()
         private val BADGE_OFFSET_RIGHT = LayoutHelper.dp(2f).toFloat()
@@ -58,7 +51,6 @@ class PageDownButton(context: Context, private val theme: ThemeColors) : View(co
 
     fun applyColors() {
         bgPaint.color = theme.textDisabled
-        arrowPaint.color = android.graphics.Color.WHITE
         badgeBgPaint.color = theme.badgeRed
         invalidate()
     }
@@ -101,11 +93,7 @@ class PageDownButton(context: Context, private val theme: ThemeColors) : View(co
 
         canvas.drawCircle(cx, btnCy, btnRadius, bgPaint)
 
-        arrowPath.reset()
-        arrowPath.moveTo(cx - ARROW_SIZE, btnCy - ARROW_SIZE * 0.5f)
-        arrowPath.lineTo(cx, btnCy + ARROW_SIZE * 0.5f)
-        arrowPath.lineTo(cx + ARROW_SIZE, btnCy - ARROW_SIZE * 0.5f)
-        canvas.drawPath(arrowPath, arrowPaint)
+        arrow.drawCenteredIcon(canvas, cx.toInt(), btnCy.toInt())
 
         if (badgeCount > 0) {
             val textWidth = badgeTextPaint.measureText(badgeText)

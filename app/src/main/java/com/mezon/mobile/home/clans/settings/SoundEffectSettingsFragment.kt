@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.clans.settings
 
+import com.mezon.mobile.core.ThemeColors
 import android.app.Activity
 import android.content.Context
 import android.content.DialogInterface
@@ -137,9 +138,16 @@ class SoundEffectSettingsFragment : BaseFragment() {
         stopCurrentPlayback()
     }
 
+    private fun playbackIcon(context: Context, playing: Boolean) =
+        if (playing) {
+            MezonIcon.loadDrawable(context, R.drawable.mz_pause_20, themeColors.primary)
+        } else {
+            MezonIcon.loadDrawable(context, R.drawable.mz_play_20, themeColors.colorText)
+        }
+
     private fun stopCurrentPlayback() {
         activePlayButton?.let { btn ->
-            btn.setImageDrawable(MezonIcon.playIcon.getDrawable(btn.context, themeColors.colorText))
+            btn.setImageDrawable(playbackIcon(btn.context, playing = false))
         }
         activePlayButton = null
         activeSoundUrl = null
@@ -167,7 +175,7 @@ class SoundEffectSettingsFragment : BaseFragment() {
 
         actionBar = ActionBarView(context, themeColors).apply {
             setTitle(getString(R.string.menu_clan_sound))
-            setBackButtonImage(R.drawable.ic_close_24)
+            setBackButtonImage(R.drawable.mz_close_24)
             setBackButtonContentDescription(getString(R.string.common_close))
             setCenterTitle(true)
             setMenuOnItemClick(object : ActionBarView.ActionBarMenuOnItemClick() {
@@ -492,7 +500,7 @@ class SoundEffectSettingsFragment : BaseFragment() {
                 prepareAsync()
                 setOnPreparedListener { mp ->
                     mp.start()
-                    playBtn.setImageDrawable(MezonIcon.pauseIcon.getDrawable(playBtn.context, themeColors.primary))
+                    playBtn.setImageDrawable(playbackIcon(playBtn.context, playing = true))
                 }
                 setOnCompletionListener {
                     stopCurrentPlayback()
@@ -501,7 +509,7 @@ class SoundEffectSettingsFragment : BaseFragment() {
                     stopCurrentPlayback()
                     true
                 }
-                playBtn.setImageDrawable(MezonIcon.pauseIcon.getDrawable(playBtn.context, themeColors.primary))
+                playBtn.setImageDrawable(playbackIcon(playBtn.context, playing = true))
             } catch (_: Exception) {
                 stopCurrentPlayback()
             }
@@ -649,7 +657,7 @@ class SoundEffectSettingsFragment : BaseFragment() {
             topRow.addView(nameTv, LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1f))
 
             val editBtn = ImageView(ctx).apply {
-                setImageDrawable(MezonIcon.pencilIcon.getDrawable(ctx, themeColors.textDisabled))
+                setImageDrawable(MezonIcon.loadDrawable(ctx, R.drawable.mz_edit_20, ThemeColors.defaultIconTint))
                 scaleType = ImageView.ScaleType.FIT_CENTER
                 isClickable = true
                 visibility = View.GONE
@@ -657,7 +665,7 @@ class SoundEffectSettingsFragment : BaseFragment() {
             topRow.addView(editBtn, LayoutHelper.createLinear(20, 20, 0f, Gravity.CENTER_VERTICAL, 8f, 0f, 0f, 0f))
 
             val deleteBtn = ImageView(ctx).apply {
-                setImageDrawable(MezonIcon.trashIcon.getDrawable(ctx, themeColors.error))
+                setImageDrawable(MezonIcon.loadDrawable(ctx, R.drawable.mz_trash_20, themeColors.error))
                 scaleType = ImageView.ScaleType.FIT_CENTER
                 isClickable = true
                 visibility = View.GONE
@@ -703,15 +711,8 @@ class SoundEffectSettingsFragment : BaseFragment() {
             }
 
             private fun patchPlayIcon(url: String) {
-                val ctx = root.context
                 val playing = url == activeSoundUrl && mediaPlayer != null
-                views.playBtn.setImageDrawable(
-                    if (playing) {
-                        MezonIcon.pauseIcon.getDrawable(ctx, themeColors.primary)
-                    } else {
-                        MezonIcon.playIcon.getDrawable(ctx, themeColors.colorText)
-                    },
-                )
+                views.playBtn.setImageDrawable(playbackIcon(root.context, playing))
             }
         }
     }

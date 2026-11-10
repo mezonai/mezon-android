@@ -31,6 +31,7 @@ import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.home.chat.MezonImageLoader
+import com.mezon.mobile.ui.cells.setMezonIconResource
 import com.mezon.mobile.util.avatarImgproxyUrl
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -133,7 +134,7 @@ class PollDetailModal(
         )
 
         val close = ImageView(context).apply {
-            setImageResource(R.drawable.ic_close_icon)
+            setMezonIconResource(R.drawable.mz_close_20)
             colorFilter =
                 PorterDuffColorFilter(themeColors.textStrong, PorterDuff.Mode.SRC_IN)
             scaleType = ImageView.ScaleType.FIT_CENTER

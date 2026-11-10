@@ -4,8 +4,6 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
@@ -146,7 +144,7 @@ class RoleDetailFragment : BaseFragment() {
         }
         ClanRolesUiTheme.applyPrimaryFlowRoot(root, themeColors)
         actionBar = ActionBarView(context, themeColors).apply {
-            setBackButtonImage(R.drawable.ic_close_24)
+            setBackButtonImage(R.drawable.mz_close_24)
             setBackButtonContentDescription(getString(R.string.clan_roles_back_content_desc))
             setCenterTitle(true)
             ClanRolesUiTheme.applyPrimaryFlowActionBar(this, themeColors)
@@ -200,9 +198,7 @@ class RoleDetailFragment : BaseFragment() {
         nameLock = ImageView(context).apply {
             visibility = View.GONE
             setImageDrawable(
-                MezonIcon.lockIcon.getDrawable(context).apply {
-                    colorFilter = PorterDuffColorFilter(themeColors.textDisabled, PorterDuff.Mode.SRC_IN)
-                }
+                MezonIcon.loadDrawable(context, R.drawable.mz_lock_16, themeColors.textDisabled)
             )
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
@@ -239,9 +235,7 @@ class RoleDetailFragment : BaseFragment() {
             visibility = View.GONE
             scaleType = ImageView.ScaleType.FIT_CENTER
             setImageDrawable(
-                MezonIcon.lockIcon.getDrawable(context).apply {
-                    colorFilter = PorterDuffColorFilter(themeColors.textDisabled, PorterDuff.Mode.SRC_IN)
-                },
+                MezonIcon.loadDrawable(context, R.drawable.mz_lock_16, themeColors.textDisabled),
             )
         }
         colorLabelWrap.addView(
@@ -270,9 +264,7 @@ class RoleDetailFragment : BaseFragment() {
         colorChevron = ImageView(context).apply {
             scaleType = ImageView.ScaleType.FIT_CENTER
             setImageDrawable(
-                MezonIcon.chevronSmallRightIcon.getDrawable(context).apply {
-                    colorFilter = PorterDuffColorFilter(themeColors.colorText, PorterDuff.Mode.SRC_IN)
-                },
+                MezonIcon.loadDrawable(context, R.drawable.mz_chevron_right_16, themeColors.colorText),
             )
         }
         colorRight.addView(
@@ -315,9 +307,7 @@ class RoleDetailFragment : BaseFragment() {
             visibility = View.GONE
             scaleType = ImageView.ScaleType.FIT_CENTER
             setImageDrawable(
-                MezonIcon.lockIcon.getDrawable(context).apply {
-                    colorFilter = PorterDuffColorFilter(themeColors.textDisabled, PorterDuff.Mode.SRC_IN)
-                },
+                MezonIcon.loadDrawable(context, R.drawable.mz_lock_16, themeColors.textDisabled),
             )
         }
         iconLabelWrap.addView(
@@ -364,9 +354,7 @@ class RoleDetailFragment : BaseFragment() {
                 setColor(themeColors.surfaceVariant)
             }
             setImageDrawable(
-                MezonIcon.imageIcon.getDrawable(context).apply {
-                    colorFilter = PorterDuffColorFilter(themeColors.colorText, PorterDuff.Mode.SRC_IN)
-                },
+                MezonIcon.loadDrawable(context, R.drawable.mz_image_24, themeColors.colorText),
             )
             setPadding(LayoutHelper.dp(12f), LayoutHelper.dp(12f), LayoutHelper.dp(12f), LayoutHelper.dp(12f))
         }
@@ -650,9 +638,7 @@ class RoleDetailFragment : BaseFragment() {
             visibility = View.GONE
             scaleType = ImageView.ScaleType.FIT_CENTER
             setImageDrawable(
-                MezonIcon.lockIcon.getDrawable(context).apply {
-                    colorFilter = PorterDuffColorFilter(themeColors.textDisabled, PorterDuff.Mode.SRC_IN)
-                }
+                MezonIcon.loadDrawable(context, R.drawable.mz_lock_16, themeColors.textDisabled)
             )
         }
         row.addView(
@@ -663,9 +649,7 @@ class RoleDetailFragment : BaseFragment() {
             ImageView(context).apply {
                 scaleType = ImageView.ScaleType.FIT_CENTER
                 setImageDrawable(
-                    MezonIcon.chevronSmallRightIcon.getDrawable(context).apply {
-                        colorFilter = PorterDuffColorFilter(themeColors.colorText, PorterDuff.Mode.SRC_IN)
-                    }
+                    MezonIcon.loadDrawable(context, R.drawable.mz_chevron_right_16, themeColors.colorText)
                 )
             },
             LayoutHelper.createLinear(16, 16, 0f, Gravity.CENTER_VERTICAL)

@@ -13,7 +13,6 @@ import com.mezon.mobile.core.BottomSheet
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.ui.cells.AvatarView
-import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.SwitchView
 import com.mezon.mobile.home.clans.settings.ClanSettingsPermissionState
 import com.mezon.mobile.home.clans.settings.ClanSettingsUiHelpers
@@ -145,25 +144,28 @@ class ClanMenuBottomSheet(
             }
         )
 
+        val actionIconSizeDp = 9
         val inviteBtn = ClanSettingsUiHelpers.buildHorizontalActionButton(
-            context, theme, MezonIcon.groupPlusIcon,
+            context, theme, R.drawable.mz_user_plus_24,
             context.getString(R.string.clan_menu_action_invite),
-            Runnable { onOpenInvite.run() }
+            Runnable { onOpenInvite.run() },
+            iconSizeDp = actionIconSizeDp,
         )
         val notifyBtn = ClanSettingsUiHelpers.buildHorizontalActionButton(
             context,
             theme,
-            MezonIcon.unmuteBellIcon,
+            R.drawable.mz_bell_24,
             context.getString(R.string.clan_menu_action_notifications),
             onOpenNotifications,
-            iconSizeDp = 9,
+            iconSizeDp = actionIconSizeDp,
         )
         val settingsBtn = ClanSettingsUiHelpers.buildHorizontalActionButton(
             context,
             theme,
-            MezonIcon.settingClanIcon,
+            R.drawable.mz_settings_24,
             context.getString(R.string.clan_menu_action_settings),
-            Runnable { onOpenClanSettings.run() }
+            Runnable { onOpenClanSettings.run() },
+            iconSizeDp = actionIconSizeDp,
         )
 
         val actionRow = LinearLayout(context).apply {

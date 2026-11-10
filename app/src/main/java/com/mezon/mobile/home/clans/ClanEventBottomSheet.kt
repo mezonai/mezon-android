@@ -40,6 +40,7 @@ import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.PopupMenu
 import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.util.DateTimeUtil
+import com.mezon.mobile.ui.theme.ThemeMode
 import java.util.Locale
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -351,7 +352,7 @@ class ClanEventBottomSheet(
                 }
                 addView(
                     ImageView(context).apply {
-                        setImageDrawable(MezonIcon.eventTimeIcon.getDrawable(context, theme.onSurfaceVariant))
+                        setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_event_24, theme.onSurfaceVariant))
                         scaleType = ImageView.ScaleType.FIT_CENTER
                     },
                     FrameLayout.LayoutParams(LayoutHelper.dp(24), LayoutHelper.dp(24), Gravity.CENTER),
@@ -429,11 +430,11 @@ class ClanEventBottomSheet(
 
     private fun buildInfoIconLeading(
         context: Context,
-        icon: MezonIcon,
+        icon: Int,
         iconColor: Int,
     ): View {
         val iconView = ImageView(context).apply {
-            setImageDrawable(icon.getDrawable(context, iconColor))
+            setImageDrawable(MezonIcon.loadDrawable(context, icon, iconColor))
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
         return buildInfoLeadingSlot(context, iconView)
@@ -442,7 +443,7 @@ class ClanEventBottomSheet(
     private fun buildInlineInfoRow(
         context: Context,
         theme: ThemeColors,
-        icon: MezonIcon,
+        icon: Int,
         text: String,
         iconColor: Int = theme.colorText,
         textColor: Int = theme.onSurfaceVariant,
@@ -503,7 +504,7 @@ class ClanEventBottomSheet(
             buildInlineInfoRow(
                 context,
                 theme,
-                MezonIcon.locationIcon,
+                R.drawable.mz_location_24,
                 event.address,
                 iconColor = theme.textStrong,
                 textColor = theme.textStrong,
@@ -515,7 +516,7 @@ class ClanEventBottomSheet(
             val row = buildInlineInfoRow(
                 context,
                 theme,
-                MezonIcon.channelVoice,
+                R.drawable.mz_speaker_24,
                 label,
                 iconColor = theme.textStrong,
                 textColor = theme.textStrong,
@@ -591,7 +592,7 @@ class ClanEventBottomSheet(
     private fun buildEventActionChip(
         context: Context,
         theme: ThemeColors,
-        icon: MezonIcon,
+        icon: Int,
         label: String?,
         onClick: () -> Unit,
     ): View {
@@ -615,7 +616,7 @@ class ClanEventBottomSheet(
             setOnClickListener { onClick() }
             addView(
                 ImageView(context).apply {
-                    setImageDrawable(icon.getDrawable(context, theme.textStrong))
+                    setImageDrawable(MezonIcon.loadDrawable(context, icon, theme.textStrong))
                 },
                 LinearLayout.LayoutParams(LayoutHelper.dp(18), LayoutHelper.dp(18)),
             )
@@ -670,9 +671,9 @@ class ClanEventBottomSheet(
             itemTextSizeSp = 15f,
             wrapContentWidth = true,
         )
-        popup.addItem(context.getString(R.string.clan_event_menu_copy_content), R.drawable.ic_copy_text)
+        popup.addItem(context.getString(R.string.clan_event_menu_copy_content), R.drawable.mz_copy_20)
         if (eventUrl != null) {
-            popup.addItem(context.getString(R.string.clan_event_menu_copy_link), MezonIcon.linkIcon)
+            popup.addItem(context.getString(R.string.clan_event_menu_copy_link), R.drawable.mz_link_16)
         }
         popup.setOnItemClickListener { index ->
             when (index) {
@@ -708,8 +709,7 @@ class ClanEventBottomSheet(
             isFocusable = true
             setOnClickListener { onClick() }
             addView(ImageView(context).apply {
-                setImageDrawable(MezonIcon.channelVoice.getDrawable(context))
-                setColorFilter(0xFFFFFFFF.toInt())
+                setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_speaker_16, ThemeMode.DARK.iconTint))
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
             }, LinearLayout.LayoutParams(LayoutHelper.dp(16), LayoutHelper.dp(16)))
             addView(TextView(context).apply {
@@ -815,7 +815,7 @@ class ClanEventBottomSheet(
         }
         topRow.addView(
             ImageView(context).apply {
-                setImageDrawable(MezonIcon.eventTimeIcon.getDrawable(context, statusColor))
+                setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_event_24, statusColor))
                 scaleType = ImageView.ScaleType.FIT_CENTER
             },
             LinearLayout.LayoutParams(LayoutHelper.dp(18), LayoutHelper.dp(18)),
@@ -847,7 +847,7 @@ class ClanEventBottomSheet(
         )
         rightMeta.addView(
             ImageView(context).apply {
-                setImageDrawable(MezonIcon.groupIcon.getDrawable(context, theme.textStrong))
+                setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_members_16, theme.textStrong))
                 scaleType = ImageView.ScaleType.FIT_CENTER
             },
             LinearLayout.LayoutParams(LayoutHelper.dp(12), LayoutHelper.dp(12)).apply {
@@ -865,8 +865,7 @@ class ClanEventBottomSheet(
         topRow.addView(rightMeta)
         topRow.addView(
             ImageView(context).apply {
-                setImageResource(R.drawable.ic_more_vertical_24)
-                setColorFilter(theme.textStrong)
+                setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_more_vertical_24, theme.textStrong))
                 scaleType = ImageView.ScaleType.CENTER
                 contentDescription = context.getString(R.string.clan_event_menu_content_desc)
                 isClickable = true
@@ -1031,7 +1030,7 @@ class ClanEventBottomSheet(
         }
         if (onEdit != null) {
             actions.addView(
-                buildEventActionChip(context, theme, MezonIcon.pencilIcon,
+                buildEventActionChip(context, theme, R.drawable.mz_edit_20,
                     context.getString(R.string.clan_event_menu_edit), onEdit),
                 LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1f).apply {
                     marginEnd = LayoutHelper.dp(8)
@@ -1043,7 +1042,7 @@ class ClanEventBottomSheet(
                 buildEventActionChip(
                     context,
                     theme,
-                    if (interested) MezonIcon.eventBellSlashIcon else MezonIcon.eventBellIcon,
+                    if (interested) R.drawable.mz_bell_off_24 else R.drawable.mz_bell_24,
                     if (interested) context.getString(R.string.clan_event_uninterested) else context.getString(R.string.clan_event_interested),
                     onToggleInterest,
                 ),
@@ -1051,7 +1050,7 @@ class ClanEventBottomSheet(
             )
         } else if (onEndEvent != null) {
             actions.addView(
-                buildEventActionChip(context, theme, MezonIcon.closeIcon, context.getString(R.string.clan_event_end), onEndEvent),
+                buildEventActionChip(context, theme, R.drawable.mz_close_20, context.getString(R.string.clan_event_end), onEndEvent),
                 LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1f),
             )
         }

@@ -2,8 +2,6 @@ package com.mezon.mobile.ui
 
 import android.content.Context
 import android.graphics.Color
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.Gravity
@@ -16,6 +14,7 @@ import androidx.core.view.WindowInsetsCompat
 import com.mezon.mobile.R
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.ui.theme.ThemeMode
 import kotlin.math.max
 
 class OfflineNetworkBannerView(context: Context) : LinearLayout(context) {
@@ -48,9 +47,7 @@ class OfflineNetworkBannerView(context: Context) : LinearLayout(context) {
         val icon = ImageView(context).apply {
             layoutParams = LayoutParams(ICON_WH, ICON_WH)
             scaleType = ImageView.ScaleType.FIT_CENTER
-            val d = MezonIcon.noSignalIcon.getDrawable(context).mutate()
-            d.colorFilter = PorterDuffColorFilter(Color.WHITE, PorterDuff.Mode.SRC_IN)
-            setImageDrawable(d)
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_wifi_off_20, ThemeMode.DARK.iconTint))
         }
         addView(icon)
 

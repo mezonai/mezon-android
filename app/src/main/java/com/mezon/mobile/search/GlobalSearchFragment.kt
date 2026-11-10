@@ -1,5 +1,7 @@
 package com.mezon.mobile.search
 
+import com.mezon.mobile.ui.cells.withDefaultIconTint
+import com.mezon.mobile.ui.cells.setMezonIconResource
 import android.content.Context
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
@@ -307,7 +309,7 @@ class GlobalSearchFragment : BaseFragment() {
         }
 
         backButton = ImageView(context).apply {
-            setImageResource(R.drawable.ic_arrow_back)
+            setMezonIconResource(R.drawable.mz_arrow_left_24)
             scaleType = ImageView.ScaleType.CENTER
             colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
             val rippleMask = android.graphics.drawable.GradientDrawable().apply {
@@ -364,7 +366,7 @@ class GlobalSearchFragment : BaseFragment() {
         headerRow.addView(searchCell, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
 
         filterButton = ImageView(context).apply {
-            val drawable = MezonIcon.filterHorizontalIcon.getDrawable(context)
+            val drawable = MezonIcon.loadDrawable(context, R.drawable.mz_sliders_20, ThemeColors.defaultIconTint)
             drawable.colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
             setImageDrawable(drawable)
             val ovalBg = android.graphics.drawable.GradientDrawable().apply {
@@ -828,7 +830,7 @@ class GlobalSearchFragment : BaseFragment() {
             context = context,
             label = context.getString(R.string.search_filter_from_label),
             description = context.getString(R.string.search_filter_from_description),
-            icon = MezonIcon.userIcon,
+            icon = R.drawable.mz_user_24,
             onClick = {
                 popup.dismiss()
                 selectUserFilter(MessageUserFilter.FROM)
@@ -839,7 +841,7 @@ class GlobalSearchFragment : BaseFragment() {
             context = context,
             label = context.getString(R.string.search_filter_mentions_label),
             description = context.getString(R.string.search_filter_mentions_description),
-            icon = MezonIcon.atIcon,
+            icon = R.drawable.mz_mention_24,
             onClick = {
                 popup.dismiss()
                 selectUserFilter(MessageUserFilter.MENTIONS)
@@ -863,7 +865,7 @@ class GlobalSearchFragment : BaseFragment() {
         context: Context,
         label: String,
         description: String,
-        icon: MezonIcon,
+        icon: Int,
         onClick: () -> Unit
     ): View {
         return LinearLayout(context).apply {
@@ -904,7 +906,7 @@ class GlobalSearchFragment : BaseFragment() {
             }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
 
             addView(ImageView(context).apply {
-                setImageDrawable(icon.getDrawable(context, themeColors.textDisabled))
+                setImageDrawable(MezonIcon.loadDrawable(context, icon).withDefaultIconTint(context, icon, ThemeColors.defaultIconTint))
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
             }, LinearLayout.LayoutParams(LayoutHelper.dp(20f), LayoutHelper.dp(20f)))
         }.also {

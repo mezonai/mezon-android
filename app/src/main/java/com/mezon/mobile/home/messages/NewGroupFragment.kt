@@ -1,5 +1,7 @@
 package com.mezon.mobile.home.messages
 
+import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.ui.cells.setMezonIconResource
 import android.content.Context
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
@@ -241,7 +243,7 @@ class NewGroupFragment : BaseFragment() {
             setOnClickListener { finishFragment() }
         }
         val backIcon = ImageView(context).apply {
-            val d = MezonIcon.arrowLargeLeftIcon.getDrawable(context)
+            val d = MezonIcon.loadDrawable(context, R.drawable.mz_arrow_left_20, ThemeColors.defaultIconTint)
             d.colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
             setImageDrawable(d)
         }
@@ -303,7 +305,7 @@ class NewGroupFragment : BaseFragment() {
         val searchIconSlot = FrameLayout(context)
         val searchIcon = ImageView(context).apply {
             scaleType = ImageView.ScaleType.CENTER_INSIDE
-            setImageResource(R.drawable.ic_magnifying)
+            setMezonIconResource(R.drawable.mz_search_20)
             colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
         }
         searchIconSlot.addView(searchIcon, LayoutHelper.createFrame(18, 18, Gravity.CENTER))

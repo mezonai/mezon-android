@@ -1,10 +1,13 @@
 package com.mezon.mobile.home.chat.poll
 
+import com.mezon.mobile.ui.cells.withDefaultIconTint
+import androidx.core.content.ContextCompat
+import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.ui.cells.setIconColor
+import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.core.theme.MobileThemeColors
 import android.content.Context
 import android.graphics.Rect
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
@@ -32,7 +35,6 @@ import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.chat.EmojiController
 import com.mezon.mobile.home.chat.EmojiItem
 import com.mezon.mobile.ui.cells.BackupImageView
-import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.SwitchView
 import com.mezon.mobile.util.getEmojiUrl
 import kotlinx.coroutines.Dispatchers
@@ -150,7 +152,7 @@ class CreatePollFragment : BaseFragment() {
         durationRow.addView(durationValueView, LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1f))
         val chevronPx = LayoutHelper.dp(9)
         durationRow.addView(
-            iconView(context, MezonIcon.chevronDownSmallIcon, chevronPx, colorLabel),
+            iconView(context, R.drawable.mz_chevron_down_16, chevronPx, colorLabel),
             LayoutHelper.createLinear(chevronPx, chevronPx)
         )
         body.addView(durationRow, sectionMargin(labelGap))
@@ -276,9 +278,8 @@ class CreatePollFragment : BaseFragment() {
         val emojiBtnW = LayoutHelper.dp(26)
         val emojiPreview = BackupImageView(context).apply { setOmitEmptyPlaceholder(true) }
         val emojiPlaceholder = ImageView(context).apply {
-            setImageResource(R.drawable.ic_emoji_icon)
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_emoji_24, colorLabel))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
-            colorFilter = PorterDuffColorFilter(colorLabel, PorterDuff.Mode.SRC_IN)
         }
 
         val emojiButton = FrameLayout(context).apply {
@@ -323,9 +324,8 @@ class CreatePollFragment : BaseFragment() {
             setOnClickListener { removeAnswerSlot(index) }
             addView(
                 ImageView(context).apply {
-                    setImageResource(MezonIcon.trashIcon.resId)
+                    setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_trash_24, colorLabel))
                     scaleType = ImageView.ScaleType.CENTER_INSIDE
-                    colorFilter = PorterDuffColorFilter(colorLabel, PorterDuff.Mode.SRC_IN)
                 },
                 LayoutHelper.createFrame(trashIconPx, trashIconPx, Gravity.CENTER)
             )
@@ -602,8 +602,7 @@ class CreatePollFragment : BaseFragment() {
                 setOnClickListener { finishFragment() }
                 addView(
                     ImageView(context).apply {
-                        setImageResource(R.drawable.ic_arrow_back)
-                        imageTintList = android.content.res.ColorStateList.valueOf(colorText)
+                        setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_arrow_left_24, colorText))
                         scaleType = ImageView.ScaleType.CENTER_INSIDE
                     },
                     LayoutHelper.createFrame(backIconDp, backIconDp, Gravity.START or Gravity.CENTER_VERTICAL)
@@ -660,26 +659,15 @@ class CreatePollFragment : BaseFragment() {
             topMargin = topPx
         }
 
-    private fun tintedIcon(context: Context, icon: MezonIcon, sizePx: Int, tint: Int): Drawable =
-        tintedIcon(context, icon.resId, sizePx, tint)
 
     private fun tintedIcon(context: Context, resId: Int, sizePx: Int, tint: Int): Drawable {
-        val d = context.getDrawable(resId)?.mutate() ?: return GradientDrawable()
-        d.colorFilter = PorterDuffColorFilter(tint, PorterDuff.Mode.SRC_IN)
+        val d = (if (resId == 0) null else ContextCompat.getDrawable(context, resId)?.mutate())?.withDefaultIconTint(context, resId, ThemeColors.defaultIconTint) ?: return GradientDrawable()
+        d.setIconColor(tint)
         d.setBounds(0, 0, sizePx, sizePx)
         return d
     }
 
-    private fun iconView(context: Context, resId: Int, sizePx: Int, tint: Int): ImageView =
-        ImageView(context).apply {
-            val d = context.getDrawable(resId)?.mutate()
-            d?.colorFilter = PorterDuffColorFilter(tint, PorterDuff.Mode.SRC_IN)
-            d?.setBounds(0, 0, sizePx, sizePx)
-            setImageDrawable(d)
-            scaleType = ImageView.ScaleType.CENTER
-        }
-
-    private fun iconView(context: Context, icon: MezonIcon, sizePx: Int, tint: Int): ImageView =
+    private fun iconView(context: Context, icon: Int, sizePx: Int, tint: Int): ImageView =
         ImageView(context).apply {
             setImageDrawable(tintedIcon(context, icon, sizePx, tint))
             scaleType = ImageView.ScaleType.CENTER_INSIDE

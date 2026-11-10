@@ -30,6 +30,7 @@ import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.ui.theme.ThemeMode
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -1190,26 +1191,26 @@ open class ImageTransformFragment : BaseFragment() {
         val barPadH = LayoutHelper.dp(20f)
         val barPadV = LayoutHelper.dp(14f)
         val iconTouch = LayoutHelper.dp(44f)
-        val iconVisual = LayoutHelper.dp(22f)
+        val iconVisual = LayoutHelper.dp(24f)
 
-        fun toolbarIconButton(icon: MezonIcon, rotationDeg: Float, onClick: () -> Unit): FrameLayout {
+        fun toolbarIconButton(icon: Int, rotationDeg: Float, onClick: () -> Unit): FrameLayout {
             val wrap = FrameLayout(context).apply {
                 isClickable = true
                 isFocusable = true
                 setOnClickListener { onClick() }
                 contentDescription = when (icon) {
-                    MezonIcon.arrowLargeLeftIcon ->
+                    R.drawable.mz_arrow_left_24 ->
                         when (rotationDeg) {
                             0f -> context.getString(R.string.image_crop_rotate_left_cd)
                             180f -> context.getString(R.string.image_crop_rotate_right_cd)
-                            else -> icon.name
+                            else -> null
                         }
-                    MezonIcon.reloadIcon -> context.getString(R.string.image_crop_reset_cd)
-                    else -> icon.name
+                    R.drawable.mz_refresh_24 -> context.getString(R.string.image_crop_reset_cd)
+                    else -> null
                 }
             }
             val iv = ImageView(context).apply {
-                setImageDrawable(icon.getDrawable(context, Color.WHITE))
+                setImageDrawable(MezonIcon.loadDrawable(context, icon, ThemeMode.DARK.iconTint))
                 rotation = rotationDeg
                 scaleType = ImageView.ScaleType.FIT_CENTER
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
@@ -1251,16 +1252,16 @@ open class ImageTransformFragment : BaseFragment() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
         }
-        actions.addView(toolbarIconButton(MezonIcon.arrowLargeLeftIcon, 0f) {
+        actions.addView(toolbarIconButton(R.drawable.mz_arrow_left_24, 0f) {
             transformCanvas.rotateByDegrees(-90f)
         })
         val gap = LayoutHelper.dp(20f)
         actions.addView(View(context), LinearLayout.LayoutParams(gap, 1))
-        actions.addView(toolbarIconButton(MezonIcon.reloadIcon, 0f) {
+        actions.addView(toolbarIconButton(R.drawable.mz_refresh_24, 0f) {
             transformCanvas.resetToInitial()
         })
         actions.addView(View(context), LinearLayout.LayoutParams(gap, 1))
-        actions.addView(toolbarIconButton(MezonIcon.arrowLargeLeftIcon, 180f) {
+        actions.addView(toolbarIconButton(R.drawable.mz_arrow_left_24, 180f) {
             transformCanvas.rotateByDegrees(90f)
         })
 

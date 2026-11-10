@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.profile
 
+import com.mezon.mobile.ui.cells.setMezonIconResource
 import android.content.Context
 import android.graphics.Typeface
 import androidx.core.content.ContextCompat
@@ -16,7 +17,6 @@ import com.mezon.mobile.R
 import com.mezon.mobile.core.BottomSheet
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
-import com.mezon.mobile.ui.cells.MezonIcon
 
 class ChangeUserStatusBottomSheet(
     context: Context,
@@ -70,11 +70,11 @@ class ChangeUserStatusBottomSheet(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
         ))
 
-        fun createOptionRow(label: String, value: String, icon: MezonIcon): View {
+        fun createOptionRow(label: String, status: UserOnlineStatus): View {
             val row = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(LayoutHelper.dp(12), LayoutHelper.dp(18), LayoutHelper.dp(12), LayoutHelper.dp(18))
+                setPadding(LayoutHelper.dp(12), LayoutHelper.dp(16), LayoutHelper.dp(12), LayoutHelper.dp(16))
                 val outValue = TypedValue()
                 context.theme.resolveAttribute(android.R.attr.selectableItemBackground, outValue, true)
                 foreground = context.getDrawable(outValue.resourceId)
@@ -82,24 +82,23 @@ class ChangeUserStatusBottomSheet(
                 isFocusable = true
             }
 
-            val iconView = ImageView(context).apply {
-                setImageResource(icon.resId)
-                scaleType = ImageView.ScaleType.CENTER_INSIDE
-            }
-            row.addView(iconView, LinearLayout.LayoutParams(LayoutHelper.dp(20), LayoutHelper.dp(20)))
+            val iconSlot = LayoutHelper.dp(24)
+            val iconView = ImageView(context)
+            status.bindIcon(iconView, iconSlot, LayoutHelper.dp(20))
+            row.addView(iconView, LinearLayout.LayoutParams(iconSlot, iconSlot))
 
             val labelView = TextView(context).apply {
                 text = label
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
                 setTextColor(themeColors.textStrong)
                 typeface = Typeface.DEFAULT_BOLD
-                setPadding(LayoutHelper.dp(12), 0, 0, 0)
+                setPadding(LayoutHelper.dp(8), 0, 0, 0)
             }
             row.addView(labelView, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
 
             val checkbox = FrameLayout(context).apply {
                 val normalizedCurrent = currentStatus.lowercase().replace("_", " ")
-                val normalizedValue = value.lowercase().replace("_", " ")
+                val normalizedValue = status.value.lowercase().replace("_", " ")
                 val isSelected = normalizedValue == normalizedCurrent
                 val colorSelected = ContextCompat.getColor(context, R.color.checkbox_selected)
                 val colorUnselected = ContextCompat.getColor(context, R.color.checkbox_unselected)
@@ -122,14 +121,14 @@ class ChangeUserStatusBottomSheet(
             row.addView(checkbox, LinearLayout.LayoutParams(LayoutHelper.dp(20), LayoutHelper.dp(20)))
 
             row.setOnClickListener {
-                onStatusSelected(value)
+                onStatusSelected(status.value)
                 dismiss()
             }
             return row
         }
 
-        fun addOptionWithSeparator(label: String, value: String, icon: MezonIcon, isLast: Boolean = false) {
-            optionsContainer.addView(createOptionRow(label, value, icon))
+        fun addOptionWithSeparator(label: String, status: UserOnlineStatus, isLast: Boolean = false) {
+            optionsContainer.addView(createOptionRow(label, status))
             if (!isLast) {
                 val separator = View(context).apply {
                     setBackgroundColor(themeColors.border)
@@ -141,10 +140,10 @@ class ChangeUserStatusBottomSheet(
             }
         }
 
-        addOptionWithSeparator(context.getString(R.string.status_online), "Online", MezonIcon.onlineStatusIcon)
-        addOptionWithSeparator(context.getString(R.string.status_idle), "Idle", MezonIcon.idleStatusIcon)
-        addOptionWithSeparator(context.getString(R.string.status_do_not_disturb), "Do Not Disturb", MezonIcon.disturbStatusIcon)
-        addOptionWithSeparator(context.getString(R.string.status_invisible), "Invisible", MezonIcon.offlineStatusIcon, isLast = true)
+        addOptionWithSeparator(context.getString(R.string.status_online), UserOnlineStatus.ONLINE)
+        addOptionWithSeparator(context.getString(R.string.status_idle), UserOnlineStatus.IDLE)
+        addOptionWithSeparator(context.getString(R.string.status_do_not_disturb), UserOnlineStatus.DO_NOT_DISTURB)
+        addOptionWithSeparator(context.getString(R.string.status_invisible), UserOnlineStatus.INVISIBLE, isLast = true)
 
         val customStatusBtn = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -164,7 +163,7 @@ class ChangeUserStatusBottomSheet(
         }
 
         val smileIcon = ImageView(context).apply {
-            setImageResource(MezonIcon.faceIcon.resId)
+            setMezonIconResource(R.drawable.mz_emoji_24)
             setColorFilter(themeColors.onSurfaceVariant)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
         }
@@ -185,7 +184,7 @@ class ChangeUserStatusBottomSheet(
         if (customStatus.isNotEmpty()) {
             val clearIcon = ImageView(context).apply {
                 tag = "clear_status_icon"
-                setImageResource(MezonIcon.closeIcon.resId)
+                setMezonIconResource(R.drawable.mz_close_24)
                 setColorFilter(themeColors.onSurfaceVariant)
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
                 isClickable = true

@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.clans
 
+import com.mezon.mobile.ui.cells.setIconColor
 import com.mezon.mobile.core.theme.applyThemeSurface
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -8,8 +9,6 @@ import android.content.res.ColorStateList
 import android.graphics.Canvas
 import android.graphics.Outline
 import android.graphics.Paint
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.os.Handler
@@ -259,6 +258,7 @@ class ClansFragment : BaseFragment() {
             pinnedDmLogo.invalidate()
             serverAdapter.notifyDataSetChanged()
             channelListView.invalidateTheme()
+            verifiedIcon?.drawable?.let { it.setIconColor(themeColors.blurple) }
             if (::memberCountText.isInitialized) {
                 updateMemberCount()
             }
@@ -605,9 +605,7 @@ class ClansFragment : BaseFragment() {
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
         ))
         verifiedIcon = ImageView(context).apply {
-            setImageDrawable(MezonIcon.verifyIcon.getDrawable(context).apply {
-                colorFilter = PorterDuffColorFilter(themeColors.blurple, PorterDuff.Mode.SRC_IN)
-            })
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_verified_20, themeColors.blurple))
             scaleType = ImageView.ScaleType.FIT_CENTER
             visibility = View.GONE
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
@@ -657,7 +655,7 @@ class ClansFragment : BaseFragment() {
             }
         }
         val searchIcon = ImageView(context).apply {
-            setImageDrawable(MezonIcon.searchIcon.getDrawable(context))
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_search_20, ThemeColors.defaultIconTint))
             scaleType = ImageView.ScaleType.FIT_CENTER
             isClickable = false
             isFocusable = false
@@ -695,7 +693,7 @@ class ClansFragment : BaseFragment() {
                 circleBg,
                 rippleMask
             )
-            setImageDrawable(MezonIcon.scanQR.getDrawable(context, themeColors))
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_qr_24, themeColors.iconTint))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             val pad = LayoutHelper.dp(8)
             setPadding(pad, pad, pad, pad)
@@ -723,7 +721,7 @@ class ClansFragment : BaseFragment() {
                 circleBg,
                 rippleMask
             )
-            setImageDrawable(MezonIcon.calendarIcon.getDrawable(context))
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_event_24, ThemeColors.defaultIconTint))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             val pad = LayoutHelper.dp(7)
             setPadding(pad, pad, pad, pad)

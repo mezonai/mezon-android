@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.chat
 
+import com.mezon.mobile.R
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -38,7 +39,7 @@ internal class TopicMessageButtonLayout(
     private var topicViewLayout: StaticLayout? = null
     private var topicRepliesLayout: StaticLayout? = null
     private var topicRepliesSecondRowLayout: StaticLayout? = null
-    private var topicArrowDrawable = MezonIcon.chevronSmallRightIcon.getDrawable(context).mutate()
+    private var topicArrowDrawable = MezonIcon.loadDrawable(context, R.drawable.mz_chevron_right_16, ThemeColors.defaultIconTint).mutate()
     private var topicAvatarUrl: String? = null
     private var topicAvatarDisposable: MezonImageLoader.Cancellable? = null
     private var creatorLabelText = ""

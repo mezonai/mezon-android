@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.voice
 
+import com.mezon.mobile.ui.cells.MezonIcon
 import android.app.Activity
 import android.app.Dialog
 import android.content.Context
@@ -18,6 +19,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import com.mezon.mobile.R
 import com.mezon.mobile.core.LayoutHelper.dp
+import com.mezon.mobile.ui.theme.ThemeMode
 
 /** Desktop-style participant dialog; primary action precedes Not now on mobile. */
 internal class VoiceBreakoutDialog(
@@ -39,7 +41,7 @@ internal class VoiceBreakoutDialog(
         }
         val title = LinearLayout(activity).apply { gravity = Gravity.CENTER_VERTICAL }
         title.addView(ImageView(activity).apply {
-            setImageResource(R.drawable.ic_voice_breakout)
+            setImageDrawable(MezonIcon.loadDrawable(activity, R.drawable.mz_breakout_20, ThemeMode.DARK.iconTint))
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }, LinearLayout.LayoutParams(dp(20), dp(20)))
         title.addView(label(activity, activity.getString(R.string.voice_breakout_title), 18f, bold = true),
@@ -61,7 +63,11 @@ internal class VoiceBreakoutDialog(
                     setPadding(dp(12), dp(12), dp(12), dp(12))
                     background = rounded(0xFF2E2E2E.toInt(), 8, border = true)
                 }
-                row.addView(ImageView(activity).apply { setImageResource(R.drawable.ic_voice_breakout) },
+                row.addView(ImageView(activity).apply { setImageDrawable(MezonIcon.loadDrawable(
+                    activity,
+                    R.drawable.mz_breakout_20,
+                    ThemeMode.DARK.iconTint,
+                )) },
                     LinearLayout.LayoutParams(dp(18), dp(18)))
                 row.addView(label(activity, name, 14f, bold = true),
                     LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(10) })

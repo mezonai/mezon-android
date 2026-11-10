@@ -1,8 +1,8 @@
 package com.mezon.mobile.ui.cells
 
+import androidx.core.content.ContextCompat
 import android.content.Context
 import android.graphics.Canvas
-import android.graphics.PorterDuff
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.text.Editable
@@ -16,11 +16,11 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.appcompat.content.res.AppCompatResources
 import androidx.core.widget.TextViewCompat
 import com.mezon.mobile.R
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.ui.theme.ThemeMode
 
 class InputCell(context: Context, private val theme: ThemeColors) : LinearLayout(context) {
 
@@ -105,7 +105,7 @@ class InputCell(context: Context, private val theme: ThemeColors) : LinearLayout
         }
 
         clearButton = ImageView(context).apply {
-            setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
+            setMezonIconResource(R.drawable.mz_close_16)
             setColorFilter(theme.onSurfaceVariant)
             visibility = View.GONE
             setOnClickListener {
@@ -231,12 +231,11 @@ class InputCell(context: Context, private val theme: ThemeColors) : LinearLayout
             errorView.text = message
             errorView.visibility = View.VISIBLE
             val iconPx = LayoutHelper.dp(16)
-            val icon = AppCompatResources.getDrawable(context, R.drawable.ic_circle_information)
+            val icon = ContextCompat.getDrawable(context, R.drawable.mz_info_16)?.mutate()?.apply { setIconColor(ThemeColors.defaultIconTint) }
                 ?.mutate()
                 ?.also {
                     it.setBounds(0, 0, iconPx, iconPx)
-                    it.setTint(theme.error)
-                    it.setTintMode(PorterDuff.Mode.SRC_IN)
+                    it.setIconColor(theme.error)
                 }
             TextViewCompat.setCompoundDrawablesRelative(errorView, icon, null, null, null)
             errorView.compoundDrawablePadding = LayoutHelper.dp(6)
@@ -287,7 +286,11 @@ class InputCell(context: Context, private val theme: ThemeColors) : LinearLayout
         bgDrawable.setStroke(LayoutHelper.dp(1), border)
         editText.setTextColor(text)
         editText.setHintTextColor(hint)
-        clearButton.setColorFilter(clearIcon)
+        clearButton.drawable.setIconColor(clearIcon)
+    }
+
+    fun useDarkClearIcon() {
+        clearButton.setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_close_16, ThemeMode.LIGHT.iconTint))
     }
 
     fun refreshThemeColors() {

@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.chat.channelinfo
 
+import com.mezon.mobile.R
 import android.content.Context
 import android.graphics.drawable.GradientDrawable
 import android.text.TextUtils
@@ -64,9 +65,9 @@ class ChannelFileDocumentRowView(
     ) {
         iconView.clearColorFilter()
         val icon = if (isAudioAttachmentType(item.filetype)) {
-            MezonIcon.musicNoteIcon.getDrawable(context, theme.onSurface)
+            MezonIcon.loadDrawable(context, R.drawable.mz_music_24, ThemeColors.defaultIconTint)
         } else {
-            MezonIcon.fileIconNew.getDrawable(context)
+            MezonIcon.loadDrawable(context, R.drawable.mz_file_24, ThemeColors.defaultIconTint)
         }
         iconView.setImageDrawable(icon)
         nameView.text = item.filename

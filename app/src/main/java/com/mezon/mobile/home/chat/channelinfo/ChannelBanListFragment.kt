@@ -88,7 +88,7 @@ class ChannelBanListFragment : BaseFragment() {
         actionBar = ActionBarView(context, themeColors).apply {
             setTitle(getString(R.string.channel_ban_list_title))
             setSubtitle(channelName)
-            setBackButtonImage(R.drawable.ic_arrow_back)
+            setBackButtonImage(R.drawable.mz_arrow_left_24)
             setCenterTitle(true)
             setMenuOnItemClick(object : ActionBarView.ActionBarMenuOnItemClick() {
                 override fun onItemClick(id: Int) {
