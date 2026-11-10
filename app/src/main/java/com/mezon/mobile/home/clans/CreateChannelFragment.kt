@@ -1,7 +1,6 @@
 package com.mezon.mobile.home.clans
 
 import com.mezon.mobile.core.ThemeColors
-import com.mezon.mobile.core.theme.DesktopThemeToken
 import android.content.Context
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -69,6 +68,8 @@ class CreateChannelFragment : BaseFragment() {
         return super.onFragmentCreate()
     }
 
+    override fun getStatusBarColor(): Int = themeColors.background
+
     override fun createView(context: Context): View {
         val screenPadH = LayoutHelper.dp(16)
         val sectionCaptionToFieldSpacing = LayoutHelper.dp(8)
@@ -86,7 +87,7 @@ class CreateChannelFragment : BaseFragment() {
             setOnClickListener { submitCreate() }
         }
 
-        actionBar = ActionBarView(context, themeColors).apply {
+        actionBar = ActionBarView(context, themeColors, transparentBackground = true).apply {
             occupyStatusBar = false
             setBackButtonImage(R.drawable.mz_close_24)
             setTitle(getString(R.string.channel_creator_screen_title))
@@ -134,7 +135,7 @@ class CreateChannelFragment : BaseFragment() {
 
         nameCell = InputCell(context, themeColors).apply {
             setLabel(null, false, false)
-            setCellBackgroundColor(themeColors.background)
+            setCellBackgroundColor(themeColors.surface)
             setMaxCharacter(64)
             setHint(getString(R.string.channel_creator_channel_name_placeholder))
             onTextChanged = {
@@ -152,7 +153,7 @@ class CreateChannelFragment : BaseFragment() {
         val typeBox = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             background = GradientDrawable().apply {
-                setColor(themeColors.background)
+                setColor(themeColors.surface)
                 cornerRadius = cardRadius
             }
         }
@@ -216,13 +217,13 @@ class CreateChannelFragment : BaseFragment() {
         }
 
         val bodyRoot = FrameLayout(context).apply {
-            setBackgroundColor(themeColors.desktop[DesktopThemeToken.THEME_SETTING_PRIMARY])
             addView(scroll, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
             addView(loadingOverlay, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
         }
 
         val rootWithBar = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
+            setBackgroundColor(themeColors.background)
             addView(actionBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
             addView(bodyRoot, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
         }
@@ -254,7 +255,7 @@ class CreateChannelFragment : BaseFragment() {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(rowPad, rowPad, rowPad, rowPad)
             background = GradientDrawable().apply {
-                setColor(themeColors.background)
+                setColor(themeColors.surface)
                 cornerRadius = cardRadius
             }
             addView(lock, LayoutHelper.createLinear(22, 22).apply { rightMargin = LayoutHelper.dp(12) })
