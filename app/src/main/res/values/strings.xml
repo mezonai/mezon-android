@@ -928,6 +928,7 @@
     <string name="send_token_error_balance_parse">Could not read wallet balance</string>
     <string name="send_token_wallet_not_available">Wallet is not available. Sign in again (with OpenID) or check network so ZK proof can be loaded, then retry.</string>
     <string name="send_token_send_error">Send failed: %1$s</string>
+    <string name="send_token_send_failed">Transfer failed. Please try again.</string>
     <string name="send_token_send_success">Transfer sent</string>
     <string name="send_token_sending">Sending…</string>
     <string name="profile_history_transaction">Transaction History</string>
@@ -1363,6 +1364,7 @@
     <string name="location_card_location_of">%1$s\'s location</string>
     <string name="feature_coming_soon">Coming soon</string>
     <string name="file_too_large">File exceeds the %s limit</string>
+    <string name="attachment_max_items">You can select up to %1$d items.</string>
 
     <!-- Voice recording -->
     <string name="voice_record_hint">Press &amp; hold to record.</string>

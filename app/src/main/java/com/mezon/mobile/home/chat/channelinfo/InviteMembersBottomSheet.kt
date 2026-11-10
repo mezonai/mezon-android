@@ -13,6 +13,8 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import com.mezon.mobile.R
+import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BottomSheet
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
@@ -142,7 +144,9 @@ class InviteMembersBottomSheet(
         val clip = ClipData.newPlainText("Invite Link", text)
         val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         manager.setPrimaryClip(clip)
-        Toast.makeText(context, "Link copied!", Toast.LENGTH_SHORT).show()
+        if (AndroidUtilities.shouldShowClipboardToast) {
+            Toast.makeText(context, R.string.invite_link_copied, Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun shareLink(context: Context, text: String) {

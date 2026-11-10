@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.clans
 
+import com.mezon.mobile.util.NetworkErrorMessages
 import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
@@ -766,8 +767,11 @@ class ClansController @Inject constructor(
                 withContext(Dispatchers.Main.immediate) { onResult(true, null) }
             } catch (e: Exception) {
                 Log.e(TAG, "updateClanLogo($clanId) failed", e)
-                val msg = e.message?.takeIf { it.isNotBlank() }
-                    ?: appContext.getString(R.string.clan_settings_logo_update_failed)
+                val msg = NetworkErrorMessages.userMessage(
+                    appContext,
+                    e,
+                    appContext.getString(R.string.clan_settings_logo_update_failed)
+                )
                 withContext(Dispatchers.Main.immediate) { onResult(false, msg) }
             } finally {
                 _clanLogoUpdateInFlight.update { it - clanId }

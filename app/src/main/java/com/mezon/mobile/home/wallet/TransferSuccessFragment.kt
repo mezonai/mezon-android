@@ -294,7 +294,7 @@ class TransferSuccessFragment : BaseFragment() {
             }
             ctx.startActivity(Intent.createChooser(intent, getString(R.string.transfer_success_share)))
         }.onFailure {
-            showToast(ctx, it.message.orEmpty())
+            showToast(ctx, getString(R.string.message_toast_share_failed))
         }
     }
 
@@ -319,7 +319,7 @@ class TransferSuccessFragment : BaseFragment() {
             }
             showToast(ctx, getString(R.string.transfer_success_save_image))
         }.onFailure {
-            showToast(ctx, it.message.orEmpty())
+            showToast(ctx, getString(R.string.message_toast_save_failed))
         }
     }
 

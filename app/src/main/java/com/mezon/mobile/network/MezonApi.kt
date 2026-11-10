@@ -599,7 +599,11 @@ class MezonApi @Inject constructor(
 
         if (!response.status.isSuccess()) {
             val errorBody = response.bodyAsText()
-            throw RuntimeException(gatewayJsonErrorUserMessage(errorBody))
+            throw HttpRpcStatusException(
+                gatewayJsonErrorUserMessage(errorBody),
+                response.status.value,
+                serverMessage = jsonErrorMessage(errorBody)
+            )
         }
 
         return response.body()
@@ -912,7 +916,7 @@ class MezonApi @Inject constructor(
             if (response.status == HttpStatusCode.Unauthorized) {
                 throw UnauthorizedException(msg)
             }
-            throw RuntimeException(msg)
+            throw HttpRpcStatusException(msg, response.status.value, serverMessage = jsonErrorMessage(errorBody))
         }
         if (response.status == HttpStatusCode.NoContent) {
             return AuthSessionResponse()
@@ -1754,7 +1758,11 @@ class MezonApi @Inject constructor(
         }
         if (!response.status.isSuccess()) {
             val errorBody = response.bodyAsText()
-            throw RuntimeException(gatewayJsonErrorUserMessage(errorBody))
+            throw HttpRpcStatusException(
+                gatewayJsonErrorUserMessage(errorBody),
+                response.status.value,
+                serverMessage = jsonErrorMessage(errorBody)
+            )
         }
         return response.body()
     }
@@ -1769,7 +1777,11 @@ class MezonApi @Inject constructor(
         }
         if (!response.status.isSuccess()) {
             val errorBody = response.bodyAsText()
-            throw RuntimeException(gatewayJsonErrorUserMessage(errorBody))
+            throw HttpRpcStatusException(
+                gatewayJsonErrorUserMessage(errorBody),
+                response.status.value,
+                serverMessage = jsonErrorMessage(errorBody)
+            )
         }
         return response.body()
     }
@@ -1784,7 +1796,11 @@ class MezonApi @Inject constructor(
         }
         if (!response.status.isSuccess()) {
             val errorBody = response.bodyAsText()
-            throw RuntimeException(gatewayJsonErrorUserMessage(errorBody))
+            throw HttpRpcStatusException(
+                gatewayJsonErrorUserMessage(errorBody),
+                response.status.value,
+                serverMessage = jsonErrorMessage(errorBody)
+            )
         }
         return response.body()
     }

@@ -134,6 +134,8 @@
     <string name="share_location_unavailable">Không lấy được vị trí của bạn. Vui lòng thử lại.</string>
     <string name="location_card_your_location">Vị trí của bạn</string>
     <string name="location_card_location_of">Vị trí của %1$s</string>
+    <string name="file_too_large">Tệp vượt quá giới hạn %s</string>
+    <string name="attachment_max_items">Bạn chỉ có thể chọn tối đa %1$d mục.</string>
     <string name="qr_scan_title_hint">Quét mã QR</string>
     <string name="qr_scan_instructions">Hướng camera vào mã QR. Bạn cũng có thể chọn ảnh từ thư viện.</string>
     <string name="qr_gallery_label">Thư viện</string>
@@ -1330,6 +1332,7 @@
     <string name="transfer_success_done">Hoàn thành</string>
     <string name="send_token_wallet_not_available">Ví chưa sẵn sàng. Đăng nhập lại (OpenID) hoặc kiểm tra mạng để tải bằng chứng ZK, rồi thử lại.</string>
     <string name="send_token_send_error">Gửi thất bại: %1$s</string>
+    <string name="send_token_send_failed">Chuyển tiền thất bại. Vui lòng thử lại.</string>
     <string name="send_token_send_success">Đã gửi chuyển khoản</string>
     <string name="send_token_sending">Đang gửi…</string>
     <string name="send_token_to_address">Địa chỉ</string>

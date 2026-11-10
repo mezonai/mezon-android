@@ -653,6 +653,7 @@ class ClanEventBottomSheet(
     private fun copyEventText(label: String, text: String, messageResId: Int = R.string.invite_copied) {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
+        if (!AndroidUtilities.shouldShowClipboardToast) return
         val parent = window?.decorView as? ViewGroup ?: return
         ToastOverlay(context, theme).show(parent, ToastOverlay.ToastType.SUCCESS, context.getString(messageResId))
     }

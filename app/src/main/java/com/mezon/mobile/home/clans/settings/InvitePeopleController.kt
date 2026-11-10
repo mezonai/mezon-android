@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.clans.settings
 
+import com.mezon.mobile.util.NetworkErrorMessages
 import android.content.Context
 import com.mezon.mobile.R
 import com.mezon.mobile.di.ApplicationScope
@@ -200,7 +201,7 @@ class InvitePeopleController @Inject constructor(
                 onResult(true, null)
             } catch (e: Exception) {
                 _state.update { it.copy(sendingTargetId = null) }
-                onResult(false, e.message ?: ERROR_SEND)
+                onResult(false, NetworkErrorMessages.userMessageOrNull(appContext, e))
             }
         }
     }

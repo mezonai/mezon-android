@@ -35,6 +35,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.R
 import com.mezon.mobile.core.AlertDialog
+import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
@@ -1470,7 +1471,9 @@ class ClansFragment : BaseFragment() {
         val link = "$baseUrl/chat/clans/$clanId/channels/${channel.channelId}"
         val clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText("channel_link", link))
-        MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(R.string.invite_link_copied))
+        if (AndroidUtilities.shouldShowClipboardToast) {
+            MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(R.string.invite_link_copied))
+        }
     }
 
     private fun toggleChannelFavorite(channel: ClanChannelEntity, clanId: Long) {

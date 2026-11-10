@@ -7,6 +7,7 @@ import com.mezon.mobile.network.SocketConnectionLostException
 import com.mezon.mobile.network.SocketRequestTimeoutException
 import com.mezon.mobile.network.SocketRpcServerException
 import com.mezon.mobile.network.SocketRpcTransportException
+import com.mezon.mobile.network.UnauthorizedException
 import java.io.IOException
 import java.net.ConnectException
 import java.net.SocketTimeoutException
@@ -14,6 +15,7 @@ import java.net.UnknownHostException
 import java.util.Locale
 import javax.net.ssl.SSLException
 
+class UserFacingException(message: String) : RuntimeException(message)
 
 object NetworkErrorMessages {
     private const val GRPC_INVALID_ARGUMENT = 3
@@ -28,10 +30,10 @@ object NetworkErrorMessages {
     fun userMessage(
         context: Context,
         throwable: Throwable?,
-        fallback: String = context.getString(R.string.error_request_failed),
-        allowRawMessage: Boolean = true
-    ): String {
-        if (throwable == null) return fallback
+        fallback: String = context.getString(R.string.error_request_failed)
+    ): String = userMessageOrNull(context, throwable) ?: fallback
+
+    fun userMessageOrNull(context: Context, throwable: Throwable?): String? {
         var t: Throwable? = throwable
         val seen = HashSet<Throwable>(8)
         var depth = 0
@@ -40,19 +42,20 @@ object NetworkErrorMessages {
             t = t.cause
             depth++
         }
-        if (!allowRawMessage) return fallback
-        val raw = throwable.message?.trim().orEmpty()
-        return raw.ifEmpty { fallback }
+        return null
     }
 
     private fun messageForThrowable(context: Context, t: Throwable): String? {
         when (t) {
+            is UserFacingException -> return t.message?.trim()?.ifEmpty { null }
             is UnknownHostException -> return context.getString(R.string.error_network_no_connection)
             is SocketTimeoutException -> return context.getString(R.string.error_network_timeout)
             is ConnectException -> return context.getString(R.string.error_network_no_connection)
             is SSLException -> return context.getString(R.string.error_network_no_connection)
-            is HttpRpcStatusException -> return t.serverMessage.ifBlank { context.getString(R.string.error_server_code, t.code) }
-            is SocketRpcServerException -> return t.serverMessage.ifBlank { serverCodeMessage(context, t.code) }
+            is HttpRpcStatusException -> return httpStatusMessage(context, t.code)
+            is UnauthorizedException -> return context.getString(R.string.common_session_expired_content)
+            is SocketRpcServerException ->
+                return grpcStatusMessage(context, t.code) ?: httpStatusMessage(context, t.code)
             is SocketRequestTimeoutException -> return context.getString(R.string.error_network_timeout)
             is SocketConnectionLostException, is SocketRpcTransportException ->
                 return context.getString(R.string.error_network_no_connection)
@@ -76,7 +79,17 @@ object NetworkErrorMessages {
         return null
     }
 
-    private fun serverCodeMessage(context: Context, code: Int): String = when (code) {
+    private fun httpStatusMessage(context: Context, code: Int): String? = when (code) {
+        400 -> context.getString(R.string.error_server_invalid_argument)
+        403 -> context.getString(R.string.error_server_permission_denied)
+        404 -> context.getString(R.string.error_server_not_found)
+        408 -> context.getString(R.string.error_network_timeout)
+        409 -> context.getString(R.string.error_server_already_exists)
+        429 -> context.getString(R.string.error_server_rate_limited)
+        else -> null
+    }
+
+    private fun grpcStatusMessage(context: Context, code: Int): String? = when (code) {
         GRPC_INVALID_ARGUMENT -> context.getString(R.string.error_server_invalid_argument)
         GRPC_NOT_FOUND -> context.getString(R.string.error_server_not_found)
         GRPC_ALREADY_EXISTS -> context.getString(R.string.error_server_already_exists)
@@ -85,6 +98,6 @@ object NetworkErrorMessages {
         GRPC_UNAUTHENTICATED -> context.getString(R.string.common_session_expired_content)
         GRPC_DEADLINE_EXCEEDED -> context.getString(R.string.error_network_timeout)
         GRPC_UNAVAILABLE -> context.getString(R.string.error_network_no_connection)
-        else -> context.getString(R.string.error_server_code, code)
+        else -> null
     }
 }

@@ -262,6 +262,6 @@ class UpdateUsernameFragment : AuthFragment() {
         }
         val fallback = getString(R.string.update_username_error)
         val ctx = getContext() ?: return fallback
-        return NetworkErrorMessages.userMessage(ctx, error, fallback, allowRawMessage = false)
+        return NetworkErrorMessages.userMessage(ctx, error, fallback)
     }
 }
