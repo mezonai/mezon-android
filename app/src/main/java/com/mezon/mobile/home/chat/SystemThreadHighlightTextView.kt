@@ -92,8 +92,7 @@ class SystemThreadHighlightTextView(
         val creator = creatorLabel.trim()
         val mentionTextColor = mentionColors.userText
         val mentionBgColor = mentionColors.userBg
-        val pinPhraseColor = themeColors.onSurface
-        val allPinsColor = themeColors.onSurface
+        val linkColor = themeColors.textLink
         if (creator.isNotEmpty()) {
             val creatorStart = sb.length
             sb.append(creator)
@@ -113,7 +112,7 @@ class SystemThreadHighlightTextView(
         sb.append(context.getString(R.string.system_msg_pin_link_phrase))
         if (pinnedMessageRefId != 0L) {
             sb.setSpan(
-                PinCreatedMessageSpan(listener, pinnedMessageRefId, pinPhraseColor),
+                PinCreatedMessageSpan(listener, pinnedMessageRefId, linkColor),
                 messageStart,
                 sb.length,
                 Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
@@ -126,7 +125,7 @@ class SystemThreadHighlightTextView(
         val allStart = sb.length
         sb.append(context.getString(R.string.system_msg_all_pins))
         sb.setSpan(
-            PinCreatedAllPinsSpan(listener, allPinsColor),
+            PinCreatedAllPinsSpan(listener, linkColor),
             allStart,
             sb.length,
             Spanned.SPAN_EXCLUSIVE_EXCLUSIVE

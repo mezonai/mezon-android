@@ -1,15 +1,18 @@
 package com.mezon.mobile.home.chat
 
 import android.content.Context
+import android.content.res.ColorStateList
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
+import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.RippleDrawable
 import android.text.TextPaint
+import android.text.TextUtils
 import android.view.Gravity
-import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -26,16 +29,25 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.PhotoAttachPhotoCell
+import com.mezon.mobile.ui.cells.PopupMenu
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 private const val ITEMS_PER_ROW = 3
 private const val GRID_GAP = 2
+private const val LOAD_MORE_THRESHOLD = 12
+private const val COLLAPSED_HEIGHT_FRACTION = 0.55f
 
 class ChatAttachAlert(
     context: Context,
     private val mediaController: MediaController,
     private val theme: ThemeColors,
     preselectedItems: List<AttachmentPickerItem> = emptyList()
-) : BottomSheet(context), MediaController.GalleryLoadListener {
+) : BottomSheet(context) {
 
     interface ChatAttachAlertDelegate {
         fun canSelectMore(): Boolean = true
@@ -54,14 +66,20 @@ class ChatAttachAlert(
     private val selectedPhotosOrder = ArrayList<Long>()
 
     private var gridView: RecyclerView? = null
-    private var headerRowView: LinearLayout? = null
+    private lateinit var albumButton: TextView
+    private var albumMenu: PopupMenu? = null
     private var adapter: PhotoAttachAdapter? = null
+    private var actionRow: LinearLayout? = null
     private var sendBtn: SendButtonView? = null
     private var editBtn: View? = null
-    private var swipeDismissFromHandle = false
     private var didNotifyDismiss = false
 
-    private var allPhotos = ArrayList<AttachmentPickerItem>()
+    private val galleryScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var albums: List<AlbumEntry> = emptyList()
+    private var selectedAlbum: AlbumEntry? = null
+    private var galleryPager = mediaController.GalleryPager(bucketId = null)
+    private var photosLoadJob: Job? = null
+    private val visiblePhotos = ArrayList<AttachmentPickerItem>()
     private var itemSize = 0
 
     init {
@@ -73,25 +91,25 @@ class ChatAttachAlert(
     }
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        setSnapPoints(COLLAPSED_HEIGHT_FRACTION, 1f)
         super.onCreate(savedInstanceState)
         fixNavigationBar()
-        setAllowNestedScroll(true)
-
-        val contentHeight = (AndroidUtilities.displaySize.y * 0.55f).toInt()
 
         val contentFrame = FrameLayout(context)
         buildGalleryView(contentFrame)
 
-        contentLayout?.addView(contentFrame, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, contentHeight
-        ))
+        contentLayout?.apply {
+            layoutParams.height = LayoutHelper.MATCH_PARENT
+            addView(contentFrame, LinearLayout.LayoutParams(LayoutHelper.MATCH_PARENT, 0, 1f))
+        }
 
-        mediaController.setGalleryLoadListener(this)
-        mediaController.loadGalleryPhotos()
+        loadMorePhotos()
+        galleryScope.launch {
+            albums = mediaController.loadAlbums()
+            albumButton.isEnabled = albums.isNotEmpty()
+        }
         updateSendButton()
     }
-
-    private val LOAD_MORE_THRESHOLD = 12
 
     private fun buildGalleryView(parent: FrameLayout) {
         val availableWidth = AndroidUtilities.displaySize.x
@@ -99,15 +117,48 @@ class ChatAttachAlert(
 
         val headerHeight = LayoutHelper.dp(44f)
 
-        val headerRow = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(LayoutHelper.dp(12f), 0, LayoutHelper.dp(12f), 0)
-        }
-        headerRowView = headerRow
-        buildHeaderButton(headerRow, MezonIcon.fileIconGray, R.string.file_selection_upload) {
+        val uploadButton = buildHeaderButton(MezonIcon.fileIconGray, R.string.file_selection_upload) {
             dismiss()
             attachDelegate?.onFilesRequested()
+        }
+        albumButton = TextView(context).apply {
+            setText(R.string.file_selection_recent_photos)
+            setTextColor(theme.onSurface)
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setSingleLine()
+            ellipsize = TextUtils.TruncateAt.END
+            setPaddingRelative(LayoutHelper.dp(8f), 0, LayoutHelper.dp(8f), 0)
+            compoundDrawablePadding = LayoutHelper.dp(6f)
+            val chevron = MezonIcon.chevronDownSmallIcon.getDrawable(context, theme.onSurface)
+            val iconSize = LayoutHelper.dp(16f)
+            chevron.setBounds(0, 0, iconSize, iconSize)
+            setCompoundDrawablesRelative(null, null, chevron, null)
+            foreground = RippleDrawable(
+                ColorStateList.valueOf(theme.onSurface and 0x1AFFFFFF),
+                null,
+                ColorDrawable(Color.WHITE)
+            )
+            isEnabled = false
+            isFocusable = true
+            setOnClickListener { showAlbumMenu() }
+        }
+        val headerRow = object : FrameLayout(context) {
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+                val width = (measuredWidth - paddingLeft - paddingRight).coerceAtLeast(0)
+                val sideWidth = minOf(uploadButton.measuredWidth, width / 3)
+                val heightSpec = MeasureSpec.makeMeasureSpec(measuredHeight, MeasureSpec.EXACTLY)
+                uploadButton.measure(MeasureSpec.makeMeasureSpec(sideWidth, MeasureSpec.EXACTLY), heightSpec)
+                // Reserve equal space on both sides of the album title to keep it centered.
+                albumButton.measure(MeasureSpec.makeMeasureSpec(width - 2 * sideWidth, MeasureSpec.AT_MOST), heightSpec)
+            }
+        }.apply {
+            setPadding(LayoutHelper.dp(12f), 0, LayoutHelper.dp(12f), 0)
+            setBackgroundColor(sheetBackgroundColor)
+            addView(uploadButton, FrameLayout.LayoutParams(LayoutHelper.WRAP_CONTENT, LayoutHelper.MATCH_PARENT, Gravity.START))
+            addView(albumButton, FrameLayout.LayoutParams(LayoutHelper.WRAP_CONTENT, LayoutHelper.MATCH_PARENT, Gravity.CENTER))
         }
 
         adapter = PhotoAttachAdapter()
@@ -134,8 +185,8 @@ class ChatAttachAlert(
                     if (dy <= 0) return
                     val lastVisible = layoutManager.findLastVisibleItemPosition()
                     val total = this@ChatAttachAlert.adapter?.itemCount ?: 0
-                    if (lastVisible >= total - LOAD_MORE_THRESHOLD && mediaController.hasMore) {
-                        mediaController.loadMorePhotos()
+                    if (lastVisible >= total - LOAD_MORE_THRESHOLD) {
+                        loadMorePhotos()
                     }
                 }
             })
@@ -153,6 +204,7 @@ class ChatAttachAlert(
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
+        this.actionRow = actionRow
         editBtn = TextView(context).apply {
             visibility = View.GONE
             isClickable = true
@@ -191,11 +243,10 @@ class ChatAttachAlert(
     }
 
     private fun buildHeaderButton(
-        parent: LinearLayout,
         icon: MezonIcon,
         textRes: Int,
         onClick: () -> Unit
-    ) {
+    ): LinearLayout {
         val btn = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -216,26 +267,67 @@ class ChatAttachAlert(
             setText(textRes)
             setTextColor(theme.onSurface)
             textSize = 13f
+            setSingleLine()
+            ellipsize = TextUtils.TruncateAt.END
             setPadding(LayoutHelper.dp(6f), 0, 0, 0)
         }
         btn.addView(label, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
         ))
 
-        parent.addView(btn)
+        return btn
     }
 
-    override fun onGalleryLoaded(photos: List<AttachmentPickerItem>, totalLoaded: Int, hasMore: Boolean) {
-        AndroidUtilities.runOnUIThread {
-            val previousSize = allPhotos.size
-            allPhotos.clear()
-            allPhotos.addAll(photos)
-            val insertedCount = allPhotos.size - previousSize
-            if (previousSize == 0) {
-                adapter?.notifyDataSetChanged()
-            } else if (insertedCount > 0) {
-                adapter?.notifyItemRangeInserted(previousSize + 1, insertedCount)
+    private fun showAlbumMenu() {
+        if (albumMenu != null) return
+        val entries = listOf(null) + albums
+        gridView?.foreground = ColorDrawable(0x4D000000)
+        albumMenu = PopupMenu(
+            context,
+            theme,
+            focusable = true,
+            itemTextSizeSp = 14f,
+            wrapContentWidth = true
+        ).apply {
+            for (album in entries) {
+                val name = album?.bucketName ?: context.getString(R.string.file_selection_recent_photos)
+                val icon = if (album == selectedAlbum) MezonIcon.checkmarkSmallIcon.resId else 0
+                addItem(name, icon)
             }
+            setOnItemClickListener { selectAlbum(entries[it]) }
+            setOnDismissListener {
+                gridView?.foreground = null
+                albumMenu = null
+            }
+            show(albumButton)
+        }
+    }
+
+    private fun selectAlbum(album: AlbumEntry?) {
+        if (selectedAlbum == album) return
+        selectedAlbum = album
+        albumButton.text = album?.bucketName ?: context.getString(R.string.file_selection_recent_photos)
+        photosLoadJob?.cancel()
+        photosLoadJob = null
+        galleryPager = mediaController.GalleryPager(album?.bucketId)
+
+        gridView?.stopScroll()
+        visiblePhotos.clear()
+        adapter?.notifyDataSetChanged()
+        gridView?.scrollToPosition(0)
+        loadMorePhotos()
+    }
+
+    private fun loadMorePhotos() {
+        if (photosLoadJob?.isActive == true || !galleryPager.hasMore) return
+        val pager = galleryPager
+        photosLoadJob = galleryScope.launch {
+            val page = pager.loadNextPage()
+            if (page.isEmpty()) return@launch
+
+            val insertPosition = visiblePhotos.size + 1 // The first tile is the camera.
+            visiblePhotos.addAll(page)
+            adapter?.notifyItemRangeInserted(insertPosition, page.size)
         }
     }
 
@@ -311,7 +403,8 @@ class ChatAttachAlert(
     }
 
     override fun dismiss() {
-        mediaController.setGalleryLoadListener(null)
+        albumMenu?.dismiss()
+        galleryScope.cancel()
         if (!didNotifyDismiss) {
             didNotifyDismiss = true
             attachDelegate?.onDismissed()
@@ -319,32 +412,10 @@ class ChatAttachAlert(
         super.dismiss()
     }
 
-    override fun canDismissWithSwipe(): Boolean {
-        if (swipeDismissFromHandle) return true
-        val rv = gridView ?: return super.canDismissWithSwipe()
-        return !rv.canScrollVertically(-1)
-    }
-
-    override fun onContainerTouchEvent(ev: MotionEvent): Boolean {
-        when (ev.actionMasked) {
-            MotionEvent.ACTION_DOWN -> swipeDismissFromHandle = isInSwipeDismissHandleZone(ev)
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> swipeDismissFromHandle = false
-        }
-        return false
-    }
-
-    private fun isInSwipeDismissHandleZone(ev: MotionEvent): Boolean {
-        val header = headerRowView
-        if (header != null && header.isShown) {
-            val headerLoc = IntArray(2)
-            header.getLocationOnScreen(headerLoc)
-            if (ev.rawY <= headerLoc[1] + header.height) return true
-        }
-        val handle = contentLayout?.getChildAt(0) ?: return false
-        if (!handle.isShown) return false
-        val handleLoc = IntArray(2)
-        handle.getLocationOnScreen(handleLoc)
-        return ev.rawY <= handleLoc[1] + handle.height
+    override fun onContainerViewTranslation() {
+        val translation = containerView?.translationY ?: return
+        // Keep the actions at the visible bottom while the gallery moves between snap points.
+        actionRow?.translationY = -translation.coerceIn(0f, snapTranslationY(0))
     }
 
     inner class PhotoAttachAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
@@ -377,7 +448,7 @@ class ChatAttachAlert(
         override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
             if (getItemViewType(position) == VIEW_TYPE_CAMERA) return
             val cell = holder.itemView as PhotoAttachPhotoCell
-            val item = allPhotos[position - 1]
+            val item = visiblePhotos[position - 1]
             cell.setPhotoEntry(item)
             val idx = selectedPhotosOrder.indexOf(item.id)
             cell.setChecked(idx, idx >= 0, false)
@@ -386,7 +457,7 @@ class ChatAttachAlert(
         override fun getItemViewType(position: Int): Int =
             if (position == 0) VIEW_TYPE_CAMERA else VIEW_TYPE_MEDIA
 
-        override fun getItemCount(): Int = allPhotos.size + 1
+        override fun getItemCount(): Int = visiblePhotos.size + 1
     }
 
     private class SendButtonView(context: Context, private val theme: ThemeColors) : View(context) {

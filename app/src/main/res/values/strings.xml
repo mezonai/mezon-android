@@ -1767,6 +1767,8 @@
     <!-- Poll messages -->
     <!-- Create poll -->
     <string name="file_selection_upload">Upload a file</string>
+    <string name="attachment_preview_remove">Remove %1$s</string>
+    <string name="file_selection_recent_photos">Recent Photos</string>
     <string name="file_selection_create_poll">Create poll</string>
     <string name="poll_create_title">Create poll</string>
     <string name="poll_question">Question</string>
@@ -1912,6 +1914,10 @@
 
     <string name="message_toast_save_success">Save successfully</string>
     <string name="message_toast_save_failed">Save failed</string>
+    <string name="video_playback_failed">Couldn\'t play this video</string>
+    <string name="video_save_still_uploading">This video is still uploading. Try again in a few minutes</string>
+    <string name="video_save_network_failed">Couldn\'t download the video. Check your connection and try again</string>
+    <string name="video_save_no_space">Not enough storage to save this video</string>
     <string name="message_toast_share_failed">Share failed</string>
     <string name="voice_channel_ongoing_channel_name">Ongoing Voice</string>
     <string name="voice_channel_ongoing_channel_desc">Active voice channel indicator</string>

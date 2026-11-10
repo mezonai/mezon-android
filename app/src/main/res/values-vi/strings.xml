@@ -1618,6 +1618,8 @@
     <string name="bot_command_the_bot">bot</string>
     <!-- Create poll -->
     <string name="file_selection_upload">Tải tệp lên</string>
+    <string name="attachment_preview_remove">Bỏ %1$s</string>
+    <string name="file_selection_recent_photos">Ảnh gần đây</string>
     <string name="file_selection_create_poll">Tạo bình chọn</string>
     <string name="poll_create_title">Tạo bình chọn</string>
     <string name="poll_question">Câu hỏi</string>
@@ -1807,6 +1809,10 @@
     <string name="video_save_downloading_progress">Đang tải video… %1$d%%</string>
     <string name="message_toast_save_success">Lưu thành công</string>
     <string name="message_toast_save_failed">Lưu thất bại</string>
+    <string name="video_playback_failed">Không thể phát video này</string>
+    <string name="video_save_still_uploading">Video đang được tải lên. Hãy thử lại sau ít phút</string>
+    <string name="video_save_network_failed">Không tải được video. Kiểm tra kết nối mạng rồi thử lại</string>
+    <string name="video_save_no_space">Không đủ dung lượng để lưu video</string>
     <string name="message_toast_share_failed">Chia sẻ thất bại</string>
     <string name="voice_channel_ongoing_channel_name">Kênh thoại đang hoạt động</string>
     <string name="voice_channel_ongoing_channel_desc">Chỉ báo kênh thoại đang hoạt động</string>

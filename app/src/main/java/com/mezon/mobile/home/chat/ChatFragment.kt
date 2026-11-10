@@ -43,7 +43,6 @@ import android.view.ViewConfiguration
 import android.view.inputmethod.EditorInfo
 import android.widget.EditText
 import android.widget.FrameLayout
-import android.widget.HorizontalScrollView
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -322,8 +321,7 @@ open class ChatFragment : BaseFragment() {
     private lateinit var inputWrapper: FrameLayout
     private lateinit var pageDownButton: PageDownButton
     private lateinit var unreadDecoration: UnreadDividerDecoration
-    private var attachmentPreviewStrip: LinearLayout? = null
-    private var attachmentPreviewScroll: HorizontalScrollView? = null
+    private var attachmentPreviewView: AttachmentPreviewView? = null
 
     private lateinit var emojiController: EmojiController
     private lateinit var anonymousController: com.mezon.mobile.home.AnonymousController
@@ -353,7 +351,6 @@ open class ChatFragment : BaseFragment() {
     private var locationFixDialog: com.mezon.mobile.core.AlertDialog? = null
     private var locationPreviewView: LocationPreviewView? = null
     private var bestLocationFix: android.location.Location? = null
-    private val pendingAttachmentThumbTasks = ArrayList<Runnable?>()
     private var attachmentProgressReloadRunnable: Runnable? = null
 
     private var voiceRecorder: VoiceRecorder? = null
@@ -1429,7 +1426,7 @@ open class ChatFragment : BaseFragment() {
             advancedFunctionButton.setColorFilter(themeColors.onSurface)
             emojiButton.setColorFilter(themeColors.textDisabled)
             micButton.setColorFilter(themeColors.onSurface)
-            attachmentPreviewScroll?.setBackgroundColor(themeColors.surface)
+            updateAttachmentPreview()
             inputOgpBar?.background = android.graphics.drawable.GradientDrawable().apply {
                 setColor(themeColors.tertiary)
                 cornerRadius = INPUT_OGP_BAR_CORNER
@@ -1932,20 +1929,13 @@ open class ChatFragment : BaseFragment() {
             }
         )
 
-        attachmentPreviewScroll = HorizontalScrollView(context).apply {
-            visibility = View.GONE
-            setBackgroundColor(themeColors.surface)
-            isHorizontalScrollBarEnabled = false
-            val pad = LayoutHelper.dp(8)
-            setPadding(pad, pad, pad, 0)
+        val attachmentPreview = AttachmentPreviewView(context, themeColors) { index ->
+            pendingAttachments.removeAt(index).deleteOwnedCacheFile()
+            updateAttachmentPreview()
+            updateSendButtonState()
         }
-        attachmentPreviewStrip = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-        }
-        attachmentPreviewScroll!!.addView(attachmentPreviewStrip, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LayoutHelper.dp(56f)
-        ))
-        innerLayout.addView(attachmentPreviewScroll, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+        attachmentPreviewView = attachmentPreview
+        innerLayout.addView(attachmentPreview, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
         replyBar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -3420,8 +3410,8 @@ open class ChatFragment : BaseFragment() {
         sentByApiRealIds.clear()
         pendingEchoTempIds.clear()
         anonymousEchoKeyByTempId.clear()
-        for (t in pendingAttachmentThumbTasks) ThumbnailCache.cancel(t)
-        pendingAttachmentThumbTasks.clear()
+        attachmentPreviewView?.clear()
+        attachmentPreviewView = null
         attachmentProgressReloadRunnable?.let { AndroidUtilities.cancelRunOnUIThread(it) }
         attachmentProgressReloadRunnable = null
         pendingAttachments.forEach { it.deleteOwnedCacheFile() }
@@ -6828,132 +6818,7 @@ open class ChatFragment : BaseFragment() {
     }
 
     private fun updateAttachmentPreview() {
-        val strip = attachmentPreviewStrip ?: return
-        val scroll = attachmentPreviewScroll ?: return
-        for (t in pendingAttachmentThumbTasks) ThumbnailCache.cancel(t)
-        pendingAttachmentThumbTasks.clear()
-        strip.removeAllViews()
-
-        if (pendingAttachments.isEmpty()) {
-            scroll.visibility = View.GONE
-            return
-        }
-        scroll.visibility = View.VISIBLE
-
-        val ctx = getContext() ?: return
-        val resolver = ctx.contentResolver
-        val thumbSize = LayoutHelper.dp(48f)
-        val margin = LayoutHelper.dp(4f)
-
-        for (i in pendingAttachments.indices) {
-            val item = pendingAttachments[i]
-            val container = FrameLayout(ctx)
-
-            if (item.isFileType) {
-                buildFilePreviewItem(ctx, container, item, thumbSize)
-            } else {
-                buildMediaPreviewItem(ctx, container, item, resolver, thumbSize)
-            }
-
-            val closeBtn = ImageView(ctx).apply {
-                val drawable = MezonIcon.closeSmallBold.getDrawable(ctx)
-                drawable.colorFilter = PorterDuffColorFilter(
-                    android.graphics.Color.WHITE, PorterDuff.Mode.SRC_IN
-                )
-                setImageDrawable(drawable)
-                setBackgroundColor(0x80000000.toInt())
-                setPadding(LayoutHelper.dp(2f), LayoutHelper.dp(2f), LayoutHelper.dp(2f), LayoutHelper.dp(2f))
-                setOnClickListener {
-                    pendingAttachments.removeAt(i).deleteOwnedCacheFile()
-                    updateAttachmentPreview()
-                    updateSendButtonState()
-                }
-            }
-            container.addView(closeBtn, FrameLayout.LayoutParams(
-                LayoutHelper.dp(18f), LayoutHelper.dp(18f), Gravity.TOP or Gravity.END
-            ))
-
-            val lp = LinearLayout.LayoutParams(thumbSize, thumbSize).apply {
-                rightMargin = margin
-            }
-            strip.addView(container, lp)
-        }
-    }
-
-    private fun buildMediaPreviewItem(
-        ctx: Context,
-        container: FrameLayout,
-        item: AttachmentPickerItem,
-        resolver: android.content.ContentResolver,
-        thumbSize: Int
-    ) {
-        val bindId = item.id
-        val thumb = ImageView(ctx).apply {
-            scaleType = ImageView.ScaleType.CENTER_CROP
-            tag = bindId
-        }
-        val cached = ThumbnailCache.get(bindId)
-        if (cached != null) {
-            thumb.setImageBitmap(cached)
-        } else {
-            val task = ThumbnailCache.load(resolver, item, object : ThumbnailCache.Callback {
-                override fun onThumbnailLoaded(id: Long, bitmap: Bitmap) {
-                    if (thumb.tag == bindId) thumb.setImageBitmap(bitmap)
-                }
-            })
-            if (task != null) pendingAttachmentThumbTasks.add(task)
-        }
-        container.addView(thumb, FrameLayout.LayoutParams(thumbSize, thumbSize))
-    }
-
-    private fun buildFilePreviewItem(
-        ctx: Context,
-        container: FrameLayout,
-        item: AttachmentPickerItem,
-        thumbSize: Int
-    ) {
-        val fileContainer = LinearLayout(ctx).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setBackgroundColor(themeColors.secondaryLight)
-        }
-
-        val iconSize = LayoutHelper.dp(24f)
-        val icon = ImageView(ctx).apply {
-            setImageDrawable(MezonIcon.fileIconNew.getDrawable(ctx))
-        }
-        fileContainer.addView(icon, LinearLayout.LayoutParams(iconSize, iconSize).apply {
-            gravity = Gravity.CENTER_HORIZONTAL
-        })
-
-        val nameLabel = TextView(ctx).apply {
-            text = item.filename
-            setTextColor(themeColors.onSurface)
-            textSize = 9f
-            maxLines = 1
-            ellipsize = android.text.TextUtils.TruncateAt.MIDDLE
-            gravity = Gravity.CENTER
-            setPadding(LayoutHelper.dp(2f), LayoutHelper.dp(1f), LayoutHelper.dp(2f), 0)
-        }
-        fileContainer.addView(nameLabel, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-        ))
-
-        val subtype = item.mimeType.substringAfterLast('/', "").uppercase()
-        if (subtype.isNotEmpty()) {
-            val typeLabel = TextView(ctx).apply {
-                text = subtype
-                setTextColor(themeColors.onSurfaceVariant)
-                textSize = 8f
-                maxLines = 1
-                gravity = Gravity.CENTER
-            }
-            fileContainer.addView(typeLabel, LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-            ))
-        }
-
-        container.addView(fileContainer, FrameLayout.LayoutParams(thumbSize, thumbSize))
+        attachmentPreviewView?.bind(pendingAttachments, themeColors.background)
     }
 
     private fun clearPendingAttachments() {
@@ -7673,6 +7538,12 @@ open class ChatFragment : BaseFragment() {
         sheet.show()
     }
 
+    private fun copyMediaLink(ctx: android.content.Context, link: String, messageRes: Int) {
+        val clipboard = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("media_url", link))
+        if (isAdded) MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(messageRes))
+    }
+
     private fun handleMessageAction(action: MessageActionBottomSheet.ActionType, msg: MessageEntity) {
         when (action) {
             MessageActionBottomSheet.ActionType.ResendMessage -> {
@@ -7766,12 +7637,12 @@ open class ChatFragment : BaseFragment() {
                 }
 
                 appScope.launch(ioDispatcher) {
-                    val success = com.mezon.mobile.util.FileUtils.downloadMediaToGallery(ctx, url)
+                    val failureMessage = com.mezon.mobile.util.FileUtils.saveMediaToGallery(ctx, url)
                     withContext(Dispatchers.Main) {
-                        if (success) {
+                        if (failureMessage == null) {
                             MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.SUCCESS, getString(R.string.message_toast_save_success))
                         } else {
-                            MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.ERROR, getString(R.string.message_toast_save_failed))
+                            MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.ERROR, getString(failureMessage))
                         }
                     }
                 }
@@ -7780,14 +7651,16 @@ open class ChatFragment : BaseFragment() {
                 val url = msg.attachmentUrl
                 if (url.isNotEmpty()) {
                     val ctx = getContext() ?: return
-                    val clipboard = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("media_url", url))
-                    val messageRes = if (isVideoAttachmentType(msg.attachmentFiletype)) {
-                        R.string.action_copy_video_link
+                    if (isVideoAttachmentType(msg.attachmentFiletype)) {
+                        appScope.launch(ioDispatcher) {
+                            val link = com.mezon.mobile.util.FileIngestPlaylist.linkForCopy(url)
+                            withContext(Dispatchers.Main) {
+                                copyMediaLink(ctx, link, R.string.action_copy_video_link)
+                            }
+                        }
                     } else {
-                        R.string.action_copy_image_link
+                        copyMediaLink(ctx, url, R.string.action_copy_image_link)
                     }
-                    MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(messageRes))
                 }
             }
             MessageActionBottomSheet.ActionType.CopyImage -> {
