@@ -35,6 +35,7 @@ import com.mezon.mobile.util.FileUtils
 import com.mezon.mobile.util.PresignFinishContent
 import com.mezon.mobile.util.AttachmentUploadProgressStore
 import com.mezon.mobile.util.FileIngestPlaylist
+import com.mezon.mobile.util.HlsVideoCopy
 import com.mezon.mobile.util.VideoFrameStore
 import com.mezon.mobile.util.VideoPrefetcher
 import com.mezon.mobile.util.avatarImgproxyUrl
@@ -283,9 +284,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private val presignExpireTickRunnable = Runnable {
         presignExpireTickScheduled = false
         val msg = messageEntity ?: return@Runnable
-        if (!msg.displayAttachmentSnapshot().hasActivePresignPending) return@Runnable
+        // Redraw on the first tick after expiry to remove the placeholder.
         update(NotificationCenter.UPDATE_MASK_ATTACHMENTS, msg)
-        schedulePresignExpireTick(msg)
     }
     private val fileUploadPending = ArrayList<Boolean>()
     private val filePresignPending = ArrayList<Boolean>()
@@ -470,7 +470,12 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 if (it is android.graphics.drawable.AnimatedImageDrawable) it.start()
             }
         }
-        messageEntity?.let { resolveAudioDurationIfNeeded(it) }
+        messageEntity?.let { msg ->
+            if (!presignExpireTickScheduled && displaySnapshot?.hasActivePresignPending == true) {
+                update(NotificationCenter.UPDATE_MASK_ATTACHMENTS, msg)
+            }
+            resolveAudioDurationIfNeeded(msg)
+        }
     }
 
     override fun onDetachedFromWindow() {
@@ -515,8 +520,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
     }
 
-    private fun schedulePresignExpireTick(msg: MessageEntity) {
-        if (!msg.displayAttachmentSnapshot().hasActivePresignPending) {
+    private fun schedulePresignExpireTick(snapshot: MessageEntity.DisplayAttachmentSnapshot) {
+        if (!snapshot.hasActivePresignPending) {
             cancelPresignExpireTick()
             return
         }
@@ -783,7 +788,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             buildTopicButton(msg, width)
             requestLayout()
             invalidate()
-            schedulePresignExpireTick(msg)
+            schedulePresignExpireTick(snapshot)
             return true
         }
 
@@ -800,7 +805,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 if (drawPhotoImage) computePhotoSize(msg)
                 loadPhotoImage(msg)
                 needInvalidate = true
-                schedulePresignExpireTick(msg)
+                schedulePresignExpireTick(snapshot)
             }
         }
 
@@ -882,7 +887,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             measuredCellHeight = computeHeight(m)
             requestLayout()
             invalidate()
-            schedulePresignExpireTick(m)
+            schedulePresignExpireTick(snapshot)
             return true
         }
 
@@ -1172,7 +1177,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 } else {
                     receiver.recycle()
                 }
-                if (mediaGridCount == 1 && !slotIngestPlayable[i] && !slotUploadPending[i]) loadRemoteVideoThumbnail(att.url, i)
+                if (mediaGridCount == 1 && !slotIngestPlayable[i] && !slotUploadPending[i]) {
+                    loadRemoteVideoThumbnail(att.url, i, allowHlsFrame = thumb == null)
+                }
             } else {
                 val resizeType = if (mediaGridCount > 1) "fill" else "fit"
                 val mainUrl = createImgproxyUrl(att.url, pw, ph, resizeType)
@@ -1235,7 +1242,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     private fun videoThumbCacheKey(videoUrl: String): String = "vthumb:$videoUrl"
 
-    private fun loadRemoteVideoThumbnail(videoUrl: String, slotIndex: Int) {
+    private fun loadRemoteVideoThumbnail(videoUrl: String, slotIndex: Int, allowHlsFrame: Boolean) {
         if (!videoUrl.startsWith("https://") && !videoUrl.startsWith("http://")) return
         val pw = photoWidth.coerceAtLeast(1)
         val ph = photoHeight.coerceAtLeast(1)
@@ -1267,11 +1274,15 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             VIDEO_THUMB_SEMAPHORE.withPermit {
                 val retriever = android.media.MediaMetadataRetriever()
                 try {
-                    retriever.setDataSource(CdnSigner.requestUrlBlocking(videoUrl).url, HashMap())
-                    val frame = retriever.getFrameAtTime(
-                        100_000L,
-                        android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC
-                    ) ?: return@withPermit
+                    val frame = runCatching {
+                        retriever.setDataSource(CdnSigner.requestUrlBlocking(videoUrl).url, HashMap())
+                        retriever.getFrameAtTime(
+                            100_000L,
+                            android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC
+                        )
+                    }.getOrNull()
+                        ?: (if (allowHlsFrame) HlsVideoCopy.firstFrame(context, videoUrl, 100_000L) else null)
+                        ?: return@withPermit
                     val thumb = scaleVideoThumbFrame(frame, pw, ph)
                     VideoFrameStore.save(context, storedKey, thumb)
                     loader.cacheBitmap(key, pw, ph, thumb)

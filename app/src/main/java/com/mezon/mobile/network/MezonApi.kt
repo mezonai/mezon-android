@@ -639,6 +639,9 @@ class MezonApi @Inject constructor(
         retryableRead: Boolean,
         httpOnly: Boolean
     ): ByteArray {
+        // Stream grants require the realtime connection used by StreamingWatch.
+        if (method == "GetStreamPlayback") return rpcOverSocket(method, body, token)
+
         if (httpOnly || method in HTTP_ONLY_API_NAMES || isSocketDegraded()) {
             return rpcOverHttpWithRetry(apiUrl, token, method, body, retryableRead)
         }
