@@ -1847,7 +1847,11 @@ class MezonApi @Inject constructor(
     }
 
     suspend fun unblockFriends(apiUrl: String, token: String, ids: List<Long>, usernames: List<String>): ByteArray {
-        return deleteFriends(apiUrl, token, ids, usernames)
+        val request = blockFriendsRequest {
+            this.ids.addAll(ids)
+            this.usernames.addAll(usernames)
+        }
+        return rpc(apiUrl, token, "UnblockFriends", request.toByteArray())
     }
 
     suspend fun sendChannelMessage(

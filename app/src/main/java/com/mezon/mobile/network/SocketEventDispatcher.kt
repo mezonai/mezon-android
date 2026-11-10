@@ -240,6 +240,9 @@ class SocketEventDispatcher @Inject constructor(
     private val _notifications = MutableSharedFlow<Notification>(extraBufferCapacity = 16)
     val notifications: SharedFlow<Notification> = _notifications.asSharedFlow()
 
+    private val _friendBlockChanges = MutableSharedFlow<Unit>(extraBufferCapacity = 8)
+    val friendBlockChanges: SharedFlow<Unit> = _friendBlockChanges.asSharedFlow()
+
     private val _tokenSentEvents = MutableSharedFlow<TokenSentEvent>(extraBufferCapacity = 4)
     val tokenSentEvents: SharedFlow<TokenSentEvent> = _tokenSentEvents.asSharedFlow()
 
@@ -395,6 +398,8 @@ class SocketEventDispatcher @Inject constructor(
                     _notifications.emit(notification)
                 }
             }
+            Envelope.MessageCase.BLOCK_FRIEND, Envelope.MessageCase.UN_BLOCK_FRIEND ->
+                _friendBlockChanges.emit(Unit)
             Envelope.MessageCase.TOKEN_SENT_EVENT ->
                 _tokenSentEvents.emit(envelope.tokenSentEvent)
             Envelope.MessageCase.UNMUTE_EVENT ->
