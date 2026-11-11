@@ -323,8 +323,15 @@ class ClanSettingFragment : BaseFragment() {
             val innerRightDp = gapDpF + tileDp
             val innerTopDp = gapDpF
             val removeBtn = ImageView(ctx).apply {
-                setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_close_circle_24, themeColors.error))
-                scaleType = ImageView.ScaleType.FIT_CENTER
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(themeColors.error)
+                    setStroke(LayoutHelper.dp(1), Color.WHITE)
+                }
+                val iconPadding = LayoutHelper.dp(2)
+                setPadding(iconPadding, iconPadding, iconPadding, iconPadding)
+                setImageDrawable(MezonIcon.loadDrawable(ctx, R.drawable.mz_close_16, Color.WHITE))
+                scaleType = ImageView.ScaleType.CENTER_INSIDE
                 isClickable = true
                 contentDescription = context.getString(R.string.clan_settings_remove_logo)
                 setOnClickListener {

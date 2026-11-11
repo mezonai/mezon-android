@@ -57,12 +57,11 @@ object ClanSettingsUiHelpers {
                 setStroke(LayoutHelper.dp(1), theme.borderDim)
             }
         }
-        val iconSz = LayoutHelper.dp(iconSizeDp)
         val iconView = ImageView(context).apply {
             scaleType = ImageView.ScaleType.FIT_CENTER
             setImageDrawable(MezonIcon.loadDrawable(context, icon).withDefaultIconTint(context, icon, ThemeColors.defaultIconTint))
         }
-        circle.addView(iconView, LayoutHelper.createFrame(iconSz, iconSz, Gravity.CENTER))
+        circle.addView(iconView, LayoutHelper.createFrame(iconSizeDp, iconSizeDp, Gravity.CENTER))
         column.addView(circle, LayoutHelper.createLinear(actionButtonDp, actionButtonDp, 0f, Gravity.CENTER_HORIZONTAL))
 
         val label = TextView(context).apply {

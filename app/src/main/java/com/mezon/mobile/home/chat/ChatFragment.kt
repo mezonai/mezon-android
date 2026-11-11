@@ -1426,7 +1426,7 @@ open class ChatFragment : BaseFragment() {
             if (!voiceIsRecording) applyRecordingMicStyle(recording = false)
             attachButton.setColorFilter(themeColors.onSurface)
             advancedFunctionButton.setColorFilter(themeColors.onSurface)
-            emojiButton.drawable?.let { it.setIconColor(themeColors.textDisabled) }
+            emojiButton.drawable?.let { it.setIconColor(themeColors.onSurface) }
             updateAttachmentPreview()
             inputOgpBar?.background = android.graphics.drawable.GradientDrawable().apply {
                 setColor(themeColors.tertiary)
@@ -2248,7 +2248,7 @@ open class ChatFragment : BaseFragment() {
         ))
 
         emojiButton = ImageButton(context).apply {
-            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_emoji_24, themeColors.textDisabled))
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_emoji_24, themeColors.onSurface))
             setBackgroundColor(android.graphics.Color.TRANSPARENT)
             scaleType = ImageView.ScaleType.CENTER
             setOnClickListener {
@@ -2291,7 +2291,7 @@ open class ChatFragment : BaseFragment() {
 
         val sendBtnPad = LayoutHelper.dp(11f)
         sendButton = ImageButton(context).apply {
-            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_send_24, ThemeMode.DARK.iconTint))
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_send_24, themeColors.onPrimary))
             scaleType = ImageView.ScaleType.FIT_CENTER
             setPadding(sendBtnPad, sendBtnPad, sendBtnPad, sendBtnPad)
             background = android.graphics.drawable.GradientDrawable().apply {
@@ -3191,7 +3191,7 @@ open class ChatFragment : BaseFragment() {
 
     private fun updateEmojiButtonIcon(showingEmoji: Boolean) {
         val icon = if (showingEmoji) R.drawable.mz_keyboard_24 else R.drawable.mz_emoji_24
-        emojiButton.setImageDrawable(MezonIcon.loadDrawable(emojiButton.context, icon, themeColors.textDisabled))
+        emojiButton.setImageDrawable(MezonIcon.loadDrawable(emojiButton.context, icon, themeColors.onSurface))
     }
 
     private fun createEmojiView() {
@@ -6657,11 +6657,7 @@ open class ChatFragment : BaseFragment() {
     }
 
     private fun loadIdleMicIcon(context: Context): Drawable =
-        MezonIcon.loadDrawable(
-            context,
-            R.drawable.mz_mic_20,
-            themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary),
-        )
+        MezonIcon.loadDrawable(context, R.drawable.mz_mic_20, themeColors.onSurface)
 
     private fun applyRecordingMicStyle(recording: Boolean) {
         val bg = micButton.background as? android.graphics.drawable.GradientDrawable ?: return

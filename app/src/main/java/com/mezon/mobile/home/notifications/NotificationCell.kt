@@ -141,17 +141,15 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : BaseC
         val firstLineWidth = (contentWidth - timeWidth).coerceAtLeast(1)
 
         val subjectText = buildSubjectText(n)
-        val subjectPaint = theme.dialogNameBoldPaint
         subjectLayout = StaticLayout.Builder
-            .obtain(subjectText, 0, subjectText.length, subjectPaint, firstLineWidth)
+            .obtain(subjectText, 0, subjectText.length, theme.notificationTitlePaint, firstLineWidth)
             .setMaxLines(1)
             .setEllipsize(TextUtils.TruncateAt.END)
             .build()
 
         val bodyText = if (n.category == NOTIF_CATEGORY_FOR_YOU) "" else n.messageText
-        val bodyPaint = TextPaint(theme.dialogMessagePaint).apply { color = theme.onSurface }
         bodyLayout = if (bodyText.isEmpty()) null else StaticLayout.Builder
-            .obtain(bodyText, 0, bodyText.length, bodyPaint, contentWidth)
+            .obtain(bodyText, 0, bodyText.length, theme.notificationPreviewPaint, contentWidth)
             .setMaxLines(2)
             .setEllipsize(TextUtils.TruncateAt.END)
             .build()
@@ -232,8 +230,9 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : BaseC
 
         timeLayout?.let {
             val tx = width - PADDING_H - it.getLineWidth(0)
+            val timeOffset = (theme.notificationTitlePaint.textSize - it.paint.textSize) / 2f
             canvas.save()
-            canvas.translate(tx, textTop + (theme.dialogNameBoldPaint.textSize - theme.dialogTimePaint.textSize) / 2)
+            canvas.translate(tx, textTop + timeOffset)
             it.draw(canvas)
             canvas.restore()
         }

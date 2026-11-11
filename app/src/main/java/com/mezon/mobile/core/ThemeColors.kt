@@ -71,6 +71,13 @@ class ThemeColors @Inject constructor() {
     }
     val dividerPaint = Paint()
 
+    internal val notificationTitlePaint = TextPaint(dialogNameBoldPaint).apply {
+        textSize = LayoutHelper.sp(15f)
+    }
+    internal val notificationPreviewPaint = TextPaint(dialogMessagePaint).apply {
+        textSize = LayoutHelper.sp(13f)
+    }
+
     val chatSenderPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = LayoutHelper.sp(15f)
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
@@ -294,6 +301,8 @@ class ThemeColors @Inject constructor() {
         dialogOnlinePaint.color = onlineGreen
         dialogOnlineBorderPaint.color = channelPanelBg
         dividerPaint.color = outlineVariant
+        notificationTitlePaint.color = onSurface
+        notificationPreviewPaint.color = onSurface
         chatSenderPaint.color = primary
         val fs = LayoutHelper.sp(SharedConfig.fontSize.toFloat())
         chatContentPaint.color = textThemeMessage

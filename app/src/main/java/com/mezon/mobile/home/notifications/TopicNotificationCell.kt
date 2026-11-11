@@ -152,7 +152,7 @@ class TopicNotificationCell(
         val headerWidth = (contentWidth - timeWidth).coerceAtLeast(1)
         val headerText = context.getString(R.string.notif_topic_discussion).uppercase()
         headerLayout = StaticLayout.Builder
-            .obtain(headerText, 0, headerText.length, theme.dialogNameBoldPaint, headerWidth)
+            .obtain(headerText, 0, headerText.length, theme.notificationTitlePaint, headerWidth)
             .setMaxLines(1)
             .setEllipsize(TextUtils.TruncateAt.END)
             .build()
@@ -160,7 +160,7 @@ class TopicNotificationCell(
         val repliedPrefix = context.getString(R.string.notif_original_message)
         val repliedText = "$repliedPrefix ${localizedRootMessagePreview(item.rootMessagePreview)}"
         repliedToLayout = StaticLayout.Builder
-            .obtain(repliedText, 0, repliedText.length, TextPaint(theme.dialogMessagePaint).apply { color = theme.onSurface }, contentWidth)
+            .obtain(repliedText, 0, repliedText.length, theme.notificationPreviewPaint, contentWidth)
             .setMaxLines(2)
             .setEllipsize(TextUtils.TruncateAt.END)
             .build()
