@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.clans.settings
 
+import com.mezon.mobile.core.ThemeColors
 import android.content.Context
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
@@ -103,14 +104,14 @@ class ServerRolesFragment : BaseFragment() {
         val perm = permissionsState()
         actionBar = ActionBarView(context, themeColors).apply {
             setTitle(getString(R.string.menu_clan_roles))
-            setBackButtonImage(R.drawable.ic_arrow_back)
+            setBackButtonImage(R.drawable.mz_arrow_left_24)
             setBackButtonContentDescription(getString(R.string.clan_roles_back_content_desc))
             setCenterTitle(true)
             ClanRolesUiTheme.applyPrimaryFlowActionBar(this, themeColors)
             if (perm.hasAdminPermission || perm.hasManageClanPermission || perm.isClanOwner) {
                 val addItem = createMenu().addItem(
                     MENU_ADD_ROLE,
-                    MezonIcon.plusLargeIcon.getDrawable(context).apply {
+                    MezonIcon.loadDrawable(context, R.drawable.mz_plus_20, ThemeColors.defaultIconTint).apply {
                         colorFilter = PorterDuffColorFilter(themeColors.textStrong, PorterDuff.Mode.SRC_IN)
                     }
                 )
@@ -244,7 +245,7 @@ class ServerRolesFragment : BaseFragment() {
             layoutParams = LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1f)
         }
         val everyoneIcon = ImageView(context).apply {
-            setImageDrawable(MezonIcon.groupIcon.getDrawable(context, themeColors.textStrong))
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_members_20, ThemeColors.defaultIconTint))
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
         lead.addView(
@@ -279,18 +280,14 @@ class ServerRolesFragment : BaseFragment() {
         if (isViewOnly) {
             row.addView(
                 ImageView(context).apply {
-                    setImageDrawable(MezonIcon.lockIcon.getDrawable(context).apply {
-                        colorFilter = PorterDuffColorFilter(themeColors.textDisabled, PorterDuff.Mode.SRC_IN)
-                    })
+                    setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_lock_16, themeColors.textDisabled))
                 },
                 LayoutHelper.createLinear(LayoutHelper.dp(16), LayoutHelper.dp(16), 0f, Gravity.CENTER_VERTICAL, 6f, 0f, 0f, 0f)
             )
         }
         row.addView(
             ImageView(context).apply {
-                setImageDrawable(MezonIcon.chevronSmallRightIcon.getDrawable(context).apply {
-                    colorFilter = PorterDuffColorFilter(themeColors.textDisabled, PorterDuff.Mode.SRC_IN)
-                })
+                setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_chevron_right_16, themeColors.textDisabled))
                 scaleType = ImageView.ScaleType.FIT_CENTER
             },
             LayoutHelper.createLinear(16, 16, 0f, Gravity.CENTER_VERTICAL)
@@ -325,10 +322,8 @@ class ServerRolesFragment : BaseFragment() {
             iconSlot.addView(icon, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.CENTER))
         } else {
             val shield = ImageView(context).apply {
-                val d = MezonIcon.shieldUserIcon.getDrawable(context).mutate()
                 val tint = if (role.color != 0) role.color else themeColors.textDisabled
-                d.colorFilter = PorterDuffColorFilter(tint, PorterDuff.Mode.SRC_IN)
-                setImageDrawable(d)
+                setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_role_20, tint))
                 scaleType = ImageView.ScaleType.FIT_CENTER
             }
             iconSlot.addView(shield, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.CENTER))
@@ -359,9 +354,7 @@ class ServerRolesFragment : BaseFragment() {
         if (isViewOnly) {
             titleRow.addView(
                 ImageView(context).apply {
-                    setImageDrawable(MezonIcon.lockIcon.getDrawable(context).apply {
-                        colorFilter = PorterDuffColorFilter(themeColors.textDisabled, PorterDuff.Mode.SRC_IN)
-                    })
+                    setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_lock_16, themeColors.textDisabled))
                 },
                 LayoutHelper.createLinear(LayoutHelper.dp(16), LayoutHelper.dp(16), 0f, Gravity.CENTER_VERTICAL, 6f, 0f, 0f, 0f)
             )
@@ -380,9 +373,7 @@ class ServerRolesFragment : BaseFragment() {
         row.addView(mid)
         row.addView(
             ImageView(context).apply {
-                setImageDrawable(MezonIcon.chevronSmallRightIcon.getDrawable(context).apply {
-                    colorFilter = PorterDuffColorFilter(themeColors.textDisabled, PorterDuff.Mode.SRC_IN)
-                })
+                setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_chevron_right_16, themeColors.textDisabled))
                 scaleType = ImageView.ScaleType.FIT_CENTER
             },
             LayoutHelper.createLinear(16, 16, 0f, Gravity.CENTER_VERTICAL)

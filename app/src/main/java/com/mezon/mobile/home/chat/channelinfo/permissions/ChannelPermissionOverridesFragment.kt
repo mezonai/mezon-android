@@ -1,8 +1,7 @@
 package com.mezon.mobile.home.chat.channelinfo.permissions
 
 import android.content.Context
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
+import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
@@ -34,6 +33,7 @@ import com.mezon.mobile.ui.MezonToast
 import com.mezon.mobile.ui.cells.ActionBarView
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.ToastOverlay
+import com.mezon.mobile.ui.theme.ThemeMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -127,7 +127,7 @@ class ChannelPermissionOverridesFragment : BaseFragment() {
         }
         ClanRolesUiTheme.applyPrimaryFlowRoot(root, themeColors)
         actionBar = ActionBarView(context, themeColors).apply {
-            setBackButtonImage(R.drawable.ic_arrow_back)
+            setBackButtonImage(R.drawable.mz_arrow_left_24)
             setBackButtonContentDescription(getString(R.string.clan_roles_back_content_desc))
             setCenterTitle(true)
             ClanRolesUiTheme.applyPrimaryFlowActionBar(this, themeColors)
@@ -281,14 +281,14 @@ class ChannelPermissionOverridesFragment : BaseFragment() {
             gravity = Gravity.CENTER
             setPadding(0, LayoutHelper.dp(12f), 0, 0)
         }
-        buttons.addView(statusButton(context, item.permissionId, CHANNEL_PERMISSION_STATUS_DENY, MezonIcon.closeIcon, themeColors.redStrong), statusLp())
-        buttons.addView(statusButton(context, item.permissionId, CHANNEL_PERMISSION_STATUS_NONE, MezonIcon.slashIcon, 0xFF404249.toInt()), statusLp())
-        buttons.addView(statusButton(context, item.permissionId, CHANNEL_PERMISSION_STATUS_ALLOW, MezonIcon.checkmarkSmallIcon, themeColors.connectedColor), statusLp())
+        buttons.addView(statusButton(context, item.permissionId, CHANNEL_PERMISSION_STATUS_DENY, R.drawable.mz_close_16, themeColors.redStrong), statusLp())
+        buttons.addView(statusButton(context, item.permissionId, CHANNEL_PERMISSION_STATUS_NONE, R.drawable.mz_slash_16, 0xFF404249.toInt()), statusLp())
+        buttons.addView(statusButton(context, item.permissionId, CHANNEL_PERMISSION_STATUS_ALLOW, R.drawable.mz_check_16, themeColors.connectedColor), statusLp())
         row.addView(buttons, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
         return row
     }
 
-    private fun statusButton(context: Context, permissionId: Long, status: Int, icon: MezonIcon, color: Int): FrameLayout {
+    private fun statusButton(context: Context, permissionId: Long, status: Int, icon: Int, color: Int): FrameLayout {
         val selected = currentStates[permissionId] == status
         val button = FrameLayout(context).apply {
             background = GradientDrawable().apply {
@@ -304,9 +304,14 @@ class ChannelPermissionOverridesFragment : BaseFragment() {
         }
         button.addView(
             ImageView(context).apply {
-                setImageDrawable(icon.getDrawable(context).apply {
-                    colorFilter = PorterDuffColorFilter(if (selected) 0xFFFFFFFF.toInt() else if (status == CHANNEL_PERMISSION_STATUS_NONE) themeColors.colorText else color, PorterDuff.Mode.SRC_IN)
-                })
+                val drawable = when {
+                    !selected && status != CHANNEL_PERMISSION_STATUS_NONE ->
+                        MezonIcon.loadDrawable(context, icon, color)
+                    !selected -> MezonIcon.loadDrawable(context, icon, themeColors.colorText)
+                    status == CHANNEL_PERMISSION_STATUS_ALLOW -> MezonIcon.loadDrawable(context, icon, Color.WHITE)
+                    else -> MezonIcon.loadDrawable(context, icon, ThemeMode.DARK.iconTint)
+                }
+                setImageDrawable(drawable)
             },
             LayoutHelper.createFrame(18, 18, Gravity.CENTER)
         )

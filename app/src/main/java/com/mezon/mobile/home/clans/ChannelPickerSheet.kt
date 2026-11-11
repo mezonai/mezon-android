@@ -120,7 +120,7 @@ class ChannelPickerSheet(
             })
         }
         val searchIcon = ImageView(context).apply {
-            val d = MezonIcon.magnifyingIcon.getDrawable(context).mutate()
+            val d = MezonIcon.loadDrawable(context, R.drawable.mz_search_24, ThemeColors.defaultIconTint).mutate()
             d.colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
             setImageDrawable(d)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
@@ -151,7 +151,7 @@ class ChannelPickerSheet(
                     ellipsize = TextUtils.TruncateAt.END
                 }, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.CENTER_VERTICAL))
                 addView(ImageView(context).apply {
-                    setImageDrawable(MezonIcon.closeLargeIcon.getDrawable(context, themeColors.onSurfaceVariant))
+                    setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_close_24, ThemeColors.defaultIconTint))
                     scaleType = ImageView.ScaleType.CENTER_INSIDE
                     val pad = LayoutHelper.dp(12)
                     setPadding(pad, pad, pad, pad)
@@ -227,7 +227,7 @@ class ChannelPickerSheet(
             row.addView(
                 ImageView(ctx).apply {
                     scaleType = ImageView.ScaleType.CENTER_INSIDE
-                    val d = MezonIcon.channelText.getDrawable(ctx).mutate()
+                    val d = MezonIcon.loadDrawable(ctx, R.drawable.mz_channel_20, ThemeColors.defaultIconTint).mutate()
                     d.colorFilter = PorterDuffColorFilter(CreateClanRnUiTokens.menuText(themeColors), PorterDuff.Mode.SRC_IN)
                     setImageDrawable(d)
                 },
@@ -243,7 +243,7 @@ class ChannelPickerSheet(
             }
             row.addView(label, LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1f))
             row.addView(ImageView(ctx).apply {
-                setImageDrawable(MezonIcon.checkmarkSmallIcon.getDrawable(ctx, themeColors.primary))
+                setImageDrawable(MezonIcon.loadDrawable(ctx, R.drawable.mz_check_20, themeColors.primary))
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             }, LayoutHelper.createLinear(20, 20, 0f, Gravity.CENTER_VERTICAL, 12f, 0f, 0f, 0f))
@@ -256,7 +256,7 @@ class ChannelPickerSheet(
             val ch = filtered[position]
             val iconView = row.getChildAt(0) as ImageView
             val iconEnum = ChannelItemCell.resolveChannelIcon(ch.type, ch.isPrivate, ch.isAgeRestricted)
-            val d = iconEnum.getDrawable(row.context).mutate()
+            val d = MezonIcon.loadDrawable(row.context, iconEnum, ThemeColors.defaultIconTint).mutate()
             d.colorFilter = PorterDuffColorFilter(CreateClanRnUiTokens.menuText(themeColors), PorterDuff.Mode.SRC_IN)
             iconView.setImageDrawable(d)
             val label = row.getChildAt(1) as TextView

@@ -1,7 +1,6 @@
 package com.mezon.mobile.wallet.history
 
 import android.content.Context
-import android.graphics.Color
 import android.view.LayoutInflater
 import android.view.View
 import android.widget.ProgressBar
@@ -75,7 +74,7 @@ class HistoryTransactionFragment : BaseFragment() {
 
     override fun createView(context: Context): View {
         actionBar = createActionBar(context).apply {
-            setBackButtonImage(R.drawable.ic_arrow_back)
+            setBackButtonImage(R.drawable.mz_arrow_left_24)
             setTitle(getString(R.string.profile_history_transaction))
             setMenuOnItemClick(object : com.mezon.mobile.ui.cells.ActionBarView.ActionBarMenuOnItemClick() {
                 override fun onItemClick(id: Int) {

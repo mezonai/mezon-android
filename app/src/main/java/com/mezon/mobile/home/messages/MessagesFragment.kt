@@ -1,11 +1,9 @@
 package com.mezon.mobile.home.messages
 
+import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.core.theme.applyThemeSurface
 import com.mezon.mobile.core.theme.MobileThemeColors
 import android.content.Context
-import android.graphics.Color
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.graphics.Typeface
 import android.view.Gravity
 import android.view.View
@@ -47,6 +45,7 @@ import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.MezonToast
 import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.util.NetworkErrorMessages
+import com.mezon.mobile.ui.theme.ThemeMode
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -109,9 +108,11 @@ class MessagesFragment : BaseFragment() {
                     shape = android.graphics.drawable.GradientDrawable.OVAL
                     setColor(MobileThemeColors.newConversation)
                 }
-                addMessageIcon.setImageDrawable(MezonIcon.messagePlusIcon.getDrawable(fragmentView!!.context).apply {
-                    colorFilter = PorterDuffColorFilter(Color.WHITE, PorterDuff.Mode.SRC_IN)
-                })
+                addMessageIcon.setImageDrawable(MezonIcon.loadDrawable(
+                    fragmentView!!.context,
+                    R.drawable.mz_message_add_24,
+                    ThemeMode.DARK.iconTint,
+                ))
             }
         }
         observe(NotificationCenter.buzzStateChanged) { _, _, args ->
@@ -276,9 +277,7 @@ class MessagesFragment : BaseFragment() {
             setOnClickListener { openNewMessage() }
         }
         addMessageIcon = ImageView(context).apply {
-            setImageDrawable(MezonIcon.messagePlusIcon.getDrawable(context).apply {
-                colorFilter = PorterDuffColorFilter(Color.WHITE, PorterDuff.Mode.SRC_IN)
-            })
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_message_add_24, ThemeMode.DARK.iconTint))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
         }
         addMessageFab.addView(addMessageIcon, LayoutHelper.createFrame(28, 28, Gravity.CENTER))
@@ -315,7 +314,6 @@ class MessagesFragment : BaseFragment() {
             setPadding(LayoutHelper.dp(16), 0, LayoutHelper.dp(16), 0)
         }
 
-        // Purple circle avatar with chat icon inside
         val messagesIcon = FrameLayout(context).apply {
             val circleBg = android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.OVAL
@@ -323,13 +321,11 @@ class MessagesFragment : BaseFragment() {
             }
             background = circleBg
         }
-        val chatIconView = ImageView(context).apply {
-            setImageDrawable(MezonIcon.chatIcon.getDrawable(context).apply {
-                colorFilter = PorterDuffColorFilter(Color.WHITE, PorterDuff.Mode.SRC_IN)
-            })
+        val iconView = ImageView(context).apply {
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_messages_24, ThemeMode.DARK.iconTint))
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
-        messagesIcon.addView(chatIconView, LayoutHelper.createFrame(
+        messagesIcon.addView(iconView, LayoutHelper.createFrame(
             20, 20, Gravity.CENTER
         ))
         titleRow.addView(messagesIcon, LayoutHelper.createLinear(34, 34))
@@ -375,7 +371,7 @@ class MessagesFragment : BaseFragment() {
             }
             val rippleColor = android.content.res.ColorStateList.valueOf(themeColors.onSurface and 0x1A_FFFFFF)
             background = android.graphics.drawable.RippleDrawable(rippleColor, circleBg, rippleMask)
-            setImageDrawable(MezonIcon.searchIcon.getDrawable(context))
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_search_24, themeColors.iconTint))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             val iconPad = LayoutHelper.dp(7)
             setPadding(iconPad, iconPad, iconPad, iconPad)
@@ -423,7 +419,7 @@ class MessagesFragment : BaseFragment() {
         pill.addView(buttonContent, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
 
         val icon = ImageView(context).apply {
-            setImageDrawable(MezonIcon.userPlusIcon.getDrawable(context))
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_user_plus_24, ThemeColors.defaultIconTint))
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
         val iconWrap = FrameLayout(context)

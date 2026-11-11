@@ -1,5 +1,6 @@
 package com.mezon.mobile.wallet.history
 
+import com.mezon.mobile.ui.cells.setMezonIconResource
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -80,8 +81,8 @@ class TransactionDetailModal(
         view.findViewById<TextView>(R.id.tvNoteLabel).setTextColor(themeColors.onSurface)
         tvNoteValue.setTextColor(themeColors.onSurfaceVariant)
         view.findViewById<TextView>(R.id.tvSheetTitle).setTextColor(themeColors.onSurface)
-        btnClose.setColorFilter(themeColors.onSurfaceVariant)
-        btnCopy.setColorFilter(themeColors.onSurfaceVariant)
+        btnClose.setMezonIconResource(R.drawable.mz_close_24, themeColors)
+        btnCopy.setMezonIconResource(R.drawable.mz_copy_24, themeColors)
         view.findViewById<View>(R.id.divider).setBackgroundColor(themeColors.outlineVariant)
 
         btnClose.setOnClickListener { dismiss() }

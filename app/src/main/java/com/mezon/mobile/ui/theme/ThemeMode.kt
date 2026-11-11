@@ -20,6 +20,9 @@ enum class ThemeMode(
     CISHER("cisher", R.string.setting_theme_cisher, true),
     BERRYNADE("berrynade", R.string.setting_theme_berrynade);
 
+    val iconTint: Int
+        get() = if (isLight) MezonIconColors.LIGHT.second else MezonIconColors.DARK.second
+
     fun resolve(systemIsDark: Boolean): ThemeMode =
         if (this == SYSTEM) { if (systemIsDark) DARK else LIGHT } else this
 

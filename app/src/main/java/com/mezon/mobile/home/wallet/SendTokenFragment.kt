@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.wallet
 
+import com.mezon.mobile.ui.cells.setMezonIconResource
 import com.mezon.mobile.util.NetworkErrorMessages
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -858,7 +859,7 @@ class SendTokenFragment : BaseFragment() {
                 ellipsize = android.text.TextUtils.TruncateAt.END
             }
             val copyBtn = ImageView(context).apply {
-                setImageResource(R.drawable.ic_copy_icon)
+                setMezonIconResource(R.drawable.mz_copy_24)
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
                 contentDescription = getString(R.string.send_token_copy)
                 colorFilter = PorterDuffColorFilter(

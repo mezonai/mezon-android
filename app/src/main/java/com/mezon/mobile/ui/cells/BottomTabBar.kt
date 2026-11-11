@@ -3,32 +3,30 @@ package com.mezon.mobile.ui.cells
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
-import android.graphics.Rect
 import android.graphics.Typeface
-import android.graphics.drawable.Drawable
 import android.text.TextPaint
 import android.view.MotionEvent
 import android.view.View
 import android.view.animation.DecelerateInterpolator
-import androidx.core.content.ContextCompat
 import com.mezon.mobile.R
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.SharedConfig
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.ui.theme.MezonIconColors
 
 class BottomTabBar(context: Context, private val themeColors: ThemeColors) : View(context) {
 
-    data class Tab(val iconResId: Int, val detailIconResId: Int, val labelResId: Int)
+    private data class Tab(val iconResId: Int, val labelResId: Int)
 
     interface OnTabSelectedListener {
         fun onTabSelected(index: Int)
     }
 
     private val tabs = listOf(
-        Tab(R.drawable.ic_clans, R.drawable.ic_clans_detail, R.string.clan_title),
-        Tab(R.drawable.ic_messages, R.drawable.ic_messages_detail, R.string.screen_tab_messages),
-        Tab(R.drawable.ic_notifications, R.drawable.ic_notifications_detail, R.string.screen_tab_notifications),
-        Tab(R.drawable.ic_profile, R.drawable.ic_profile_detail, R.string.screen_tab_profile)
+        Tab(R.drawable.ic_clans, R.string.clan_title),
+        Tab(R.drawable.ic_messages, R.string.screen_tab_messages),
+        Tab(R.drawable.ic_notifications, R.string.screen_tab_notifications),
+        Tab(R.drawable.ic_profile, R.string.screen_tab_profile)
     )
 
     private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -47,12 +45,8 @@ class BottomTabBar(context: Context, private val themeColors: ThemeColors) : Vie
     var badgeCounts = IntArray(tabs.size)
         private set
 
-    private val icons: List<Drawable?> = tabs.map { tab ->
-        ContextCompat.getDrawable(context, tab.iconResId)?.mutate()
-    }
-
-    private val detailIcons: List<Drawable?> = tabs.map { tab ->
-        ContextCompat.getDrawable(context, tab.detailIconResId)?.mutate()
+    private val icons = tabs.map { tab ->
+        MezonIcon.loadDrawable(context, tab.iconResId)
     }
 
     private val labels: List<String> = tabs.map { tab ->
@@ -67,11 +61,6 @@ class BottomTabBar(context: Context, private val themeColors: ThemeColors) : Vie
     private val barHeight = LayoutHelper.dp(56)
 
     private var pressedTab = -1
-
-    private val tmpIconBounds = Rect()
-
-    private val cachedPrimaryTint = IntArray(tabs.size)
-    private val cachedDetailTint = IntArray(tabs.size)
 
     private var tabWidth = 0f
     private val tabCenters = FloatArray(tabs.size)
@@ -129,10 +118,6 @@ class BottomTabBar(context: Context, private val themeColors: ThemeColors) : Vie
     }
 
     fun applyTheme() {
-        for (i in cachedPrimaryTint.indices) {
-            cachedPrimaryTint[i] = 0
-            cachedDetailTint[i] = 0
-        }
         invalidate()
     }
 
@@ -163,36 +148,19 @@ class BottomTabBar(context: Context, private val themeColors: ThemeColors) : Vie
         borderPaint.color = themeColors.outlineVariant
         canvas.drawLine(0f, 0f, w, 0f, borderPaint)
 
+        val (normalIconColor, selectedIconColor) = if (themeColors.resolvedMode.isLight) {
+            MezonIconColors.LIGHT
+        } else {
+            MezonIconColors.DARK
+        }
         for (i in tabs.indices) {
             val isSelected = i == selectedIndex
             val centerX = tabCenters[i]
 
-            val primaryColor = if (isSelected) themeColors.tabIconActivePrimary else themeColors.tabIconPrimary
-            val detailColor = if (isSelected) themeColors.tabIconActiveDetail else themeColors.bottomTabIconDetail
             val labelColor = if (isSelected) themeColors.bottomTabLabelActive else themeColors.bottomTabLabelInactive
-
-            val iconLeft = (centerX - iconSize / 2f).toInt()
-            tmpIconBounds.set(iconLeft, iconTopPx, iconLeft + iconSize, iconTopPx + iconSize)
-
-            val drawable = icons[i]
-            if (drawable != null) {
-                drawable.bounds = tmpIconBounds
-                if (cachedPrimaryTint[i] != primaryColor) {
-                    drawable.setTint(primaryColor)
-                    cachedPrimaryTint[i] = primaryColor
-                }
-                drawable.draw(canvas)
-            }
-
-            val detailDrawable = detailIcons[i]
-            if (detailDrawable != null) {
-                detailDrawable.bounds = tmpIconBounds
-                if (cachedDetailTint[i] != detailColor) {
-                    detailDrawable.setTint(detailColor)
-                    cachedDetailTint[i] = detailColor
-                }
-                detailDrawable.draw(canvas)
-            }
+            val icon = icons[i]
+            icon.setTint(if (isSelected) selectedIconColor else normalIconColor)
+            icon.drawCenteredIcon(canvas, centerX.toInt(), iconTopPx + iconSize / 2)
 
             labelPaint.color = labelColor
             canvas.drawText(labels[i], centerX, labelBaselineY, labelPaint)

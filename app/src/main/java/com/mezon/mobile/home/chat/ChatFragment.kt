@@ -1,5 +1,8 @@
 package com.mezon.mobile.home.chat
 
+import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.ui.cells.setIconColor
+import com.mezon.mobile.ui.cells.setMezonIconResource
 import android.graphics.drawable.LayerDrawable
 import com.mezon.mobile.core.theme.themeSurfaceShape
 import com.mezon.mobile.core.theme.applyThemeSurface
@@ -189,6 +192,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import com.mezon.mobile.core.SizeNotifierFrameLayout
 import com.mezon.mobile.home.chat.emoji.EmojiView
 import com.mezon.mobile.util.EmbedFormUtil
+import com.mezon.mobile.ui.theme.ThemeMode
 import java.util.concurrent.atomic.AtomicBoolean
 
 private const val TAG = "ChatFragment"
@@ -1419,13 +1423,10 @@ open class ChatFragment : BaseFragment() {
             val composerButtonColor = themeColors.secondaryLight
             (attachButton.background as? android.graphics.drawable.GradientDrawable)?.setColor(composerButtonColor)
             (advancedFunctionButton.background as? android.graphics.drawable.GradientDrawable)?.setColor(composerButtonColor)
-            if (!voiceIsRecording) {
-                (micButton.background as? android.graphics.drawable.GradientDrawable)?.setColor(composerButtonColor)
-            }
+            if (!voiceIsRecording) applyRecordingMicStyle(recording = false)
             attachButton.setColorFilter(themeColors.onSurface)
             advancedFunctionButton.setColorFilter(themeColors.onSurface)
-            emojiButton.setColorFilter(themeColors.textDisabled)
-            micButton.setColorFilter(themeColors.onSurface)
+            emojiButton.drawable?.let { it.setIconColor(themeColors.textDisabled) }
             updateAttachmentPreview()
             inputOgpBar?.background = android.graphics.drawable.GradientDrawable().apply {
                 setColor(themeColors.tertiary)
@@ -1437,34 +1438,30 @@ open class ChatFragment : BaseFragment() {
             }
             inputOgpTitle?.setTextColor(themeColors.onSurface)
             inputOgpDesc?.setTextColor(themeColors.onSurfaceVariant)
-            inputOgpClose?.let { btn ->
-                val d = MezonIcon.closeSmallBold.getDrawable(btn.context)
-                d.colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
-                btn.setImageDrawable(d)
+            inputOgpClose?.drawable?.let { drawable ->
+                drawable.setIconColor(themeColors.onSurfaceVariant)
             }
             replyBar?.setBackgroundColor(themeColors.background)
             replyNameView?.setTextColor(themeColors.textDisabled)
             ephemeralBar?.setBackgroundColor(themeColors.background)
             ephemeralNameView?.setTextColor(themeColors.onSurface)
-            ephemeralCloseButton?.let { btn ->
-                val d = MezonIcon.closeSmallBold.getDrawable(btn.context)
-                d.colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
-                btn.setImageDrawable(d)
+            ephemeralCloseButton?.drawable?.let { drawable ->
+                drawable.setIconColor(themeColors.onSurfaceVariant)
             }
-            replyCloseButton?.let { btn ->
-                val d = MezonIcon.closeSmallBold.getDrawable(btn.context)
-                d.colorFilter = PorterDuffColorFilter(themeColors.textDisabled, PorterDuff.Mode.SRC_IN)
-                btn.setImageDrawable(d)
+            replyCloseButton?.drawable?.let { drawable ->
+                drawable.setIconColor(themeColors.textDisabled)
             }
             editBar?.setBackgroundColor(themeColors.background)
             editNameView?.setTextColor(themeColors.onSurface)
             suggestionsPopup?.applyColors()
-            editCloseButton?.let { btn ->
-                val d = MezonIcon.closeSmallBold.getDrawable(btn.context)
-                d.colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
-                btn.setImageDrawable(d)
+            editCloseButton?.drawable?.let { drawable ->
+                drawable.setIconColor(themeColors.onSurfaceVariant)
             }
-            actionBar?.applyTheme()
+            actionBar?.let { bar ->
+                bar.applyTheme()
+                bar.menu?.getItem(MENU_DM_VOICE_CALL)?.setIconColor(themeColors.iconTint)
+                applyDmVoicePresenceSubtitle(bar)
+            }
             val ent = channelController.findChannelById(channelId)
             val clanThread = channelType != CHANNEL_TYPE_DM && channelType != CHANNEL_TYPE_GROUP &&
                 clanId != 0L && ent?.isThread == true
@@ -1803,7 +1800,7 @@ open class ChatFragment : BaseFragment() {
                 setTitle(getString(R.string.topic_discussion))
                 setSubtitle(null)
                 val iconPx = channelTitleIconSizePx()
-                val topicIcon = MezonIcon.notificationTabTopic.getDrawable(context)
+                val topicIcon = MezonIcon.loadDrawable(context, R.drawable.mz_topic_24, ThemeColors.defaultIconTint)
                 setTitleStartIcon(topicIcon, iconPx, LayoutHelper.dp(6))
                 setTitleOnClickListener(null)
             }
@@ -1963,9 +1960,7 @@ open class ChatFragment : BaseFragment() {
         ))
 
         replyCloseButton = ImageButton(context).apply {
-            val drawable = MezonIcon.closeSmallBold.getDrawable(context)
-            drawable.colorFilter = PorterDuffColorFilter(themeColors.textDisabled, PorterDuff.Mode.SRC_IN)
-            setImageDrawable(drawable)
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_close_16, themeColors.textDisabled))
             setBackgroundColor(android.graphics.Color.TRANSPARENT)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             val pad = LayoutHelper.dp(8f)
@@ -2000,9 +1995,7 @@ open class ChatFragment : BaseFragment() {
             0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
         ))
         ephemeralCloseButton = ImageButton(context).apply {
-            val drawable = MezonIcon.closeSmallBold.getDrawable(context)
-            drawable.colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
-            setImageDrawable(drawable)
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_close_16, themeColors.onSurfaceVariant))
             setBackgroundColor(android.graphics.Color.TRANSPARENT)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             val pad = LayoutHelper.dp(8f)
@@ -2042,9 +2035,7 @@ open class ChatFragment : BaseFragment() {
         ))
 
         editCloseButton = ImageButton(context).apply {
-            val drawable = MezonIcon.closeSmallBold.getDrawable(context)
-            drawable.colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
-            setImageDrawable(drawable)
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_close_16, themeColors.onSurfaceVariant))
             setBackgroundColor(android.graphics.Color.TRANSPARENT)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             val pad = LayoutHelper.dp(8f)
@@ -2168,9 +2159,7 @@ open class ChatFragment : BaseFragment() {
         inputOgpTextWrap.addView(inputOgpDesc)
 
         inputOgpClose = ImageButton(context).apply {
-            val drawable = MezonIcon.closeSmallBold.getDrawable(context)
-            drawable.colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
-            setImageDrawable(drawable)
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_close_16, themeColors.onSurfaceVariant))
             setBackgroundColor(Color.TRANSPARENT)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             setPadding(LayoutHelper.dp(12f), LayoutHelper.dp(12f), LayoutHelper.dp(12f), LayoutHelper.dp(12f))
@@ -2198,7 +2187,7 @@ open class ChatFragment : BaseFragment() {
 
         val btnPad = LayoutHelper.dp(8f)
         attachButton = ImageButton(context).apply {
-            val drawable = MezonIcon.plusLargeIcon.getDrawable(context)
+            val drawable = MezonIcon.loadDrawable(context, R.drawable.mz_plus_20, ThemeColors.defaultIconTint)
             drawable.colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
             setImageDrawable(drawable)
             scaleType = ImageView.ScaleType.FIT_CENTER
@@ -2212,7 +2201,7 @@ open class ChatFragment : BaseFragment() {
         inputBar.addView(attachButton, LayoutHelper.createLinear(40, 40, gravity = Gravity.BOTTOM))
 
         advancedFunctionButton = ImageButton(context).apply {
-            val drawable = MezonIcon.advancedFunctionIcon.getDrawable(context)
+            val drawable = MezonIcon.loadDrawable(context, R.drawable.mz_menu_20, ThemeColors.defaultIconTint)
             drawable.colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
             setImageDrawable(drawable)
             scaleType = ImageView.ScaleType.FIT_CENTER
@@ -2259,8 +2248,7 @@ open class ChatFragment : BaseFragment() {
         ))
 
         emojiButton = ImageButton(context).apply {
-            setImageResource(R.drawable.ic_emoji_icon)
-            setColorFilter(PorterDuffColorFilter(themeColors.textDisabled, PorterDuff.Mode.SRC_IN))
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_emoji_24, themeColors.textDisabled))
             setBackgroundColor(android.graphics.Color.TRANSPARENT)
             scaleType = ImageView.ScaleType.CENTER
             setOnClickListener {
@@ -2280,7 +2268,7 @@ open class ChatFragment : BaseFragment() {
         })
 
         anonymousIndicator = ImageView(context).apply {
-            setImageDrawable(MezonIcon.anonymous.getDrawable(context))
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_anonymous_20, ThemeColors.defaultIconTint))
             scaleType = ImageView.ScaleType.CENTER
             rotation = 45f
             visibility = if (anonymousController.isAnonymous(clanId)) View.VISIBLE else View.GONE
@@ -2303,9 +2291,7 @@ open class ChatFragment : BaseFragment() {
 
         val sendBtnPad = LayoutHelper.dp(11f)
         sendButton = ImageButton(context).apply {
-            val drawable = MezonIcon.sendMessageIcon.getDrawable(context)
-            drawable.colorFilter = PorterDuffColorFilter(android.graphics.Color.WHITE, PorterDuff.Mode.SRC_IN)
-            setImageDrawable(drawable)
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_send_24, ThemeMode.DARK.iconTint))
             scaleType = ImageView.ScaleType.FIT_CENTER
             setPadding(sendBtnPad, sendBtnPad, sendBtnPad, sendBtnPad)
             background = android.graphics.drawable.GradientDrawable().apply {
@@ -2318,9 +2304,7 @@ open class ChatFragment : BaseFragment() {
         inputBar.addView(sendButton, LayoutHelper.createLinear(40, 40, gravity = Gravity.BOTTOM))
 
         micButton = ImageButton(context).apply {
-            val drawable = MezonIcon.microphoneIcon.getDrawable(context)
-            drawable.colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
-            setImageDrawable(drawable)
+            setImageDrawable(loadIdleMicIcon(context))
             scaleType = ImageView.ScaleType.FIT_CENTER
             setPadding(btnPad, btnPad, btnPad, btnPad)
             background = android.graphics.drawable.GradientDrawable().apply {
@@ -3206,12 +3190,8 @@ open class ChatFragment : BaseFragment() {
     }
 
     private fun updateEmojiButtonIcon(showingEmoji: Boolean) {
-        if (showingEmoji) {
-            emojiButton.setImageDrawable(MezonIcon.keyboardIcon.getDrawable(emojiButton.context))
-        } else {
-            emojiButton.setImageResource(R.drawable.ic_emoji_icon)
-        }
-        emojiButton.setColorFilter(themeColors.textDisabled)
+        val icon = if (showingEmoji) R.drawable.mz_keyboard_24 else R.drawable.mz_emoji_24
+        emojiButton.setImageDrawable(MezonIcon.loadDrawable(emojiButton.context, icon, themeColors.textDisabled))
     }
 
     private fun createEmojiView() {
@@ -4707,15 +4687,14 @@ open class ChatFragment : BaseFragment() {
         val dimAlpha = 0x99 shl 24
         bar.setSubtitleStartPadding(0)
         bar.setSubtitleOnClickListener { showJoinVoiceSheetForDmPeer() }
-        bar.setSubtitleColor((themeColors.onSurface and 0x00FFFFFF) or dimAlpha)
-        val iconSize = LayoutHelper.dp(12)
-        val icon = voiceActivity.icon.getDrawable(bar.context).mutate().apply {
-            colorFilter = PorterDuffColorFilter(themeColors.voiceActiveGreen, PorterDuff.Mode.SRC_IN)
+        val iconSize = (bar.getSubtitleTextView()?.textSize ?: LayoutHelper.sp(14f)).toInt().coerceAtLeast(1)
+        val icon = voiceActivity.loadIcon(bar.context, themeColors).apply {
             setBounds(0, 0, iconSize, iconSize)
         }
         val text = SpannableString("  " + getString(voiceActivity.labelRes))
         text.setSpan(CenteredImageSpan(icon), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         bar.setSubtitle(text)
+        bar.setSubtitleColor((themeColors.onSurface and 0x00FFFFFF) or dimAlpha)
     }
 
     private class CenteredImageSpan(drawable: Drawable) : ImageSpan(drawable) {
@@ -5020,7 +4999,7 @@ open class ChatFragment : BaseFragment() {
             chatActionBar.setItemsColor(themeColors.onSurface)
             return
         }
-        val callMenuItem = menu.addItem(MENU_DM_VOICE_CALL, MezonIcon.phoneCallIcon.resId)
+        val callMenuItem = menu.addItem(MENU_DM_VOICE_CALL, R.drawable.mz_call_24)
         callMenuItem.contentDescription = getString(R.string.user_profile_voice_call)
         val callItemLp = callMenuItem.layoutParams as LinearLayout.LayoutParams
         callItemLp.height = LayoutHelper.MATCH_PARENT
@@ -5029,7 +5008,6 @@ open class ChatFragment : BaseFragment() {
         val callIconPx = LayoutHelper.dp(DM_HEADER_CALL_ICON_DP)
         callMenuItem.iconView.scaleType = ImageView.ScaleType.FIT_CENTER
         callMenuItem.iconView.layoutParams = FrameLayout.LayoutParams(callIconPx, callIconPx, Gravity.CENTER)
-        chatActionBar.setItemsColor(themeColors.onSurface)
     }
 
     private fun resolveChannelPrivate(): Boolean {
@@ -5924,6 +5902,13 @@ open class ChatFragment : BaseFragment() {
                         if (!ensureCanSendMessageOrNotify()) return
                         launchDocumentPicker()
                     }
+                    override fun onThreadsSelected() {
+                        presentFragment(ThreadListFragment.newInstance(channelId, channelName, clanId))
+                    }
+                    override fun onTransferFundsSelected() {
+                        if (!ensureCanSendMessageOrNotify()) return
+                        presentFragment(SendTokenFragment.newInstance())
+                    }
                     override fun onBuzzSelected() {
                         if (!ensureCanSendMessageOrNotify()) return
                         showBuzzConfirmDialog()
@@ -6671,21 +6656,25 @@ open class ChatFragment : BaseFragment() {
             .start()
     }
 
+    private fun loadIdleMicIcon(context: Context): Drawable =
+        MezonIcon.loadDrawable(
+            context,
+            R.drawable.mz_mic_20,
+            themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary),
+        )
+
     private fun applyRecordingMicStyle(recording: Boolean) {
         val bg = micButton.background as? android.graphics.drawable.GradientDrawable ?: return
         if (recording) {
             bg.setColor(themeColors.blurple)
-            val d = MezonIcon.microphoneIcon.getDrawable(micButton.context)
-            d.colorFilter = PorterDuffColorFilter(android.graphics.Color.WHITE, PorterDuff.Mode.SRC_IN)
-            micButton.setImageDrawable(d)
+            micButton.setImageDrawable(MezonIcon.loadDrawable(
+                micButton.context,
+                R.drawable.mz_mic_20,
+                ThemeMode.DARK.iconTint,
+            ))
         } else {
             bg.setColor(themeColors.secondaryLight)
-            val d = MezonIcon.microphoneIcon.getDrawable(micButton.context)
-            d.colorFilter = PorterDuffColorFilter(
-                themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary),
-                PorterDuff.Mode.SRC_IN
-            )
-            micButton.setImageDrawable(d)
+            micButton.setImageDrawable(loadIdleMicIcon(micButton.context))
         }
     }
 
@@ -8825,11 +8814,8 @@ open class ChatFragment : BaseFragment() {
 
     private fun channelTitleIconSizePx(): Int = LayoutHelper.sp(18f).toInt()
 
-    private fun channelTitleIconDrawable(context: Context, iconEnum: MezonIcon): Drawable {
-        val drawable = iconEnum.getDrawable(context, themeColors)
-        if (!iconEnum.shouldKeepOriginalFill()) {
-            drawable.colorFilter = PorterDuffColorFilter(themeColors.textStrong, PorterDuff.Mode.SRC_IN)
-        }
+    private fun channelTitleIconDrawable(context: Context, iconEnum: Int): Drawable {
+        val drawable = MezonIcon.loadDrawable(context, iconEnum, themeColors.iconTint)
         return drawable
     }
 
@@ -8842,7 +8828,7 @@ open class ChatFragment : BaseFragment() {
         val isThread = entity?.isThread == true || channelType == CHANNEL_TYPE_THREAD || routeParentId != 0L
 
         val iconSize = channelTitleIconSizePx()
-        val span = ColoredImageSpan(iconEnum.getDrawable(context, themeColors), ColoredImageSpan.ALIGN_CENTER)
+        val span = ColoredImageSpan(MezonIcon.loadDrawable(context, iconEnum, themeColors.iconTint), ColoredImageSpan.ALIGN_CENTER)
         span.setSize(iconSize)
         span.translateY = LayoutHelper.dpf(1f)
         if (isThread) {
@@ -8856,7 +8842,7 @@ open class ChatFragment : BaseFragment() {
         return text
     }
 
-    private fun resolveChannelIcon(entity: com.mezon.mobile.home.clans.ClanChannelEntity?): MezonIcon {
+    private fun resolveChannelIcon(entity: com.mezon.mobile.home.clans.ClanChannelEntity?): Int {
         val isAgeRestricted = entity?.isAgeRestricted ?: resolveChannelAgeRestricted()
         if (entity == null) {
             if (channelType == CHANNEL_TYPE_THREAD || routeParentId != 0L) {

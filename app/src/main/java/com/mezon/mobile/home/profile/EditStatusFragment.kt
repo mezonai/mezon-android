@@ -44,7 +44,7 @@ class EditStatusFragment : BaseFragment() {
         )
 
         actionBar = createActionBar(context).apply {
-            setBackButtonImage(R.drawable.ic_close_icon)
+            setBackButtonImage(R.drawable.mz_close_24)
             setTitle(context.getString(R.string.status_edit_status))
             setCenterTitle(true)
 

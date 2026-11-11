@@ -1,6 +1,8 @@
 package com.mezon.mobile.ui.cells
 
+import com.mezon.mobile.core.ThemeColors
 import android.content.Context
+import android.graphics.ColorFilter
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.PorterDuff
@@ -9,7 +11,6 @@ import android.graphics.drawable.Drawable
 import android.text.TextPaint
 import android.text.style.ReplacementSpan
 import androidx.annotation.DrawableRes
-import androidx.core.content.ContextCompat
 import com.mezon.mobile.core.LayoutHelper
 import kotlin.math.max
 import kotlin.math.min
@@ -32,17 +33,19 @@ class ColoredImageSpan : ReplacementSpan {
     private val backgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG)
 
     private val verticalAlignment: Int
+    private val originalColorFilter: ColorFilter?
 
     constructor(context: Context, @DrawableRes resId: Int) :
-        this(ContextCompat.getDrawable(context, resId)!!.mutate(), ALIGN_DEFAULT)
+        this(MezonIcon.loadDrawable(context, resId).withDefaultIconTint(context, resId, ThemeColors.defaultIconTint), ALIGN_DEFAULT)
 
     constructor(context: Context, @DrawableRes resId: Int, verticalAlignment: Int) :
-        this(ContextCompat.getDrawable(context, resId)!!.mutate(), verticalAlignment)
+        this(MezonIcon.loadDrawable(context, resId).withDefaultIconTint(context, resId, ThemeColors.defaultIconTint), verticalAlignment)
 
     constructor(drawable: Drawable) : this(drawable, ALIGN_DEFAULT)
 
     constructor(drawable: Drawable, verticalAlignment: Int) {
         this.drawable = drawable
+        this.originalColorFilter = drawable.colorFilter
         this.verticalAlignment = verticalAlignment
         drawable.setBounds(0, 0, drawable.intrinsicWidth, drawable.intrinsicHeight)
     }
@@ -129,9 +132,9 @@ class ColoredImageSpan : ReplacementSpan {
                 d.colorFilter = PorterDuffColorFilter(drawableColor, PorterDuff.Mode.SRC_IN)
             }
         } else {
-            if (drawableColor != 0 || d.colorFilter != null) {
+            if (drawableColor != 0) {
                 drawableColor = 0
-                d.clearColorFilter()
+                d.colorFilter = originalColorFilter
             }
         }
 

@@ -104,7 +104,7 @@ internal class AttachmentPreviewView(
         setPaddingRelative(LayoutHelper.dp(10), 0, LayoutHelper.dp(10), 0)
 
         val icon = ImageView(context).apply {
-            setImageDrawable(MezonIcon.fileIconNew.getDrawable(context))
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_file_24, theme.iconTint))
         }
         val iconSize = LayoutHelper.dp(22)
         addView(icon, LayoutParams(iconSize, iconSize).apply { marginEnd = LayoutHelper.dp(8) })
@@ -139,7 +139,7 @@ internal class AttachmentPreviewView(
 
     private fun removeButton(filename: String, panelColor: Int, onClick: () -> Unit) = ImageButton(context).apply {
         contentDescription = context.getString(R.string.attachment_preview_remove, filename)
-        setImageDrawable(MezonIcon.closeSmallBold.getDrawable(context, Color.WHITE))
+        setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_close_16, Color.WHITE))
         scaleType = ImageView.ScaleType.FIT_CENTER
         val badge = GradientDrawable().apply {
             shape = GradientDrawable.OVAL

@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.qr
 
+import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.util.NetworkErrorMessages
 import android.content.Context
 import android.graphics.Color
@@ -19,7 +20,6 @@ import com.mezon.mobile.R
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.di.FragmentEntryPoint
-import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.wallet.LuckyMoneyClaimAmount
 import com.mezon.mobile.wallet.LuckyMoneyException
 import com.mezon.mobile.wallet.WalletController
@@ -290,10 +290,8 @@ class ClaimLuckyMoneyFragment : BaseFragment() {
         if (success) {
             wrap.addView(
                 ImageView(context).apply {
-                    setImageDrawable(
-                        (if (showGift) MezonIcon.giftIcon else MezonIcon.checkmarkLargeIcon)
-                            .getDrawable(context, Color.WHITE)
-                    )
+                    val icon = if (showGift) R.drawable.mz_gift_24 else R.drawable.mz_check_24
+                    setImageDrawable(MezonIcon.loadDrawable(context, icon, Color.WHITE))
                     scaleType = ImageView.ScaleType.CENTER_INSIDE
                     setPadding(LayoutHelper.dp(20), LayoutHelper.dp(20), LayoutHelper.dp(20), LayoutHelper.dp(20))
                 },

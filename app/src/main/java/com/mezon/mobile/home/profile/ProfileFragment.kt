@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.profile
 
+import com.mezon.mobile.ui.cells.setMezonIconResource
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -51,6 +52,7 @@ import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.wallet.history.HistoryTransactionFragment
 import com.mezon.mobile.wallet.WalletController
+import com.mezon.mobile.ui.theme.ThemeMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -339,7 +341,7 @@ class ProfileFragment : BaseFragment() {
         }
         
         plusIconView = ImageView(context).apply {
-            setImageDrawable(MezonIcon.plusLargeIcon.getDrawable(context, Color.WHITE))
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_plus_24, ThemeMode.DARK.iconTint))
             scaleType = ImageView.ScaleType.FIT_CENTER
             setPadding(LayoutHelper.dp(6), LayoutHelper.dp(6), LayoutHelper.dp(6), LayoutHelper.dp(6))
             background = GradientDrawable().apply {
@@ -393,7 +395,7 @@ class ProfileFragment : BaseFragment() {
         nameChevronLayout.addView(displayNameText)
 
         val chevronDown = ImageView(context).apply {
-            setImageResource(MezonIcon.chevronDownSmallIcon.resId)
+            setMezonIconResource(R.drawable.mz_chevron_down_20)
             colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
         }
@@ -409,7 +411,7 @@ class ProfileFragment : BaseFragment() {
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
         ))
 
-        val settingButton = createCircleIconButton(context, MezonIcon.settingGeneralIcon) {
+        val settingButton = createCircleIconButton(context, R.drawable.mz_settings_24) {
             presentFragment(SettingsFragment().apply {
                 onLogout = this@ProfileFragment.onLogout
             })
@@ -454,16 +456,16 @@ class ProfileFragment : BaseFragment() {
         }
         contentColumn.addView(walletSection, createCardMarginParams())
 
-        val balanceRow = createIconTextRow(context, MezonIcon.balanceIcon, "", null) {
+        val balanceRow = createIconTextRow(context, R.drawable.mz_wallet_24, "", null) {
         }
         balanceText = balanceRow.getChildAt(1) as TextView
         walletSection.addView(balanceRow)
 
-        walletSection.addView(createIconTextRow(context, MezonIcon.transferIcon, getString(R.string.profile_transfer), null) {
+        walletSection.addView(createIconTextRow(context, R.drawable.mz_send_money_24, getString(R.string.profile_transfer), null) {
             presentFragment(SendTokenFragment.newInstance())
         }.apply { (layoutParams as? LinearLayout.LayoutParams)?.topMargin = 0 })
 
-        walletSection.addView(createIconTextRow(context, MezonIcon.historyTransactionIcon, getString(R.string.profile_history_transaction), null) {
+        walletSection.addView(createIconTextRow(context, R.drawable.mz_history_24, getString(R.string.profile_history_transaction), null) {
             presentFragment(HistoryTransactionFragment())
         }.apply { (layoutParams as? LinearLayout.LayoutParams)?.topMargin = 0 })
 
@@ -591,7 +593,7 @@ class ProfileFragment : BaseFragment() {
         )
 
         val friendsChevron = ImageView(context).apply {
-            setImageResource(MezonIcon.chevronSmallRightIcon.resId)
+            setMezonIconResource(R.drawable.mz_chevron_right_20)
             colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
         }
@@ -612,7 +614,7 @@ class ProfileFragment : BaseFragment() {
         copyIdCard.addView(copyIdLabel, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
 
         val idIcon = ImageView(context).apply {
-            setImageResource(MezonIcon.idIcon.resId)
+            setMezonIconResource(R.drawable.mz_id_card_20)
             colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
         }
@@ -623,7 +625,7 @@ class ProfileFragment : BaseFragment() {
         return root
     }
 
-    private fun createCircleIconButton(context: Context, icon: MezonIcon, onClick: () -> Unit): FrameLayout {
+    private fun createCircleIconButton(context: Context, icon: Int, onClick: () -> Unit): FrameLayout {
         val size = LayoutHelper.dp(36)
         val container = FrameLayout(context).apply {
             val bg = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(themeColors.getColor(ThemeColors.key_sheetItemBackground)) }
@@ -631,7 +633,7 @@ class ProfileFragment : BaseFragment() {
             isClickable = true; isFocusable = true; setOnClickListener { onClick() }
         }
         val iconView = ImageView(context).apply {
-            setImageResource(icon.resId)
+            setMezonIconResource(icon)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
         }
         container.addView(iconView, FrameLayout.LayoutParams(LayoutHelper.dp(22), LayoutHelper.dp(22), Gravity.CENTER))
@@ -657,14 +659,14 @@ class ProfileFragment : BaseFragment() {
         }
     }
 
-    private fun createIconTextRow(context: Context, icon: MezonIcon, text: String, tintColor: Int?, onClick: ((LinearLayout) -> Unit)?): LinearLayout {
+    private fun createIconTextRow(context: Context, icon: Int, text: String, tintColor: Int?, onClick: ((LinearLayout) -> Unit)?): LinearLayout {
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
             isClickable = true; isFocusable = true
             foreground = androidx.core.content.ContextCompat.getDrawable(context, selectableItemBgResId(context))
         }
         val iconView = ImageView(context).apply {
-            setImageResource(icon.resId); scaleType = ImageView.ScaleType.CENTER_INSIDE
+            setMezonIconResource(icon); scaleType = ImageView.ScaleType.CENTER_INSIDE
             if (tintColor != null) colorFilter = PorterDuffColorFilter(tintColor, PorterDuff.Mode.SRC_IN)
         }
         row.addView(iconView, LinearLayout.LayoutParams(LayoutHelper.dp(24), LayoutHelper.dp(24)))
@@ -685,7 +687,7 @@ class ProfileFragment : BaseFragment() {
         val inner = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
         container.addView(inner, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
         val editIcon = ImageView(context).apply {
-            setImageResource(MezonIcon.editProfileIcon.resId)
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_edit_20, ThemeMode.DARK.iconTint))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
         }
         inner.addView(editIcon, LinearLayout.LayoutParams(LayoutHelper.dp(20), LayoutHelper.dp(20)))
@@ -734,7 +736,8 @@ class ProfileFragment : BaseFragment() {
                 indicator.layoutParams = lp
             }
 
-            indicator.setImageResource(onlineStatus.getIcon().resId)
+            val visibleSize = LayoutHelper.dp(if (isEnlarged) 14 else 9)
+            onlineStatus.bindIcon(indicator, size, visibleSize)
         }
 
         val balanceStr = walletController.walletDetail.value?.balance ?: info.balance
@@ -902,7 +905,7 @@ class ProfileFragment : BaseFragment() {
         ).apply { leftMargin = LayoutHelper.dp(6) })
 
         serverChevron = ImageView(context).apply {
-            setImageResource(MezonIcon.chevronDownSmallIcon.resId)
+            setMezonIconResource(R.drawable.mz_chevron_down_16)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
         }
         chip.addView(serverChevron, LinearLayout.LayoutParams(

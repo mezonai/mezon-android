@@ -26,7 +26,6 @@ import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.clans.CreateClanRnUiTokens
 import com.mezon.mobile.util.Webhook as WebhookConfig
 import com.mezon.mobile.ui.cells.ActionBarView
-import com.mezon.mobile.ui.cells.MezonIcon
 
 class IntegrationSettingFragment : BaseFragment() {
 
@@ -69,7 +68,7 @@ class IntegrationSettingFragment : BaseFragment() {
 
         actionBar = ActionBarView(context, themeColors).apply {
             setTitle(getString(R.string.menu_clan_integrations))
-            setBackButtonImage(R.drawable.ic_close_24)
+            setBackButtonImage(R.drawable.mz_close_24)
             setBackButtonContentDescription(getString(R.string.common_close))
             setCenterTitle(true)
             setMenuOnItemClick(object : ActionBarView.ActionBarMenuOnItemClick() {
@@ -173,7 +172,7 @@ class IntegrationSettingFragment : BaseFragment() {
                             ClanSettingsUiHelpers.buildMezonChevronSubtitleRow(
                                 context,
                                 themeColors,
-                                MezonIcon.webhookIcon,
+                                R.drawable.mz_webhook_24,
                                 channelWebhooksTitle,
                                 webhookSubtitle,
                                 onChannelWebhooks,
@@ -181,7 +180,7 @@ class IntegrationSettingFragment : BaseFragment() {
                             ClanSettingsUiHelpers.buildMezonChevronSubtitleRow(
                                 context,
                                 themeColors,
-                                MezonIcon.webhookIcon,
+                                R.drawable.mz_webhook_24,
                                 clanWebhooksTitle,
                                 webhookSubtitle,
                                 onClanWebhooks,

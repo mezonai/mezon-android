@@ -30,6 +30,7 @@ import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.PhotoAttachPhotoCell
 import com.mezon.mobile.ui.cells.PopupMenu
+import com.mezon.mobile.ui.theme.ThemeMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -117,7 +118,7 @@ class ChatAttachAlert(
 
         val headerHeight = LayoutHelper.dp(44f)
 
-        val uploadButton = buildHeaderButton(MezonIcon.fileIconGray, R.string.file_selection_upload) {
+        val uploadButton = buildHeaderButton(R.drawable.mz_file_24, R.string.file_selection_upload) {
             dismiss()
             attachDelegate?.onFilesRequested()
         }
@@ -131,7 +132,7 @@ class ChatAttachAlert(
             ellipsize = TextUtils.TruncateAt.END
             setPaddingRelative(LayoutHelper.dp(8f), 0, LayoutHelper.dp(8f), 0)
             compoundDrawablePadding = LayoutHelper.dp(6f)
-            val chevron = MezonIcon.chevronDownSmallIcon.getDrawable(context, theme.onSurface)
+            val chevron = MezonIcon.loadDrawable(context, R.drawable.mz_chevron_down_16, theme.onSurface)
             val iconSize = LayoutHelper.dp(16f)
             chevron.setBounds(0, 0, iconSize, iconSize)
             setCompoundDrawablesRelative(null, null, chevron, null)
@@ -243,7 +244,7 @@ class ChatAttachAlert(
     }
 
     private fun buildHeaderButton(
-        icon: MezonIcon,
+        icon: Int,
         textRes: Int,
         onClick: () -> Unit
     ): LinearLayout {
@@ -258,7 +259,7 @@ class ChatAttachAlert(
         }
 
         val iconView = ImageView(context).apply {
-            setImageDrawable(icon.getDrawable(context).mutate())
+            setImageDrawable(MezonIcon.loadDrawable(context, icon, ThemeColors.defaultIconTint).mutate())
         }
         val iconSize = LayoutHelper.dp(20f)
         btn.addView(iconView, LinearLayout.LayoutParams(iconSize, iconSize))
@@ -291,7 +292,7 @@ class ChatAttachAlert(
         ).apply {
             for (album in entries) {
                 val name = album?.bucketName ?: context.getString(R.string.file_selection_recent_photos)
-                val icon = if (album == selectedAlbum) MezonIcon.checkmarkSmallIcon.resId else 0
+                val icon = if (album == selectedAlbum) R.drawable.mz_check_16 else 0
                 addItem(name, icon)
             }
             setOnItemClickListener { selectAlbum(entries[it]) }
@@ -428,7 +429,7 @@ class ChatAttachAlert(
                     setOnClickListener { attachDelegate?.onCameraRequested() }
                 }
                 val icon = ImageView(parent.context).apply {
-                    setImageDrawable(MezonIcon.cameraIcon.getDrawable(parent.context, Color.WHITE))
+                    setImageDrawable(MezonIcon.loadDrawable(parent.context, R.drawable.mz_camera_32, ThemeMode.DARK.iconTint))
                     scaleType = ImageView.ScaleType.CENTER_INSIDE
                 }
                 cell.addView(

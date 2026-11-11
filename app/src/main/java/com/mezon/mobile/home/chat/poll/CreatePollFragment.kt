@@ -1,10 +1,13 @@
 package com.mezon.mobile.home.chat.poll
 
+import com.mezon.mobile.ui.cells.withDefaultIconTint
+import androidx.core.content.ContextCompat
+import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.ui.cells.setIconColor
+import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.core.theme.MobileThemeColors
 import android.content.Context
 import android.graphics.Rect
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
@@ -24,15 +27,14 @@ import android.widget.ScrollView
 import android.widget.TextView
 import com.mezon.mobile.R
 import com.mezon.mobile.core.AdjustPanLayoutHelper
-import com.mezon.mobile.core.AlertDialog
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BaseFragment
+import com.mezon.mobile.core.BottomSheet
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.chat.EmojiController
 import com.mezon.mobile.home.chat.EmojiItem
 import com.mezon.mobile.ui.cells.BackupImageView
-import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.SwitchView
 import com.mezon.mobile.util.getEmojiUrl
 import kotlinx.coroutines.Dispatchers
@@ -150,7 +152,7 @@ class CreatePollFragment : BaseFragment() {
         durationRow.addView(durationValueView, LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1f))
         val chevronPx = LayoutHelper.dp(9)
         durationRow.addView(
-            iconView(context, MezonIcon.chevronDownSmallIcon, chevronPx, colorLabel),
+            iconView(context, R.drawable.mz_chevron_down_16, chevronPx, colorLabel),
             LayoutHelper.createLinear(chevronPx, chevronPx)
         )
         body.addView(durationRow, sectionMargin(labelGap))
@@ -276,9 +278,8 @@ class CreatePollFragment : BaseFragment() {
         val emojiBtnW = LayoutHelper.dp(26)
         val emojiPreview = BackupImageView(context).apply { setOmitEmptyPlaceholder(true) }
         val emojiPlaceholder = ImageView(context).apply {
-            setImageResource(R.drawable.ic_emoji_icon)
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_emoji_24, colorLabel))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
-            colorFilter = PorterDuffColorFilter(colorLabel, PorterDuff.Mode.SRC_IN)
         }
 
         val emojiButton = FrameLayout(context).apply {
@@ -323,9 +324,8 @@ class CreatePollFragment : BaseFragment() {
             setOnClickListener { removeAnswerSlot(index) }
             addView(
                 ImageView(context).apply {
-                    setImageResource(MezonIcon.trashIcon.resId)
+                    setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_trash_24, colorLabel))
                     scaleType = ImageView.ScaleType.CENTER_INSIDE
-                    colorFilter = PorterDuffColorFilter(colorLabel, PorterDuff.Mode.SRC_IN)
                 },
                 LayoutHelper.createFrame(trashIconPx, trashIconPx, Gravity.CENTER)
             )
@@ -476,18 +476,68 @@ class CreatePollFragment : BaseFragment() {
 
     private fun showDurationPicker() {
         val activity = getParentActivity() ?: return
-        val labels: Array<CharSequence> = POLL_DURATION_OPTIONS
-            .map { getString(it.second) as CharSequence }
-            .toTypedArray()
-        val currentIdx = POLL_DURATION_OPTIONS.indexOfFirst { it.first == formState.duration }.coerceAtLeast(0)
-        AlertDialog.Builder(activity)
-            .setTitle(getString(R.string.poll_duration))
-            .setSingleChoiceItems(labels, currentIdx) { which ->
-                formState = formState.copy(duration = POLL_DURATION_OPTIONS[which].first)
-                updateDurationLabel()
+        val sheet = BottomSheet(activity).apply {
+            setTitle(getString(R.string.poll_duration), big = true)
+            fixNavigationBar()
+        }
+        val ripple = TypedValue()
+        activity.theme.resolveAttribute(android.R.attr.selectableItemBackground, ripple, true)
+        val rowPadding = LayoutHelper.dp(16)
+        val rowMinHeight = LayoutHelper.dp(48)
+        val verticalPadding = LayoutHelper.dp(10)
+        val options = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                setColor(colorField)
+                cornerRadius = fieldRadiusPx
             }
-            .setNegativeButton(getString(android.R.string.cancel), null)
-            .show()
+            clipToOutline = true
+        }
+        for ((duration, labelRes) in POLL_DURATION_OPTIONS) {
+            val selected = duration == formState.duration
+            val row = TextView(activity).apply {
+                text = getString(labelRes)
+                textSize = 16f
+                setTextColor(colorText)
+                gravity = Gravity.CENTER_VERTICAL or Gravity.START
+                minHeight = rowMinHeight
+                setPaddingRelative(rowPadding, verticalPadding, rowPadding, verticalPadding)
+                if (ripple.resourceId != 0) foreground = activity.getDrawable(ripple.resourceId)
+                isFocusable = true
+                isSelected = selected
+                if (selected) {
+                    typeface = Typeface.DEFAULT_BOLD
+                    val checkSize = LayoutHelper.dp(18)
+                    val check = tintedIcon(activity, R.drawable.mz_check_16, checkSize, colorLink)
+                    compoundDrawablePadding = LayoutHelper.dp(12)
+                    setCompoundDrawablesRelative(null, null, check, null)
+                }
+                setOnClickListener {
+                    formState = formState.copy(duration = duration)
+                    updateDurationLabel()
+                    sheet.dismiss()
+                }
+            }
+            options.addView(row, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+        }
+
+        val content = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(rowPadding, 0, rowPadding, LayoutHelper.dp(8))
+            addView(options, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+        }
+        sheet.setCustomView(object : ScrollView(activity) {
+            init {
+                overScrollMode = View.OVER_SCROLL_NEVER
+                addView(content, LayoutHelper.createScroll(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+            }
+
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                setPadding(0, 0, 0, sheet.bottomInset)
+                super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+            }
+        })
+        showDialog(sheet)
     }
 
     private fun updateDurationLabel() {
@@ -602,8 +652,7 @@ class CreatePollFragment : BaseFragment() {
                 setOnClickListener { finishFragment() }
                 addView(
                     ImageView(context).apply {
-                        setImageResource(R.drawable.ic_arrow_back)
-                        imageTintList = android.content.res.ColorStateList.valueOf(colorText)
+                        setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_arrow_left_24, colorText))
                         scaleType = ImageView.ScaleType.CENTER_INSIDE
                     },
                     LayoutHelper.createFrame(backIconDp, backIconDp, Gravity.START or Gravity.CENTER_VERTICAL)
@@ -660,26 +709,15 @@ class CreatePollFragment : BaseFragment() {
             topMargin = topPx
         }
 
-    private fun tintedIcon(context: Context, icon: MezonIcon, sizePx: Int, tint: Int): Drawable =
-        tintedIcon(context, icon.resId, sizePx, tint)
 
     private fun tintedIcon(context: Context, resId: Int, sizePx: Int, tint: Int): Drawable {
-        val d = context.getDrawable(resId)?.mutate() ?: return GradientDrawable()
-        d.colorFilter = PorterDuffColorFilter(tint, PorterDuff.Mode.SRC_IN)
+        val d = (if (resId == 0) null else ContextCompat.getDrawable(context, resId)?.mutate())?.withDefaultIconTint(context, resId, ThemeColors.defaultIconTint) ?: return GradientDrawable()
+        d.setIconColor(tint)
         d.setBounds(0, 0, sizePx, sizePx)
         return d
     }
 
-    private fun iconView(context: Context, resId: Int, sizePx: Int, tint: Int): ImageView =
-        ImageView(context).apply {
-            val d = context.getDrawable(resId)?.mutate()
-            d?.colorFilter = PorterDuffColorFilter(tint, PorterDuff.Mode.SRC_IN)
-            d?.setBounds(0, 0, sizePx, sizePx)
-            setImageDrawable(d)
-            scaleType = ImageView.ScaleType.CENTER
-        }
-
-    private fun iconView(context: Context, icon: MezonIcon, sizePx: Int, tint: Int): ImageView =
+    private fun iconView(context: Context, icon: Int, sizePx: Int, tint: Int): ImageView =
         ImageView(context).apply {
             setImageDrawable(tintedIcon(context, icon, sizePx, tint))
             scaleType = ImageView.ScaleType.CENTER_INSIDE

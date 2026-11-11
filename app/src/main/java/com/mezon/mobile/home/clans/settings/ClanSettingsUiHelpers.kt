@@ -1,5 +1,9 @@
 package com.mezon.mobile.home.clans.settings
 
+import com.mezon.mobile.ui.cells.withDefaultIconTint
+import com.mezon.mobile.ui.cells.isPackagedIcon
+import com.mezon.mobile.ui.cells.setIconColor
+import com.mezon.mobile.R
 import android.content.Context
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
@@ -14,6 +18,7 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.clans.CreateClanRnUiTokens
 import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.ui.cells.applyActionLabelColor
 
 object ClanSettingsUiHelpers {
 
@@ -35,7 +40,7 @@ object ClanSettingsUiHelpers {
     fun buildHorizontalActionButton(
         context: Context,
         theme: ThemeColors,
-        icon: MezonIcon,
+        icon: Int,
         title: String,
         onPress: Runnable,
         iconSizeDp: Int = actionIconDp,
@@ -55,7 +60,7 @@ object ClanSettingsUiHelpers {
         val iconSz = LayoutHelper.dp(iconSizeDp)
         val iconView = ImageView(context).apply {
             scaleType = ImageView.ScaleType.FIT_CENTER
-            setImageDrawable(icon.getDrawable(context))
+            setImageDrawable(MezonIcon.loadDrawable(context, icon).withDefaultIconTint(context, icon, ThemeColors.defaultIconTint))
         }
         circle.addView(iconView, LayoutHelper.createFrame(iconSz, iconSz, Gravity.CENTER))
         column.addView(circle, LayoutHelper.createLinear(actionButtonDp, actionButtonDp, 0f, Gravity.CENTER_HORIZONTAL))
@@ -125,7 +130,7 @@ object ClanSettingsUiHelpers {
     fun buildMezonMenuRow(
         context: Context,
         theme: ThemeColors,
-        icon: MezonIcon,
+        icon: Int,
         title: String,
         textColor: Int? = null,
         iconTint: Int? = null,
@@ -143,8 +148,12 @@ object ClanSettingsUiHelpers {
         val iconIv = ImageView(context).apply {
             scaleType = ImageView.ScaleType.FIT_CENTER
             setImageDrawable(
-                if (keepOriginalIconColors) icon.getDrawable(context)
-                else icon.getDrawable(context, tint)
+                MezonIcon.loadDrawable(context, icon).withDefaultIconTint(context, icon, ThemeColors.defaultIconTint).apply {
+                    if (!keepOriginalIconColors && !context.isPackagedIcon(icon)) {
+                        this.setIconColor(tint)
+                    }
+                    applyActionLabelColor(textColor ?: theme.colorText, theme)
+                }
             )
         }
         row.addView(
@@ -198,7 +207,7 @@ object ClanSettingsUiHelpers {
     fun buildMezonChevronRow(
         context: Context,
         theme: ThemeColors,
-        icon: MezonIcon,
+        icon: Int,
         title: String,
         textColor: Int?,
         onPress: Runnable
@@ -210,9 +219,8 @@ object ClanSettingsUiHelpers {
         }
         val iconIv = ImageView(context).apply {
             scaleType = ImageView.ScaleType.FIT_CENTER
-            val d = icon.getDrawable(context)
-            d.mutate()
-            d.colorFilter = PorterDuffColorFilter(theme.colorText, PorterDuff.Mode.SRC_IN)
+            val d = MezonIcon.loadDrawable(context, icon, theme.iconTint)
+            d.applyActionLabelColor(textColor ?: theme.textStrong, theme)
             setImageDrawable(d)
         }
         row.addView(iconIv, LayoutHelper.createLinear(menuRowLeadingIconDp, menuRowLeadingIconDp, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, 10f, 0f))
@@ -226,8 +234,8 @@ object ClanSettingsUiHelpers {
         row.addView(text, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.CENTER_VERTICAL))
 
         val chev = ImageView(context).apply {
-            val d = MezonIcon.chevronSmallRightIcon.getDrawable(context)
-            d.colorFilter = PorterDuffColorFilter(theme.colorText, PorterDuff.Mode.SRC_IN)
+            val d = MezonIcon.loadDrawable(context, R.drawable.mz_chevron_right_16, theme.onSurface)
+            d.applyActionLabelColor(textColor ?: theme.textStrong, theme)
             setImageDrawable(d)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
         }
@@ -241,7 +249,7 @@ object ClanSettingsUiHelpers {
     fun buildMezonChevronSubtitleRow(
         context: Context,
         theme: ThemeColors,
-        icon: MezonIcon,
+        icon: Int,
         title: String,
         subtitle: String,
         onPress: Runnable
@@ -253,7 +261,7 @@ object ClanSettingsUiHelpers {
         }
         val iconIv = ImageView(context).apply {
             scaleType = ImageView.ScaleType.FIT_CENTER
-            val d = icon.getDrawable(context)
+            val d = MezonIcon.loadDrawable(context, icon).withDefaultIconTint(context, icon, ThemeColors.defaultIconTint)
             d.mutate()
             d.colorFilter = PorterDuffColorFilter(theme.textStrong, PorterDuff.Mode.SRC_IN)
             setImageDrawable(d)
@@ -284,7 +292,7 @@ object ClanSettingsUiHelpers {
         row.addView(texts, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.CENTER_VERTICAL))
 
         val chev = ImageView(context).apply {
-            val d = MezonIcon.chevronSmallRightIcon.getDrawable(context)
+            val d = MezonIcon.loadDrawable(context, R.drawable.mz_chevron_right_16, ThemeColors.defaultIconTint)
             d.colorFilter = PorterDuffColorFilter(theme.textStrong, PorterDuff.Mode.SRC_IN)
             setImageDrawable(d)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
@@ -317,8 +325,9 @@ object ClanSettingsUiHelpers {
         row.addView(text, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.CENTER_VERTICAL))
 
         val chev = ImageView(context).apply {
-            val d = MezonIcon.chevronSmallRightIcon.getDrawable(context)
+            val d = MezonIcon.loadDrawable(context, R.drawable.mz_chevron_right_16, ThemeColors.defaultIconTint)
             d.colorFilter = PorterDuffColorFilter(theme.colorText, PorterDuff.Mode.SRC_IN)
+            d.applyActionLabelColor(textColor ?: theme.textStrong, theme)
             setImageDrawable(d)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
         }

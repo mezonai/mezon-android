@@ -1,5 +1,8 @@
 package com.mezon.mobile.home.chat.thread
 
+import com.mezon.mobile.ui.cells.withDefaultIconTint
+import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.ui.cells.setMezonIconResource
 import android.Manifest
 import android.content.ClipboardManager
 import android.content.Context
@@ -108,6 +111,7 @@ import com.mezon.mobile.home.chat.CreateThreadSeedStash
 import com.mezon.mobile.home.chat.isMediaAttachment
 import com.mezon.mobile.home.sharing.ForwardPreviewThumbHost
 import com.mezon.mobile.util.resolveStickerSourceUrl
+import com.mezon.mobile.ui.theme.ThemeMode
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -416,7 +420,7 @@ class CreateThreadFragment : BaseFragment() {
         }
 
         val back = ImageView(context).apply {
-            val d = MezonIcon.chevronSmallLeftIcon.getDrawable(context)
+            val d = MezonIcon.loadDrawable(context, R.drawable.mz_chevron_left_16, ThemeColors.defaultIconTint)
             d.colorFilter = PorterDuffColorFilter(themeColors.textStrong, PorterDuff.Mode.SRC_IN)
             setImageDrawable(d)
             setPadding(LayoutHelper.dp(8), LayoutHelper.dp(8), LayoutHelper.dp(8), LayoutHelper.dp(8))
@@ -453,7 +457,7 @@ class CreateThreadFragment : BaseFragment() {
         titleRow.addView(titleMain, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.CENTER_VERTICAL))
 
         val chevron = ImageView(context).apply {
-            val d = MezonIcon.chevronSmallRightIcon.getDrawable(context)
+            val d = MezonIcon.loadDrawable(context, R.drawable.mz_chevron_right_16, ThemeColors.defaultIconTint)
             d.colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
             setImageDrawable(d)
         }
@@ -481,13 +485,13 @@ class CreateThreadFragment : BaseFragment() {
         slot.removeAllViews()
         val parentMeta = channelController.findChannelById(parentChannelId, clanId)
         val icon = when {
-            parentMeta?.type == CHANNEL_TYPE_CHANNEL && parentMeta.isAgeRestricted -> MezonIcon.channelTextWarning
-            parentMeta?.isPrivate == true && parentMeta.type == CHANNEL_TYPE_CHANNEL -> MezonIcon.channelTextLock
-            else -> MezonIcon.channelText
+            parentMeta?.type == CHANNEL_TYPE_CHANNEL && parentMeta.isAgeRestricted -> R.drawable.mz_channel_warning_24
+            parentMeta?.isPrivate == true && parentMeta.type == CHANNEL_TYPE_CHANNEL -> R.drawable.mz_channel_private_24
+            else -> R.drawable.mz_channel_24
         }
         val iv = ImageView(ctx).apply {
-            val d = icon.getDrawable(ctx)
-            if (icon == MezonIcon.channelTextLock || icon == MezonIcon.threadLockIcon) {
+            val d = MezonIcon.loadDrawable(ctx, icon).withDefaultIconTint(ctx, icon, ThemeColors.defaultIconTint)
+            if (icon == R.drawable.mz_channel_private_24 || icon == R.drawable.mz_thread_private_24) {
             } else {
                 d.colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
             }
@@ -502,7 +506,7 @@ class CreateThreadFragment : BaseFragment() {
         val ctx = slot.context
         slot.removeAllViews()
         val iv = ImageView(ctx).apply {
-            val d = MezonIcon.notificationTabTopic.getDrawable(ctx)
+            val d = MezonIcon.loadDrawable(ctx, R.drawable.mz_topic_20, ThemeColors.defaultIconTint)
             setImageDrawable(d)
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
@@ -535,8 +539,8 @@ class CreateThreadFragment : BaseFragment() {
             }
         }
         val icon = ImageView(context).apply {
-            val iconType = if (fromTopicFlow) MezonIcon.notificationTabTopic else MezonIcon.threadIcon
-            setImageDrawable(iconType.getDrawable(context))
+            val iconType = if (fromTopicFlow) R.drawable.mz_topic_24 else R.drawable.mz_thread_24
+            setMezonIconResource(iconType)
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
         val slot = LayoutHelper.dp(26)
@@ -594,9 +598,7 @@ class CreateThreadFragment : BaseFragment() {
         }
         nameErrorRow = errRow
         val errIcon = ImageView(context).apply {
-            val d = MezonIcon.circleExlaimionIcon.getDrawable(context)
-            d.colorFilter = PorterDuffColorFilter(themeColors.error, PorterDuff.Mode.SRC_IN)
-            setImageDrawable(d)
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_error_16, themeColors.error))
         }
         errRow.addView(
             errIcon,
@@ -866,11 +868,8 @@ class CreateThreadFragment : BaseFragment() {
 
         val btnPad = LayoutHelper.dp(8f)
         attachButton = ImageButton(context).apply {
-            val drawable = MezonIcon.plusLargeIcon.getDrawable(context)
-            drawable.colorFilter = PorterDuffColorFilter(
-                themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary), PorterDuff.Mode.SRC_IN
-            )
-            setImageDrawable(drawable)
+            val iconColor = themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary)
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_plus_20, iconColor))
             scaleType = ImageView.ScaleType.FIT_CENTER
             setPadding(btnPad, btnPad, btnPad, btnPad)
             background = GradientDrawable().apply {
@@ -910,13 +909,8 @@ class CreateThreadFragment : BaseFragment() {
         )
 
         emojiButton = ImageButton(context).apply {
-            setImageResource(R.drawable.ic_emoji_icon)
-            setColorFilter(
-                PorterDuffColorFilter(
-                    themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary),
-                    PorterDuff.Mode.SRC_IN
-                )
-            )
+            val iconColor = themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary)
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_emoji_24, iconColor))
             setBackgroundColor(Color.TRANSPARENT)
             scaleType = ImageView.ScaleType.CENTER
             setOnClickListener {
@@ -946,12 +940,7 @@ class CreateThreadFragment : BaseFragment() {
 
         if (fromTopicFlow) {
             micButton = ImageButton(context).apply {
-                val drawable = MezonIcon.microphoneIcon.getDrawable(context)
-                drawable.colorFilter = PorterDuffColorFilter(
-                    themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary),
-                    PorterDuff.Mode.SRC_IN
-                )
-                setImageDrawable(drawable)
+                setImageDrawable(loadIdleMicIcon(context))
                 scaleType = ImageView.ScaleType.FIT_CENTER
                 setPadding(btnPad, btnPad, btnPad, btnPad)
                 background = GradientDrawable().apply {
@@ -964,9 +953,7 @@ class CreateThreadFragment : BaseFragment() {
         }
 
         sendButton = ImageButton(context).apply {
-            val drawable = MezonIcon.sendMessageIcon.getDrawable(context)
-            drawable.colorFilter = PorterDuffColorFilter(Color.WHITE, PorterDuff.Mode.SRC_IN)
-            setImageDrawable(drawable)
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_send_24, ThemeMode.DARK.iconTint))
             scaleType = ImageView.ScaleType.FIT_CENTER
             val sendBtnPad = LayoutHelper.dp(11f)
             setPadding(sendBtnPad, sendBtnPad, sendBtnPad, sendBtnPad)
@@ -1449,24 +1436,9 @@ class CreateThreadFragment : BaseFragment() {
     private fun updateEmojiButtonIcon(showingEmoji: Boolean) {
         val btn = emojiButton ?: return
         val ctx = getContext() ?: return
-        if (showingEmoji) {
-            btn.setImageDrawable(
-                MezonIcon.keyboardIcon.getDrawable(ctx).also {
-                    it.colorFilter = PorterDuffColorFilter(
-                        themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary),
-                        PorterDuff.Mode.SRC_IN
-                    )
-                }
-            )
-        } else {
-            btn.setImageResource(R.drawable.ic_emoji_icon)
-            btn.setColorFilter(
-                PorterDuffColorFilter(
-                    themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary),
-                    PorterDuff.Mode.SRC_IN
-                )
-            )
-        }
+        val iconResId = if (showingEmoji) R.drawable.mz_keyboard_24 else R.drawable.mz_emoji_24
+        val iconColor = themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary)
+        btn.setImageDrawable(MezonIcon.loadDrawable(ctx, iconResId, iconColor))
     }
 
     private fun deleteEmojiTokenAtCursor(): Boolean {
@@ -2359,22 +2331,22 @@ class CreateThreadFragment : BaseFragment() {
             ?.start()
     }
 
+    private fun loadIdleMicIcon(context: Context) =
+        MezonIcon.loadDrawable(
+            context,
+            R.drawable.mz_mic_20,
+            themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary),
+        )
+
     private fun applyRecordingMicStyle(recording: Boolean) {
         val btn = micButton ?: return
         val bg = btn.background as? GradientDrawable ?: return
         if (recording) {
             bg.setColor(themeColors.blurple)
-            val d = MezonIcon.microphoneIcon.getDrawable(btn.context)
-            d.colorFilter = PorterDuffColorFilter(Color.WHITE, PorterDuff.Mode.SRC_IN)
-            btn.setImageDrawable(d)
+            btn.setImageDrawable(MezonIcon.loadDrawable(btn.context, R.drawable.mz_mic_20, ThemeMode.DARK.iconTint))
         } else {
             bg.setColor(themeColors.tertiary)
-            val d = MezonIcon.microphoneIcon.getDrawable(btn.context)
-            d.colorFilter = PorterDuffColorFilter(
-                themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary),
-                PorterDuff.Mode.SRC_IN
-            )
-            btn.setImageDrawable(d)
+            btn.setImageDrawable(loadIdleMicIcon(btn.context))
         }
     }
 

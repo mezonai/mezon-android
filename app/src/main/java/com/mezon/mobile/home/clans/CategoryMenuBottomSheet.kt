@@ -14,7 +14,6 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.clans.settings.ClanSettingsUiHelpers
 import com.mezon.mobile.ui.cells.AvatarView
-import com.mezon.mobile.ui.cells.MezonIcon
 
 class CategoryMenuBottomSheet(
     context: android.content.Context,
@@ -46,7 +45,7 @@ class CategoryMenuBottomSheet(
 
         fun buildRow(
             label: String,
-            icon: MezonIcon,
+            icon: Int,
             labelColor: Int = theme.textStrong,
             iconColor: Int = theme.textStrong,
             onClick: () -> Unit,
@@ -105,7 +104,7 @@ class CategoryMenuBottomSheet(
         val watchRows = listOf(
             buildRow(
                 context.getString(R.string.category_menu_mark_as_read),
-                MezonIcon.eyeIcon,
+                R.drawable.mz_eye_20,
                 onClick = onMarkAsRead,
             )
         )
@@ -115,7 +114,7 @@ class CategoryMenuBottomSheet(
                 add(
                     buildRow(
                         context.getString(R.string.category_menu_create_channel),
-                        MezonIcon.plusLargeIcon,
+                        R.drawable.mz_plus_20,
                         onClick = onCreateChannel,
                     )
                 )

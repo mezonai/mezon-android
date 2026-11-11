@@ -34,6 +34,8 @@ class AdvancedMenuView(
     interface AdvancedMenuViewDelegate {
         fun onLocationSelected()
         fun onFilesSelected()
+        fun onThreadsSelected()
+        fun onTransferFundsSelected()
         fun onBuzzSelected()
         fun onAnonymousToggled()
         fun onCreatePollRequested() {}
@@ -55,7 +57,7 @@ class AdvancedMenuView(
     private data class FunctionItem(
         val id: String,
         val labelResId: Int,
-        val icon: MezonIcon
+        val icon: Int
     )
 
     private val functions = ArrayList(buildFunctions())
@@ -78,26 +80,26 @@ class AdvancedMenuView(
     private fun buildFunctions(): List<FunctionItem> {
         val list = ArrayList<FunctionItem>()
         if (!isAnonymousMode) {
-            list.add(FunctionItem("location", R.string.advanced_location, MezonIcon.locationIconGray))
+            list.add(FunctionItem("location", R.string.advanced_location, R.drawable.mz_location_24))
         }
-        list.add(FunctionItem("files", R.string.advanced_files, MezonIcon.fileIconGray))
+        list.add(FunctionItem("files", R.string.advanced_files, R.drawable.mz_file_24))
         if (clanId != 0L) {
-            list.add(FunctionItem("create_thread", R.string.advanced_threads, MezonIcon.threadPlusIconGray))
+            list.add(FunctionItem("create_thread", R.string.advanced_threads, R.drawable.mz_thread_add_24))
             val anonLabel = if (isAnonymousMode) R.string.advanced_anonymous_off else R.string.advanced_anonymous
-            list.add(FunctionItem("anonymous", anonLabel, MezonIcon.anonymousIconGray))
+            list.add(FunctionItem("anonymous", anonLabel, R.drawable.mz_anonymous_24))
         }
         if (!isAnonymousMode) {
-            list.add(FunctionItem("buzz", R.string.advanced_buzz, MezonIcon.buzzAdvancedIcon))
+            list.add(FunctionItem("buzz", R.string.advanced_buzz, R.drawable.mz_buzz_24))
         }
         if (clanId != 0L) {
-            list.add(FunctionItem("ephemeral", R.string.advanced_ephemeral, MezonIcon.ephemeralIconGray))
+            list.add(FunctionItem("ephemeral", R.string.advanced_ephemeral, R.drawable.mz_eye_24))
         }
-        list.add(FunctionItem("transfer_funds", R.string.advanced_transfer_funds, MezonIcon.sendMoneyAdvancedIcon))
+        list.add(FunctionItem("transfer_funds", R.string.advanced_transfer_funds, R.drawable.mz_send_money_24))
         if (showCreatePoll) {
-            list.add(FunctionItem("poll", R.string.advanced_poll, MezonIcon.pollIconGray))
+            list.add(FunctionItem("poll", R.string.advanced_poll, R.drawable.mz_poll_24))
         }
         if (!isAnonymousMode) {
-            list.add(FunctionItem("share_contact", R.string.advanced_share_contact, MezonIcon.shareContactIconGray))
+            list.add(FunctionItem("share_contact", R.string.advanced_share_contact, R.drawable.mz_contact_24))
         }
         return list
     }
@@ -141,6 +143,8 @@ class AdvancedMenuView(
         when (item.id) {
             "location" -> del?.onLocationSelected()
             "files" -> del?.onFilesSelected()
+            "create_thread" -> del?.onThreadsSelected()
+            "transfer_funds" -> del?.onTransferFundsSelected()
             "buzz" -> del?.onBuzzSelected()
             "anonymous" -> {
                 del?.onAnonymousToggled()
@@ -236,9 +240,9 @@ private class FunctionCell(context: Context, private val theme: ThemeColors) : V
         typeface = Typeface.DEFAULT
     }
 
-    fun setData(labelResId: Int, icon: MezonIcon) {
+    fun setData(labelResId: Int, icon: Int) {
         label = context.getString(labelResId)
-        iconDrawable = icon.getDrawable(context).mutate()
+        iconDrawable = MezonIcon.loadDrawable(context, icon, ThemeColors.defaultIconTint).mutate()
         labelPaint.color = theme.onSurface
         buildLayout()
         invalidate()

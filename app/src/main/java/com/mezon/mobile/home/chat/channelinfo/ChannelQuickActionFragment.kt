@@ -1,5 +1,8 @@
 package com.mezon.mobile.home.chat.channelinfo
 
+import com.mezon.mobile.ui.cells.withDefaultIconTint
+import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.ui.cells.setIconColor
 import android.content.Context
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
@@ -104,7 +107,7 @@ class ChannelQuickActionFragment : BaseFragment() {
 
         actionBar = ActionBarView(context, themeColors).apply {
             setTitle(getString(R.string.channel_quick_action_title))
-            setBackButtonImage(R.drawable.ic_arrow_back)
+            setBackButtonImage(R.drawable.mz_arrow_left_24)
             setCenterTitle(true)
             ClanRolesUiTheme.applyPrimaryFlowActionBar(this, themeColors)
             setMenuOnItemClick(object : ActionBarView.ActionBarMenuOnItemClick() {
@@ -206,7 +209,7 @@ class ChannelQuickActionFragment : BaseFragment() {
             val iconSize = LayoutHelper.dp(40f)
             iconCircle.addView(
                 ImageView(context).apply {
-                    val d = MezonIcon.quickAction.getDrawable(context).mutate()
+                    val d = MezonIcon.loadDrawable(context, R.drawable.mz_bolt_40, ThemeColors.defaultIconTint).mutate()
                     d.colorFilter = PorterDuffColorFilter(themeColors.textDisabled, PorterDuff.Mode.SRC_IN)
                     setImageDrawable(d)
                     scaleType = ImageView.ScaleType.CENTER_INSIDE
@@ -329,7 +332,7 @@ class ChannelQuickActionFragment : BaseFragment() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(LayoutHelper.dp(14f), LayoutHelper.dp(14f), LayoutHelper.dp(14f), LayoutHelper.dp(14f))
-            background = rounded(themeColors.channelPanelBg, 14f)
+            background = rounded(themeColors.surface, 14f)
         }
 
         val textCol = LinearLayout(context).apply {
@@ -363,12 +366,12 @@ class ChannelQuickActionFragment : BaseFragment() {
         )
         row.addView(textCol, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.CENTER_VERTICAL))
 
-        row.addView(iconActionButton(context, MezonIcon.pencilIcon) { showEditDialog(context, item) })
-        row.addView(iconActionButton(context, MezonIcon.trashIcon, tintRed = true) { confirmDelete(context, item) })
+        row.addView(iconActionButton(context, R.drawable.mz_edit_20) { showEditDialog(context, item) })
+        row.addView(iconActionButton(context, R.drawable.mz_trash_20, tintRed = true) { confirmDelete(context, item) })
         return row
     }
 
-    private fun iconActionButton(context: Context, icon: MezonIcon, tintRed: Boolean = false, onClick: () -> Unit): View {
+    private fun iconActionButton(context: Context, icon: Int, tintRed: Boolean = false, onClick: () -> Unit): View {
         return FrameLayout(context).apply {
             setPadding(LayoutHelper.dp(6f), LayoutHelper.dp(6f), LayoutHelper.dp(6f), LayoutHelper.dp(6f))
             isClickable = true
@@ -376,9 +379,12 @@ class ChannelQuickActionFragment : BaseFragment() {
             setOnClickListener { onClick() }
             addView(
                 ImageView(context).apply {
-                    val d = icon.getDrawable(context).mutate()
-                    val tint = if (tintRed) themeColors.redStrong else themeColors.textStrong
-                    d.colorFilter = PorterDuffColorFilter(tint, PorterDuff.Mode.SRC_IN)
+                    val d = MezonIcon.loadDrawable(context, icon).withDefaultIconTint(context, icon, ThemeColors.defaultIconTint).mutate()
+                    if (tintRed) {
+                        d.setIconColor(themeColors.redStrong)
+                    } else {
+                        d.colorFilter = PorterDuffColorFilter(themeColors.textStrong, PorterDuff.Mode.SRC_IN)
+                    }
                     setImageDrawable(d)
                     scaleType = ImageView.ScaleType.CENTER_INSIDE
                 },

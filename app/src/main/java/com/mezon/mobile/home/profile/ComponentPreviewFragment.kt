@@ -1,7 +1,6 @@
 package com.mezon.mobile.home.profile
 
 import android.content.Context
-import android.graphics.Color
 import android.text.SpannableStringBuilder
 import android.view.Gravity
 import android.view.View
@@ -20,7 +19,6 @@ import com.mezon.mobile.ui.cells.BadgeDrawable
 import com.mezon.mobile.ui.cells.ColoredImageSpan
 import com.mezon.mobile.ui.cells.HeaderCell
 import com.mezon.mobile.ui.cells.IconButton
-import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.PopupMenu
 import com.mezon.mobile.ui.cells.RadioCell
 import com.mezon.mobile.ui.cells.SelectPopup
@@ -167,7 +165,7 @@ class ComponentPreviewFragment : BaseFragment() {
 
     private fun addIconButtonSection(context: Context, parent: LinearLayout) {
         val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        listOf(MezonIcon.phoneCallIcon to "Call", MezonIcon.cameraIcon to "Camera", MezonIcon.shareIcon to "Share", MezonIcon.pencilIcon to "Edit").forEach { (icon, label) ->
+        listOf(R.drawable.mz_call_24 to "Call", R.drawable.mz_camera_24 to "Camera", R.drawable.mz_share_24 to "Share", R.drawable.mz_edit_24 to "Edit").forEach { (icon, label) ->
             val col = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
             val btn = IconButton(context, themeColors); btn.setIcon(icon)
             col.addView(btn, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.CENTER_HORIZONTAL))
@@ -181,7 +179,7 @@ class ComponentPreviewFragment : BaseFragment() {
         val tv = TextView(context).apply {
             textSize = 16f; setTextColor(themeColors.onSurface)
             val ssb = SpannableStringBuilder(); ssb.append("# General channel")
-            val span = ColoredImageSpan(context, MezonIcon.channelText.resId, ColoredImageSpan.ALIGN_CENTER); span.setSize(LayoutHelper.dp(18)); ssb.setSpan(span, 0, 1, 0)
+            val span = ColoredImageSpan(context, R.drawable.mz_channel_24, ColoredImageSpan.ALIGN_CENTER); span.setSize(LayoutHelper.dp(18)); ssb.setSpan(span, 0, 1, 0)
             text = ssb
         }
         parent.addView(tv, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.START, 16f, 8f, 16f, 8f))
@@ -225,7 +223,7 @@ class ComponentPreviewFragment : BaseFragment() {
 
     private fun addSettingsCellSection(context: Context, parent: LinearLayout) {
         parent.addView(HeaderCell(context, themeColors).apply { setText("Account") }, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
-        parent.addView(TextSettingsCell(context, themeColors).apply { setTextAndValue("Username", "@alice", divider = true); setIcon(MezonIcon.userIcon) }, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+        parent.addView(TextSettingsCell(context, themeColors).apply { setTextAndValue("Username", "@alice", divider = true); setIcon(R.drawable.mz_user_24) }, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
         parent.addView(TextSettingsCell(context, themeColors).apply { setTextAndValue("Phone", "+1 555-0123", divider = true) }, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
         parent.addView(TextSettingsCell(context, themeColors).apply { setTextAndValue("Email", "alice@example.com") }, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
     }
@@ -255,7 +253,7 @@ class ComponentPreviewFragment : BaseFragment() {
     private fun addPopupMenuSection(context: Context, parent: LinearLayout) {
         val anchor = ActionButton(context, themeColors).apply { setText("Show Popup Menu") }
         anchor.setOnClickListener {
-            val popup = PopupMenu(context, themeColors); popup.addItem("Copy", MezonIcon.copyIcon); popup.addItem("Edit", MezonIcon.pencilIcon); popup.addItem("Delete", MezonIcon.trashIcon, destructive = true)
+            val popup = PopupMenu(context, themeColors); popup.addItem("Copy", R.drawable.mz_copy_16); popup.addItem("Edit", R.drawable.mz_edit_16); popup.addItem("Delete", R.drawable.mz_trash_16, destructive = true)
             popup.setOnItemClickListener {}; popup.show(anchor)
         }
         parent.addView(anchor, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.START, 0f, 8f, 0f, 8f))

@@ -1,11 +1,10 @@
 package com.mezon.mobile.home.chat
 
+import com.mezon.mobile.ui.cells.setIconColor
 import com.mezon.mobile.core.theme.DesktopThemeToken
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
@@ -35,7 +34,6 @@ class SendTokenCardLayout(private val context: Context) {
     private var detailLayout: StaticLayout? = null
     private var buttonLayout: StaticLayout? = null
     private var iconDrawable: Drawable? = null
-    private var iconTint = 0
     private var rowHeight = 0
     private var textColumnHeight = 0
     private val cardRect = RectF()
@@ -100,10 +98,9 @@ class SendTokenCardLayout(private val context: Context) {
             .setMaxLines(1)
             .build()
 
-        if (iconDrawable == null || iconTint != transactionColor) {
-            iconTint = transactionColor
-            iconDrawable = MezonIcon.transactionIcon.getDrawable(context).mutate().apply {
-                colorFilter = PorterDuffColorFilter(iconTint, PorterDuff.Mode.SRC_IN)
+        if (iconDrawable == null) {
+            iconDrawable = MezonIcon.loadDrawable(context, R.drawable.mz_transaction_32, ThemeColors.defaultIconTint).apply {
+                this.setIconColor(transactionColor)
                 setBounds(0, 0, ICON_SIZE, ICON_SIZE)
             }
         }

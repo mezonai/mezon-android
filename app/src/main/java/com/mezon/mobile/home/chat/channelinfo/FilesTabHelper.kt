@@ -135,7 +135,7 @@ class FilesTabHelper(
             }
         }
         val searchIcon = ImageView(context).apply {
-            val d = MezonIcon.magnifyingIcon.getDrawable(context).mutate()
+            val d = MezonIcon.loadDrawable(context, R.drawable.mz_search_20, ThemeColors.defaultIconTint).mutate()
             d.colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
             setImageDrawable(d)
         }
@@ -271,7 +271,7 @@ class FilesTabHelper(
             setPadding(0, LayoutHelper.dp(60f), 0, 0)
         }
         val icon = ImageView(context).apply {
-            setImageDrawable(MezonIcon.emptySearchIcon.getDrawable(context))
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.ic_empty_search))
         }
         container.addView(icon, LayoutHelper.createLinear(100, 100, 0f, Gravity.CENTER_HORIZONTAL))
         val text = TextView(context).apply {

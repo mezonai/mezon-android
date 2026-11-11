@@ -1,5 +1,7 @@
 package com.mezon.mobile.home.call
 
+import com.mezon.mobile.R
+import com.mezon.mobile.ui.cells.MezonIcon
 import android.content.Context
 import android.graphics.Typeface
 import android.graphics.Outline
@@ -15,7 +17,7 @@ import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.voice.VoiceChrome
 import com.mezon.mobile.home.voice.VoiceStyleCircleButton
 import com.mezon.mobile.ui.cells.AvatarView
-import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.ui.theme.ThemeMode
 
 class CallingOverlay(context: Context) : FrameLayout(context) {
 
@@ -98,14 +100,34 @@ class CallingOverlay(context: Context) : FrameLayout(context) {
         val btnDim = LayoutHelper.dp(44)
 
         pillWrap.addView(
-            VoiceStyleCircleButton(context, MezonIcon.callCancelIcon, VoiceChrome.RED_STRONG, 0, 0xFFFFFFFF.toInt(), VoiceStyleCircleButton.endCallIconSizePx(context)).apply {
+            VoiceStyleCircleButton(
+                context,
+                R.drawable.mz_call_cancel_24,
+                VoiceChrome.RED_STRONG,
+                0,
+                0xFFFFFFFF.toInt(),
+                VoiceStyleCircleButton.endCallIconSizePx(context),
+                fixedIconLoader = { iconContext, icon ->
+                    MezonIcon.loadDrawable(iconContext, icon, ThemeMode.DARK.iconTint)
+                }
+            ).apply {
                 setOnClickListener { delegate?.onDeclineClicked() }
             },
             LinearLayout.LayoutParams(btnDim, btnDim)
         )
 
         pillWrap.addView(
-            VoiceStyleCircleButton(context, MezonIcon.phoneCallIcon, tc.onlineGreen, 0, 0xFFFFFFFF.toInt(), VoiceStyleCircleButton.endCallIconSizePx(context)).apply {
+            VoiceStyleCircleButton(
+                context,
+                R.drawable.mz_call_24,
+                tc.onlineGreen,
+                0,
+                0xFFFFFFFF.toInt(),
+                VoiceStyleCircleButton.endCallIconSizePx(context),
+                fixedIconLoader = { iconContext, icon ->
+                    MezonIcon.loadDrawable(iconContext, icon, ThemeMode.LIGHT.iconTint)
+                }
+            ).apply {
                 setOnClickListener { delegate?.onAcceptClicked() }
             },
             LinearLayout.LayoutParams(btnDim, btnDim).apply { marginStart = LayoutHelper.dp(12) }

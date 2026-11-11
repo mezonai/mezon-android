@@ -120,7 +120,7 @@ class PollAnswerEmojiPickerSheet(
         }
         searchField = searchInput
         val searchIcon = ImageView(context).apply {
-            setImageDrawable(MezonIcon.magnifyingIcon.getDrawable(context).apply {
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_search_20, ThemeColors.defaultIconTint).apply {
                 colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
             })
             scaleType = ImageView.ScaleType.FIT_CENTER

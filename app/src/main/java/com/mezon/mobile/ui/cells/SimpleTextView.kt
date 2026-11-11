@@ -1,5 +1,7 @@
 package com.mezon.mobile.ui.cells
 
+import androidx.core.content.ContextCompat
+import com.mezon.mobile.core.ThemeColors
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -114,11 +116,11 @@ class SimpleTextView(context: Context) : View(context) {
     }
 
     fun setLeftDrawable(resId: Int) {
-        setLeftDrawable(if (resId == 0) null else context.resources.getDrawable(resId, null))
+        setLeftDrawable((if (resId == 0) null else ContextCompat.getDrawable(context, resId)?.mutate())?.withDefaultIconTint(context, resId, ThemeColors.defaultIconTint))
     }
 
     fun setRightDrawable(resId: Int) {
-        setRightDrawable(if (resId == 0) null else context.resources.getDrawable(resId, null))
+        setRightDrawable((if (resId == 0) null else ContextCompat.getDrawable(context, resId)?.mutate())?.withDefaultIconTint(context, resId, ThemeColors.defaultIconTint))
     }
 
     fun setScrollNonFitText(value: Boolean) {

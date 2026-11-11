@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.chat
 
+import com.mezon.mobile.R
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -62,7 +63,7 @@ class PinMessageCell(context: Context, private val theme: ThemeColors) : FrameLa
             bottomMargin = PADDING
         })
 
-        val closeDrawable = MezonIcon.circleXIcon.getDrawable(context).mutate()
+        val closeDrawable = MezonIcon.loadDrawable(context, R.drawable.mz_close_circle_24, ThemeColors.defaultIconTint).mutate()
         closeDrawable.colorFilter = PorterDuffColorFilter(textColor(), PorterDuff.Mode.SRC_IN)
         closeButton.setImageDrawable(closeDrawable)
         closeButton.scaleType = ImageView.ScaleType.CENTER_INSIDE

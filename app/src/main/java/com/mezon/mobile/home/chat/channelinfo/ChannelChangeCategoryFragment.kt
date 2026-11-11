@@ -106,7 +106,7 @@ class ChannelChangeCategoryFragment : BaseFragment() {
 
         actionBar = ActionBarView(context, themeColors).apply {
             setTitle(getString(R.string.channel_change_category_title))
-            setBackButtonImage(R.drawable.ic_arrow_back)
+            setBackButtonImage(R.drawable.mz_arrow_left_24)
             setCenterTitle(true)
             ClanRolesUiTheme.applyPrimaryFlowActionBar(this, themeColors)
             if (currentChannel()?.type == CHANNEL_TYPE_VOICE) {
@@ -237,7 +237,10 @@ class ChannelChangeCategoryFragment : BaseFragment() {
             buildCategoryRow(ctx, category.categoryName) { onCategorySelected(category) }
         }
         listHost.addView(
-            ClanSettingsUiHelpers.buildMezonSection(ctx, themeColors, null, rows),
+            ClanSettingsUiHelpers.buildMezonSection(
+                ctx, themeColors, null, rows,
+                cardColor = themeColors.surface, separatorColor = themeColors.border,
+            ),
             LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT),
         )
     }

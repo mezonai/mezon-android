@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.clans.settings
 
+import com.mezon.mobile.core.ThemeColors
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
@@ -46,6 +47,7 @@ import com.mezon.mobile.util.ContentUriTooLargeException
 import com.mezon.mobile.util.NetworkErrorMessages
 import com.mezon.mobile.util.createImgproxyUrl
 import com.mezon.mobile.util.isClanNameValid
+import com.mezon.mobile.ui.theme.ThemeMode
 import com.mezon.mezon.api.SystemMessage
 import com.mezon.mezon.api.systemMessageRequest
 import kotlinx.coroutines.CancellationException
@@ -170,7 +172,7 @@ class ClanOverviewSettingFragment : BaseFragment() {
 
         actionBar = ActionBarView(context, themeColors).apply {
             setTitle(getString(R.string.menu_clan_overview_settings))
-            setBackButtonImage(R.drawable.ic_close_24)
+            setBackButtonImage(R.drawable.mz_close_24)
             setBackButtonContentDescription(getString(R.string.common_close))
             setCenterTitle(true)
 
@@ -309,7 +311,7 @@ class ClanOverviewSettingFragment : BaseFragment() {
             scaleType = ImageView.ScaleType.CENTER
             val pad = LayoutHelper.dp(11f)
             setPadding(pad, pad, pad, pad)
-            setImageDrawable(MezonIcon.cameraIcon.getDrawable(context, 0xFFFFFFFF.toInt()))
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_camera_24, ThemeMode.DARK.iconTint))
             contentDescription = context.getString(R.string.clan_overview_banner_edit_cd)
             background = android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.OVAL
@@ -334,7 +336,7 @@ class ClanOverviewSettingFragment : BaseFragment() {
         val clear = ImageView(context).apply {
             visibility = if (draftBanner.isNotBlank()) View.VISIBLE else View.GONE
             scaleType = ImageView.ScaleType.CENTER_INSIDE
-            setImageDrawable(MezonIcon.closeSmallBold.getDrawable(context, themeColors.error))
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_close_16, themeColors.error))
             contentDescription = context.getString(R.string.clan_overview_clear_banner_cd)
             background = android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.OVAL
@@ -533,7 +535,7 @@ class ClanOverviewSettingFragment : BaseFragment() {
             titles.addView(channelSubtitle, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.START, 0f, 4f, 0f, 0f))
             addView(titles, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.CENTER_VERTICAL))
             val chev = ImageView(context).apply {
-                 val d = MezonIcon.chevronSmallRightIcon.getDrawable(context)
+                 val d = MezonIcon.loadDrawable(context, R.drawable.mz_chevron_right_20, ThemeColors.defaultIconTint)
                 d.colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
                 setImageDrawable(d)
             }
@@ -563,7 +565,7 @@ class ClanOverviewSettingFragment : BaseFragment() {
             col.addView(notifValue, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.START, 0f, 4f, 0f, 0f))
             addView(col, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.CENTER_VERTICAL))
             val chev = ImageView(context).apply {
-                val d = MezonIcon.chevronSmallRightIcon.getDrawable(context)
+                val d = MezonIcon.loadDrawable(context, R.drawable.mz_chevron_right_20, ThemeColors.defaultIconTint)
                 d.colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
                 setImageDrawable(d)
             }

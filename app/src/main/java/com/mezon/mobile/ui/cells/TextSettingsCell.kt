@@ -1,5 +1,6 @@
 package com.mezon.mobile.ui.cells
 
+import com.mezon.mobile.R
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.PorterDuff
@@ -72,7 +73,7 @@ class TextSettingsCell(context: Context, private val theme: ThemeColors) : Frame
 
         warnImageView = ImageView(context).apply {
             scaleType = ImageView.ScaleType.FIT_CENTER
-            setImageResource(MezonIcon.circleExlaimionIcon.resId)
+            setMezonIconResource(R.drawable.mz_error_16)
             colorFilter = PorterDuffColorFilter(theme.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
             visibility = GONE
         }
@@ -91,7 +92,7 @@ class TextSettingsCell(context: Context, private val theme: ThemeColors) : Frame
 
         chevronImageView = ImageView(context).apply {
             scaleType = ImageView.ScaleType.FIT_CENTER
-            setImageResource(MezonIcon.chevronSmallRightIcon.resId)
+            setMezonIconResource(R.drawable.mz_chevron_right_16)
             colorFilter = PorterDuffColorFilter(theme.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
             visibility = GONE
         }
@@ -154,12 +155,9 @@ class TextSettingsCell(context: Context, private val theme: ThemeColors) : Frame
             invalidate()
             return
         }
-        setIcon(ContextCompat.getDrawable(context, resId))
+        setIcon((if (resId == 0) null else ContextCompat.getDrawable(context, resId)?.mutate())?.withDefaultIconTint(context, resId, ThemeColors.defaultIconTint))
     }
 
-    fun setIcon(mezonIcon: MezonIcon) {
-        setIcon(mezonIcon.resId)
-    }
 
     fun setWarn(warn: Boolean) {
         warnImageView.visibility = if (warn) VISIBLE else GONE
@@ -215,7 +213,7 @@ class TextSettingsCell(context: Context, private val theme: ThemeColors) : Frame
 
     fun setDetailColor(color: Int) {
         valueTextView.setTextColor(color)
-        warnImageView.setColorFilter(color)
+        warnImageView.drawable.setIconColor(color)
         chevronImageView.setColorFilter(color)
     }
 

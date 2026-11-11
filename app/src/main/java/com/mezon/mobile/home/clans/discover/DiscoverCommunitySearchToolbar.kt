@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.clans.discover
 
+import com.mezon.mobile.ui.cells.withDefaultIconTint
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.drawable.GradientDrawable
@@ -50,7 +51,7 @@ fun buildDiscoverCommunitySearchToolbar(
         layoutParams = LinearLayout.LayoutParams(0, LayoutHelper.dp(40), 1f)
     }
     searchWrap.addView(ImageView(context).apply {
-        setImageDrawable(MezonIcon.magnifyingIcon.getDrawable(context, themeColors.onSurface))
+        setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_search_24, ThemeColors.defaultIconTint))
         val iconSize = LayoutHelper.dp(18)
         layoutParams = LinearLayout.LayoutParams(iconSize, iconSize).apply {
             rightMargin = LayoutHelper.dp(8)
@@ -85,7 +86,7 @@ fun buildDiscoverCommunitySearchToolbar(
     searchWrap.addView(edit)
     navBar.addView(searchWrap)
 
-    fun iconButton(icon: MezonIcon): ImageView {
+    fun iconButton(icon: Int): ImageView {
         return ImageView(context).apply {
             val circleBg = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
@@ -99,7 +100,7 @@ fun buildDiscoverCommunitySearchToolbar(
                     setColor(0xFFFFFFFF.toInt())
                 }
             )
-            setImageDrawable(icon.getDrawable(context, themeColors.onSurface))
+            setImageDrawable(MezonIcon.loadDrawable(context, icon).withDefaultIconTint(context, icon, ThemeColors.defaultIconTint))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             val p = LayoutHelper.dp(8)
             setPadding(p, p, p, p)
@@ -108,11 +109,11 @@ fun buildDiscoverCommunitySearchToolbar(
             }
         }
     }
-    iconButton(MezonIcon.scanQR).apply {
+    iconButton(R.drawable.mz_qr_24).apply {
         setOnClickListener { onQrClick() }
         navBar.addView(this)
     }
-    iconButton(MezonIcon.userPlusIcon).apply {
+    iconButton(R.drawable.mz_user_plus_24).apply {
         setOnClickListener { onAddFriendClick() }
         navBar.addView(this)
     }

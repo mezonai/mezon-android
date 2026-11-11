@@ -49,9 +49,7 @@ class SystemMessageCell(context: Context, private val theme: ThemeColors) : Line
     var messageEntity: MessageEntity? = null
         private set
 
-    private val iconView = ImageView(context).apply {
-        scaleType = ImageView.ScaleType.FIT_CENTER
-    }
+    private val iconView = ImageView(context)
 
     private val highlightTextView = SystemThreadHighlightTextView(context, theme)
 
@@ -243,6 +241,11 @@ class SystemMessageCell(context: Context, private val theme: ThemeColors) : Line
             lpCol.marginStart = 0
         } else {
             iconView.visibility = View.VISIBLE
+            iconView.scaleType = if (msg.code == MessageEntity.CODE_UPCOMING_EVENT) {
+                ImageView.ScaleType.CENTER_INSIDE
+            } else {
+                ImageView.ScaleType.FIT_CENTER
+            }
             iconView.setImageDrawable(d)
             lpCol.marginStart = ICON_GAP
         }
@@ -348,28 +351,24 @@ class SystemMessageCell(context: Context, private val theme: ThemeColors) : Line
 
     private fun resolveIcon(msg: MessageEntity): Drawable? {
         val icon = when (msg.code) {
-            MessageEntity.CODE_FIRST_MESSAGE -> MezonIcon.auditLog
-            MessageEntity.CODE_WELCOME -> MezonIcon.auditLog
-            MessageEntity.CODE_CREATE_THREAD -> MezonIcon.threadIcon
-            MessageEntity.CODE_CREATE_PIN -> MezonIcon.pinIcon
-            MessageEntity.CODE_AUDIT_LOG -> MezonIcon.auditLog
-            MessageEntity.CODE_UPCOMING_EVENT -> MezonIcon.auditLog
+            MessageEntity.CODE_FIRST_MESSAGE -> R.drawable.mz_audit_log_24
+            MessageEntity.CODE_WELCOME -> R.drawable.mz_arrow_right_24
+            MessageEntity.CODE_CREATE_THREAD -> R.drawable.mz_thread_20
+            MessageEntity.CODE_CREATE_PIN -> R.drawable.mz_pin_20
+            MessageEntity.CODE_AUDIT_LOG -> R.drawable.mz_audit_log_24
+            MessageEntity.CODE_UPCOMING_EVENT -> R.drawable.mz_event_20
             else -> null
         } ?: return null
 
-        val d = icon.getDrawable(context).mutate()
-        if (msg.code == MessageEntity.CODE_CREATE_THREAD) {
-            return d
-        }
         val tint = when (msg.code) {
+            MessageEntity.CODE_CREATE_THREAD -> theme.iconTint
             MessageEntity.CODE_FIRST_MESSAGE -> theme.success
             MessageEntity.CODE_WELCOME -> theme.success
             MessageEntity.CODE_AUDIT_LOG -> theme.blurple
             MessageEntity.CODE_UPCOMING_EVENT -> theme.error
             else -> theme.onSurfaceVariant
         }
-        d.setTint(tint)
-        return d
+        return MezonIcon.loadDrawable(context, icon, tint)
     }
 
     private fun resolveThreadCreatorName(msg: MessageEntity): String {

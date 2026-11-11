@@ -56,7 +56,7 @@ class SearchCell(
         }
 
         searchIcon = ImageView(context).apply {
-            setImageDrawable(MezonIcon.searchIcon.getDrawable(context))
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_search_20, ThemeColors.defaultIconTint))
         }
         barContainer.addView(searchIcon, LayoutHelper.createLinear(20, 20, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, 10f, 0f))
 
@@ -103,7 +103,7 @@ class SearchCell(
         barContainer.addView(editText, LayoutHelper.createLinear(0, LayoutHelper.MATCH_PARENT, 1f))
 
         clearButton = ImageView(context).apply {
-            setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
+            setMezonIconResource(R.drawable.mz_close_16)
             setColorFilter(theme.onSurfaceVariant)
             visibility = View.GONE
             setOnClickListener {

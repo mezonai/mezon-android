@@ -1,12 +1,12 @@
 package com.mezon.mobile.home.chat.emoji
 
+import com.mezon.mobile.ui.cells.drawCenteredIcon
+import com.mezon.mobile.ui.cells.setIconColor
+import com.mezon.mobile.R
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.graphics.RectF
-import android.graphics.drawable.Drawable
 import android.text.TextPaint
 import android.text.TextUtils
 import android.view.MotionEvent
@@ -21,14 +21,13 @@ private val CELL_INSET = LayoutHelper.dp(2f).toFloat()
 private val CELL_CORNER = LayoutHelper.dp(10f).toFloat()
 private val HORIZONTAL_PADDING = LayoutHelper.dp(10f)
 private val PLAY_SIZE = LayoutHelper.dp(28f)
-private val PLAY_ICON_SIZE = LayoutHelper.dp(12f)
 private val SEND_SIZE = LayoutHelper.dp(32f)
-private val SEND_ICON_SIZE = LayoutHelper.dp(20f)
 private val CONTENT_GAP = LayoutHelper.dp(8f)
 
 class SoundStickerCell(
     context: Context,
-    private val themeColors: ThemeColors
+    private val themeColors: ThemeColors,
+    private val sendOnItemTap: Boolean = false
 ) : View(context) {
 
     var onPreviewTap: (() -> Unit)? = null
@@ -36,19 +35,14 @@ class SoundStickerCell(
 
     private var sticker: StickerItem? = null
     private var isPlaying = false
+    private var itemPressed = false
     private val backgroundRect = RectF()
     private val playRect = RectF()
     private val sendRect = RectF()
 
-    private val playDrawable: Drawable = MezonIcon.playIcon.getDrawable(context).mutate().apply {
-        colorFilter = PorterDuffColorFilter(themeColors.blurple, PorterDuff.Mode.SRC_IN)
-    }
-    private val pauseDrawable: Drawable = MezonIcon.pauseIcon.getDrawable(context).mutate().apply {
-        colorFilter = PorterDuffColorFilter(themeColors.blurple, PorterDuff.Mode.SRC_IN)
-    }
-    private val sendDrawable: Drawable = MezonIcon.sendMessageIcon.getDrawable(context).mutate().apply {
-        colorFilter = PorterDuffColorFilter(themeColors.textStrong, PorterDuff.Mode.SRC_IN)
-    }
+    private val playDrawable = MezonIcon.loadDrawable(context, R.drawable.mz_play_16, themeColors.iconTint)
+    private val pauseDrawable = MezonIcon.loadDrawable(context, R.drawable.mz_pause_16, themeColors.iconTint)
+    private val sendDrawable = MezonIcon.loadDrawable(context, R.drawable.mz_send_24, themeColors.iconTint)
 
     fun bind(sticker: StickerItem, playing: Boolean) {
         this.sticker = sticker
@@ -67,6 +61,7 @@ class SoundStickerCell(
 
         backgroundRect.set(CELL_INSET, CELL_INSET, width - CELL_INSET, height - CELL_INSET)
         backgroundPaint.color = themeColors.serverRailBg
+        if (sendOnItemTap && itemPressed) backgroundPaint.alpha = 210
         canvas.drawRoundRect(backgroundRect, CELL_CORNER, CELL_CORNER, backgroundPaint)
 
         val playLeft = CELL_INSET + HORIZONTAL_PADDING
@@ -76,15 +71,8 @@ class SoundStickerCell(
         canvas.drawOval(playRect, playBackgroundPaint)
 
         val actionDrawable = if (isPlaying) pauseDrawable else playDrawable
-        val playIconLeft = (playRect.left + (PLAY_SIZE - PLAY_ICON_SIZE) / 2f).toInt()
-        val playIconTop = (playRect.top + (PLAY_SIZE - PLAY_ICON_SIZE) / 2f).toInt()
-        actionDrawable.setBounds(
-            playIconLeft,
-            playIconTop,
-            playIconLeft + PLAY_ICON_SIZE,
-            playIconTop + PLAY_ICON_SIZE
-        )
-        actionDrawable.draw(canvas)
+        actionDrawable.setIconColor(themeColors.blurple)
+        actionDrawable.drawCenteredIcon(canvas, playRect.centerX().toInt(), playRect.centerY().toInt())
 
         val sendLeft = (width - CELL_INSET - HORIZONTAL_PADDING - SEND_SIZE).toInt()
         val sendTop = ((height - SEND_SIZE) / 2f).toInt()
@@ -94,15 +82,8 @@ class SoundStickerCell(
             (sendLeft + SEND_SIZE).toFloat(),
             (sendTop + SEND_SIZE).toFloat()
         )
-        val sendIconLeft = sendLeft + (SEND_SIZE - SEND_ICON_SIZE) / 2
-        val sendIconTop = sendTop + (SEND_SIZE - SEND_ICON_SIZE) / 2
-        sendDrawable.setBounds(
-            sendIconLeft,
-            sendIconTop,
-            sendIconLeft + SEND_ICON_SIZE,
-            sendIconTop + SEND_ICON_SIZE
-        )
-        sendDrawable.draw(canvas)
+        sendDrawable.setIconColor(themeColors.textStrong)
+        sendDrawable.drawCenteredIcon(canvas, sendRect.centerX().toInt(), sendRect.centerY().toInt())
 
         textPaint.color = themeColors.textStrong
         val textStart = playRect.right + CONTENT_GAP
@@ -121,16 +102,23 @@ class SoundStickerCell(
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (sticker == null) return false
         when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> return true
-            MotionEvent.ACTION_UP -> {
+            MotionEvent.ACTION_DOWN -> {
+                itemPressed = true
+                if (sendOnItemTap) invalidate()
+                return true
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                val wasPressed = itemPressed
+                itemPressed = false
+                if (sendOnItemTap) invalidate()
+                if (event.actionMasked == MotionEvent.ACTION_CANCEL || (sendOnItemTap && !wasPressed)) return true
                 when {
                     playRect.contains(event.x, event.y) -> onPreviewTap?.invoke()
-                    sendRect.contains(event.x, event.y) -> onSendTap?.invoke()
+                    sendOnItemTap || sendRect.contains(event.x, event.y) -> onSendTap?.invoke()
                 }
                 performClick()
                 return true
             }
-            MotionEvent.ACTION_CANCEL -> return true
         }
         return super.onTouchEvent(event)
     }

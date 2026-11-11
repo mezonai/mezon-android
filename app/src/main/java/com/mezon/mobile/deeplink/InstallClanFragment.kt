@@ -1,5 +1,7 @@
 package com.mezon.mobile.deeplink
 
+import com.mezon.mobile.ui.cells.withDefaultIconTint
+import com.mezon.mobile.core.ThemeColors
 import android.content.Context
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -255,8 +257,8 @@ class InstallClanFragment : BaseFragment() {
 
         applyInstallKindUi()
 
-        card.addView(buildMetaTextRow(context, MezonIcon.lockIcon) { privacyFooterView = it }, metaRowMargin())
-        card.addView(buildMetaTextRow(context, MezonIcon.clockIcon) { activeSinceView = it }, fieldRowMargin())
+        card.addView(buildMetaTextRow(context, R.drawable.mz_lock_24) { privacyFooterView = it }, metaRowMargin())
+        card.addView(buildMetaTextRow(context, R.drawable.mz_clock_24) { activeSinceView = it }, fieldRowMargin())
 
         card.addView(buildActionRow(context), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
             topMargin = LayoutHelper.dp(24)
@@ -756,7 +758,7 @@ class InstallClanFragment : BaseFragment() {
         }
     }
 
-    private fun buildMetaTextRow(context: Context, icon: MezonIcon, assignTextView: (TextView) -> Unit): LinearLayout {
+    private fun buildMetaTextRow(context: Context, icon: Int, assignTextView: (TextView) -> Unit): LinearLayout {
         val textView = TextView(context).apply {
             setTextColor(themeColors.onSurfaceVariant)
             textSize = 12f
@@ -768,7 +770,7 @@ class InstallClanFragment : BaseFragment() {
             gravity = Gravity.CENTER_VERTICAL
             val iconSize = LayoutHelper.dp(14)
             addView(ImageView(context).apply {
-                setImageDrawable(icon.getDrawable(context, themeColors.onSurfaceVariant))
+                setImageDrawable(MezonIcon.loadDrawable(context, icon).withDefaultIconTint(context, icon, ThemeColors.defaultIconTint))
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
                 layoutParams = LinearLayout.LayoutParams(iconSize, iconSize)
             })
@@ -795,7 +797,7 @@ class InstallClanFragment : BaseFragment() {
     private fun chevronView(context: Context): ImageView {
         val size = LayoutHelper.dp(18)
         return ImageView(context).apply {
-            setImageDrawable(MezonIcon.chevronDownSmallIcon.getDrawable(context, themeColors.onSurfaceVariant))
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_chevron_down_16, ThemeColors.defaultIconTint))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             layoutParams = LinearLayout.LayoutParams(size, size).apply {
                 leftMargin = LayoutHelper.dp(8)

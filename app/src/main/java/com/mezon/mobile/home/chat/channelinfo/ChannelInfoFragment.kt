@@ -1,5 +1,7 @@
 package com.mezon.mobile.home.chat.channelinfo
 
+import com.mezon.mobile.ui.cells.withDefaultIconTint
+import com.mezon.mobile.core.ThemeColors
 import android.app.Activity
 import android.app.Dialog
 import android.content.ContentResolver
@@ -71,6 +73,7 @@ import com.mezon.mobile.ui.cells.ScreenStateView
 import com.mezon.mobile.ui.MezonToast
 import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.util.CreateChannelNameValidator
+import com.mezon.mobile.ui.theme.ThemeMode
 
 class ChannelInfoFragment : BaseFragment() {
 
@@ -363,10 +366,7 @@ class ChannelInfoFragment : BaseFragment() {
                 val entity = channelController.findChannelById(channelId)
                 val iconEnum = resolveChannelTypeIcon(entity)
                 val iconPx = LayoutHelper.dp(20)
-                val iconDrawable = iconEnum.getDrawable(context, themeColors)
-                if (!iconEnum.shouldKeepOriginalFill()) {
-                    iconDrawable.colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
-                }
+                val iconDrawable = MezonIcon.loadDrawable(context, iconEnum, themeColors.iconTint)
                 setTitle(channelName)
                 setTitleStartIcon(iconDrawable, iconPx, LayoutHelper.dp(6))
             }
@@ -475,30 +475,30 @@ class ChannelInfoFragment : BaseFragment() {
         return container
     }
 
-    private fun resolveChannelTypeIcon(entity: com.mezon.mobile.home.clans.ClanChannelEntity?): MezonIcon {
+    private fun resolveChannelTypeIcon(entity: com.mezon.mobile.home.clans.ClanChannelEntity?): Int {
         if (entity == null) {
             val isThreadLike = channelType != CHANNEL_TYPE_CHANNEL || routeParentId != 0L
             if (isThreadLike) {
-                return if (routeChannelPrivate) MezonIcon.threadLockIcon else MezonIcon.threadIcon
+                return if (routeChannelPrivate) R.drawable.mz_thread_private_24 else R.drawable.mz_thread_20
             }
-            return if (routeChannelPrivate) MezonIcon.channelTextLock else MezonIcon.channelText
+            return if (routeChannelPrivate) R.drawable.mz_channel_private_24 else R.drawable.mz_channel_24
         }
 
         val isChannel = !entity.isThread
 
-        if (entity.type == CHANNEL_TYPE_STREAMING) return MezonIcon.channelStream
+        if (entity.type == CHANNEL_TYPE_STREAMING) return R.drawable.mz_live_24
 
-        if (entity.type == CHANNEL_TYPE_APP) return MezonIcon.channelApp
+        if (entity.type == CHANNEL_TYPE_APP) return R.drawable.mz_channel_app_24
 
         if (isChannel) {
             return when {
-                entity.isAgeRestricted -> MezonIcon.channelTextWarning
-                entity.isPrivate -> MezonIcon.channelTextLock
-                else -> MezonIcon.channelText
+                entity.isAgeRestricted -> R.drawable.mz_channel_warning_24
+                entity.isPrivate -> R.drawable.mz_channel_private_24
+                else -> R.drawable.mz_channel_24
             }
         }
 
-        return if (entity.isPrivate) MezonIcon.threadLockIcon else MezonIcon.threadIcon
+        return if (entity.isPrivate) R.drawable.mz_thread_private_24 else R.drawable.mz_thread_20
     }
 
     private fun buildActionRow(context: Context): LinearLayout {
@@ -512,20 +512,20 @@ class ChannelInfoFragment : BaseFragment() {
 
         val isDmContext = clanId == 0L
 
-        row.addView(createActionButton(context, MezonIcon.searchIcon, "Search", applyTint = false) {
+        row.addView(createActionButton(context, R.drawable.mz_search_24, "Search", applyTint = false) {
             openSearch()
         }.container)
 
         if (channelType == CHANNEL_TYPE_GROUP) {
             addActionGap(row)
-            row.addView(createActionButton(context, MezonIcon.pencilIcon, getString(R.string.dm_group_customize)) {
+            row.addView(createActionButton(context, R.drawable.mz_edit_20, getString(R.string.dm_group_customize)) {
                 showGroupEditSheet(context)
             }.container)
         }
 
         if (!isDmContext && channelType == CHANNEL_TYPE_CHANNEL) {
             addActionGap(row)
-            row.addView(createActionButton(context, MezonIcon.threadIcon, "Threads", applyTint = false) {
+            row.addView(createActionButton(context, R.drawable.mz_thread_20, "Threads", applyTint = false) {
                 presentFragment(ThreadListFragment.newInstance(channelId, channelName, clanId))
             }.container)
         }
@@ -539,7 +539,7 @@ class ChannelInfoFragment : BaseFragment() {
             settingsActionGap = addActionGap(row)
             val settingsAction = createActionButton(
                 context,
-                MezonIcon.settingClanIcon,
+                R.drawable.mz_settings_20,
                 "Settings",
                 applyTint = false,
             ) {
@@ -557,7 +557,7 @@ class ChannelInfoFragment : BaseFragment() {
         val isMuted = isCurrentChannelMuted()
         val action = createActionButton(
             context,
-            if (isMuted) MezonIcon.muteBellIcon else MezonIcon.unmuteBellIcon,
+            if (isMuted) R.drawable.mz_bell_off_20 else R.drawable.mz_bell_20,
             getString(if (isMuted) R.string.channel_action_unmute_short else R.string.channel_action_mute_short),
             applyTint = false,
         ) {
@@ -577,8 +577,8 @@ class ChannelInfoFragment : BaseFragment() {
     private fun updateMuteActionState() {
         val context = muteActionIconView?.context ?: return
         val isMuted = isCurrentChannelMuted()
-        val icon = if (isMuted) MezonIcon.muteBellIcon else MezonIcon.unmuteBellIcon
-        muteActionIconView?.setImageDrawable(icon.getDrawable(context))
+        val icon = if (isMuted) R.drawable.mz_bell_off_20 else R.drawable.mz_bell_20
+        muteActionIconView?.setImageDrawable(MezonIcon.loadDrawable(context, icon).withDefaultIconTint(context, icon, ThemeColors.defaultIconTint))
         muteActionLabelView?.setText(
             if (isMuted) R.string.channel_action_unmute_short else R.string.channel_action_mute_short
         )
@@ -650,7 +650,7 @@ class ChannelInfoFragment : BaseFragment() {
 
     private fun createActionButton(
         context: Context,
-        icon: MezonIcon,
+        icon: Int,
         label: String,
         applyTint: Boolean = true,
         onClick: () -> Unit
@@ -668,7 +668,7 @@ class ChannelInfoFragment : BaseFragment() {
             }
         }
         val iconView = ImageView(context).apply {
-            val d = icon.getDrawable(context)
+            val d = MezonIcon.loadDrawable(context, icon).withDefaultIconTint(context, icon, ThemeColors.defaultIconTint)
             if (applyTint) {
                 d.colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
             }
@@ -793,9 +793,7 @@ class ChannelInfoFragment : BaseFragment() {
             layoutParams = LinearLayout.LayoutParams(size, size)
         }
         val addIcon = ImageView(context).apply {
-            val d = MezonIcon.userPlusIcon.getDrawable(context)
-            d.colorFilter = PorterDuffColorFilter(0xFFFFFFFF.toInt(), PorterDuff.Mode.SRC_IN)
-            setImageDrawable(d)
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_user_plus_16, ThemeMode.DARK.iconTint))
         }
         iconCircle.addView(addIcon, LayoutHelper.createFrame(16, 16, Gravity.CENTER))
         row.addView(iconCircle)
@@ -810,7 +808,7 @@ class ChannelInfoFragment : BaseFragment() {
         ))
 
         val chevron = ImageView(context).apply {
-            val d = MezonIcon.chevronSmallRightIcon.getDrawable(context)
+            val d = MezonIcon.loadDrawable(context, R.drawable.mz_chevron_right_16, ThemeColors.defaultIconTint)
             d.colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
             setImageDrawable(d)
         }
@@ -1049,10 +1047,7 @@ class ChannelInfoFragment : BaseFragment() {
         }
         val iconEnum = resolveChannelTypeIcon(entity)
         val iconPx = LayoutHelper.dp(20)
-        val iconDrawable = iconEnum.getDrawable(bar.context, themeColors)
-        if (!iconEnum.shouldKeepOriginalFill()) {
-            iconDrawable.colorFilter = PorterDuffColorFilter(themeColors.textStrong, PorterDuff.Mode.SRC_IN)
-        }
+        val iconDrawable = MezonIcon.loadDrawable(bar.context, iconEnum, themeColors.iconTint)
         bar.setTitle(channelName)
         bar.setTitleStartIcon(iconDrawable, iconPx, LayoutHelper.dp(6))
         bar.requestLayout()

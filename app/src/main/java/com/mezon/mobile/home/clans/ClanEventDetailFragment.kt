@@ -1,4 +1,5 @@
 package com.mezon.mobile.home.clans
+import com.mezon.mobile.ui.cells.setIconColor
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -172,7 +173,7 @@ class ClanEventDetailFragment : BaseFragment() {
             setAddToContainer(false)
             occupyStatusBar = true
             setTitle(getString(R.string.clan_event_detail_title))
-            setBackButtonImage(R.drawable.ic_close_24)
+            setBackButtonImage(R.drawable.mz_close_24)
             setBackButtonContentDescription(getString(R.string.common_close))
             setCenterTitle(true)
             actionBarMenu = createMenu()
@@ -360,10 +361,10 @@ class ClanEventDetailFragment : BaseFragment() {
     private fun showEventMenuButton() {
         if (moreMenuItem != null) return
         val menu = actionBarMenu ?: return
-        moreMenuItem = menu.addItem(MENU_MORE, R.drawable.ic_more_vertical_24).also { item ->
-            item.setIconColor(themeColors.textStrong)
+        moreMenuItem = menu.addItem(MENU_MORE, R.drawable.mz_more_vertical_24).also { item ->
             item.contentDescription = getString(R.string.clan_event_menu_content_desc)
             item.getItemIconView().apply {
+                drawable?.let { it.setIconColor(themeColors.textStrong) }
                 scaleType = ImageView.ScaleType.CENTER
                 layoutParams = FrameLayout.LayoutParams(
                     LayoutHelper.dp(48),
@@ -401,7 +402,7 @@ class ClanEventDetailFragment : BaseFragment() {
         if (canModifyEvent(event)) {
             popup.addItem(
                 getString(R.string.clan_event_menu_edit),
-                MezonIcon.pencilIcon.getDrawable(ctx, themeColors.colorText),
+                R.drawable.mz_edit_20,
             )
             actions.add { latestEvent ->
                 if (canModifyEvent(latestEvent)) {
@@ -419,7 +420,7 @@ class ClanEventDetailFragment : BaseFragment() {
             }
             popup.addItem(
                 getString(R.string.clan_event_menu_cancel),
-                MezonIcon.trashIcon.getDrawable(ctx, themeColors.redStrong),
+                R.drawable.mz_trash_20,
                 destructive = true,
             )
             actions.add { latestEvent ->
@@ -428,12 +429,12 @@ class ClanEventDetailFragment : BaseFragment() {
                 }
             }
         }
-        popup.addItem(getString(R.string.clan_event_menu_copy_content), R.drawable.ic_copy_text)
+        popup.addItem(getString(R.string.clan_event_menu_copy_content), R.drawable.mz_copy_20)
         actions.add { latestEvent ->
             copyEventText(getString(R.string.clan_event_menu_copy_content), latestEvent.contentForCopy())
         }
         if (event.shareUrl(BuildConfig.MEZON_REDIRECT_URI) != null) {
-            popup.addItem(getString(R.string.clan_event_menu_copy_link), MezonIcon.linkIcon)
+            popup.addItem(getString(R.string.clan_event_menu_copy_link), R.drawable.mz_link_16)
             actions.add { latestEvent ->
                 latestEvent.shareUrl(BuildConfig.MEZON_REDIRECT_URI)?.let { url ->
                     copyEventText(getString(R.string.clan_event_menu_copy_link), url, R.string.invite_link_copied)
@@ -547,11 +548,11 @@ class ClanEventDetailFragment : BaseFragment() {
 
     private fun buildInfoIconLeading(
         context: Context,
-        icon: MezonIcon,
+        icon: Int,
         iconColor: Int,
     ): View {
         val iconView = ImageView(context).apply {
-            setImageDrawable(icon.getDrawable(context, iconColor))
+            setImageDrawable(MezonIcon.loadDrawable(context, icon, iconColor))
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
         return buildInfoLeadingSlot(context, iconView)
@@ -576,7 +577,7 @@ class ClanEventDetailFragment : BaseFragment() {
     private fun buildInlineInfoRow(
         context: Context,
         theme: ThemeColors,
-        icon: MezonIcon,
+        icon: Int,
         text: String,
         iconColor: Int = theme.colorText,
         textColor: Int = theme.onSurfaceVariant,
@@ -648,7 +649,7 @@ class ClanEventDetailFragment : BaseFragment() {
             buildInlineInfoRow(
                 context,
                 theme,
-                MezonIcon.locationIcon,
+                R.drawable.mz_location_24,
                 event.address,
                 iconColor = theme.textStrong,
                 textColor = theme.textStrong,
@@ -663,7 +664,7 @@ class ClanEventDetailFragment : BaseFragment() {
             val row = buildInlineInfoRow(
                 context,
                 theme,
-                MezonIcon.channelVoice,
+                R.drawable.mz_speaker_24,
                 label,
                 iconColor = if (voiceChannelLabel != null) theme.blurple else theme.textStrong,
                 textColor = if (voiceChannelLabel != null) theme.blurple else theme.textStrong,
@@ -720,7 +721,7 @@ class ClanEventDetailFragment : BaseFragment() {
             }
             empty.addView(
                 ImageView(context).apply {
-                    setImageDrawable(MezonIcon.peopleIcon.getDrawable(context, theme.onSurfaceVariant))
+                    setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_user_24, ThemeColors.defaultIconTint))
                 },
                 LayoutHelper.createLinear(LayoutHelper.dp(24), LayoutHelper.dp(24), 0f, Gravity.CENTER_HORIZONTAL, 0f, 0f, 0f, 8f),
             )
@@ -837,7 +838,7 @@ class ClanEventDetailFragment : BaseFragment() {
             buildDetailInfoRow(
                 context,
                 theme,
-                buildInfoIconLeading(context, MezonIcon.eventTimeIcon, statusColor),
+                buildInfoIconLeading(context, R.drawable.mz_event_24, statusColor),
                 eventContent.statusText,
                 statusColor,
                 0f,
@@ -884,7 +885,7 @@ class ClanEventDetailFragment : BaseFragment() {
             buildInlineInfoRow(
                 context,
                 theme,
-                MezonIcon.eventBellIcon,
+                R.drawable.mz_bell_24,
                 interestedSummary(context, event.interestedCount),
                 iconColor = theme.colorText,
                 topMarginDp = 10f,
@@ -921,7 +922,7 @@ class ClanEventDetailFragment : BaseFragment() {
                 buildInlineInfoRow(
                     context,
                     theme,
-                    MezonIcon.eventTimeIcon,
+                    R.drawable.mz_event_24,
                     endTimeText,
                     iconColor = theme.onSurfaceVariant,
                     topMarginDp = 0f,
@@ -940,7 +941,7 @@ class ClanEventDetailFragment : BaseFragment() {
                 buildEventActionChip(
                     context,
                     theme,
-                    if (interested) MezonIcon.eventBellSlashIcon else MezonIcon.eventBellIcon,
+                    if (interested) R.drawable.mz_bell_off_24 else R.drawable.mz_bell_24,
                     if (interested) context.getString(R.string.clan_event_uninterested) else context.getString(R.string.clan_event_interested),
                     onToggleInterest,
                 ),
@@ -948,7 +949,7 @@ class ClanEventDetailFragment : BaseFragment() {
             )
         } else if (eventContent.canEnd) {
             content.addView(
-                buildEventActionChip(context, theme, MezonIcon.closeIcon, context.getString(R.string.clan_event_end)) {
+                buildEventActionChip(context, theme, R.drawable.mz_close_20, context.getString(R.string.clan_event_end)) {
                     val latest = visibleEvent()
                     if (latest != null && clanEventController.canEndEvent(latest)) confirmDeleteEvent(latest)
                 },
@@ -999,7 +1000,7 @@ class ClanEventDetailFragment : BaseFragment() {
     private fun buildEventActionChip(
         context: Context,
         theme: ThemeColors,
-        icon: MezonIcon,
+        icon: Int,
         label: String?,
         onClick: () -> Unit,
     ): View {
@@ -1022,7 +1023,7 @@ class ClanEventDetailFragment : BaseFragment() {
             setOnClickListener { onClick() }
             addView(
                 ImageView(context).apply {
-                    setImageDrawable(icon.getDrawable(context, theme.colorText))
+                    setImageDrawable(MezonIcon.loadDrawable(context, icon, theme.colorText))
                 },
                 LinearLayout.LayoutParams(LayoutHelper.dp(18), LayoutHelper.dp(18)),
             )

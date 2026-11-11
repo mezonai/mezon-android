@@ -1,5 +1,7 @@
 package com.mezon.mobile.home.profile
 
+import com.mezon.mobile.ui.cells.setIconColor
+import com.mezon.mobile.ui.cells.setMezonIconResource
 import android.content.Context
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
@@ -147,19 +149,11 @@ class SettingsFragment : BaseFragment() {
         return wrapWithActionBar(getString(R.string.common_settings), scroll) { themeColors.background }
     }
 
-    private fun settingIconLightQr(): Int =
-        if (themeColors.resolvedMode.isLight) R.drawable.ic_qr_scan_setting_icon_black
-        else R.drawable.ic_qr_scan_setting_icon
-
-    private fun settingIconLightApp(): Int =
-        if (themeColors.resolvedMode.isLight) R.drawable.ic_app_icon_black
-        else R.drawable.ic_app_icon
-
     private fun buildMenuModel(): List<MenuSection> {
         val accountItems = listOf(
             MenuItem(
                 getString(R.string.account_settings_title),
-                R.drawable.ic_account_icon,
+                R.drawable.mz_user_circle_24,
                 null,
                 true,
                 false,
@@ -167,7 +161,7 @@ class SettingsFragment : BaseFragment() {
             ),
             MenuItem(
                 getString(R.string.setting_app_chat),
-                R.drawable.ic_chat_setting_icon,
+                R.drawable.mz_chat_24,
                 null,
                 true,
                 false,
@@ -175,7 +169,7 @@ class SettingsFragment : BaseFragment() {
             ),
             MenuItem(
                 getString(R.string.friends_request_title),
-                R.drawable.ic_friend_rq_icon,
+                R.drawable.mz_user_pending_24,
                 null,
                 true,
                 false,
@@ -183,7 +177,7 @@ class SettingsFragment : BaseFragment() {
             ),
             MenuItem(
                 getString(R.string.setting_scan_qr),
-                settingIconLightQr(),
+                R.drawable.mz_qr_24,
                 null,
                 true,
                 false,
@@ -191,7 +185,7 @@ class SettingsFragment : BaseFragment() {
             ),
             MenuItem(
                 getString(R.string.setting_devices),
-                R.drawable.ic_device_icon,
+                R.drawable.mz_devices_24,
                 null,
                 true,
                 false,
@@ -203,7 +197,7 @@ class SettingsFragment : BaseFragment() {
         val appItems = listOf(
             MenuItem(
                 getString(R.string.setting_app_version_label),
-                settingIconLightApp(),
+                R.drawable.mz_app_version_24,
                 BuildConfig.VERSION_NAME,
                 false,
                 false,
@@ -211,7 +205,7 @@ class SettingsFragment : BaseFragment() {
             ),
             MenuItem(
                 getString(R.string.setting_app_appearance),
-                R.drawable.ic_appearance_icon,
+                R.drawable.mz_palette_24,
                 null,
                 true,
                 false,
@@ -219,7 +213,7 @@ class SettingsFragment : BaseFragment() {
             ),
             MenuItem(
                 getString(R.string.setting_app_language),
-                R.drawable.ic_language_setting_icon,
+                R.drawable.mz_language_24,
                 languagePreviewValue(),
                 true,
                 false,
@@ -229,7 +223,7 @@ class SettingsFragment : BaseFragment() {
         val logoutItems = listOf(
             MenuItem(
                 getString(R.string.setting_log_out),
-                R.drawable.ic_door_exit_icon,
+                R.drawable.mz_leave_24,
                 null,
                 false,
                 true,
@@ -278,7 +272,7 @@ class SettingsFragment : BaseFragment() {
         searchBarWrap = wrap
         applySearchBarBackground()
         searchBarIconView = ImageView(context).apply {
-            setImageDrawable(MezonIcon.magnifyingIcon.getDrawable(context))
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_search_20, ThemeColors.defaultIconTint))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
         }
         applySearchBarIconTint()
@@ -376,9 +370,9 @@ class SettingsFragment : BaseFragment() {
         }
         val iconSize = LayoutHelper.dp(SETTINGS_ICON_SIZE_DP)
         val iconView = ImageView(context).apply {
-            setImageResource(item.iconResId)
+            setMezonIconResource(item.iconResId, themeColors)
             if (item.isDestructive) {
-                colorFilter = PorterDuffColorFilter(themeColors.error, PorterDuff.Mode.SRC_IN)
+                drawable.setIconColor(themeColors.error)
             }
             scaleType = ImageView.ScaleType.CENTER_INSIDE
         }
@@ -405,7 +399,7 @@ class SettingsFragment : BaseFragment() {
         }
         if (item.showChevron) {
             val chevron = ImageView(context).apply {
-                setImageResource(MezonIcon.chevronSmallRightIcon.resId)
+                setMezonIconResource(R.drawable.mz_chevron_right_20)
                 colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
             }

@@ -102,7 +102,7 @@ class ScreenStateView(context: Context, private val theme: ThemeColors) : FrameL
         emptyContainer.visibility = View.VISIBLE
         emptyText.text = message
         if (emptyIconResId != 0) {
-            emptyIcon.setImageResource(emptyIconResId)
+            emptyIcon.setMezonIconResource(emptyIconResId)
             emptyIcon.visibility = View.VISIBLE
             emptyContainer.setPadding(0, LayoutHelper.dp(60f), 0, 0)
             emptyTextLp.topMargin = LayoutHelper.dp(10f)

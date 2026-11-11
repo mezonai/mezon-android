@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.chat.channelinfo
 
+import com.mezon.mobile.ui.cells.withDefaultIconTint
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -57,14 +58,14 @@ class InviteMembersBottomSheet(
         }
 
         actionsRow.addView(
-            createActionButton(context, MezonIcon.shareIcon, "Share") {
+            createActionButton(context, R.drawable.mz_share_24, "Share") {
                 shareLink(context, inviteLink)
             },
             LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.CENTER, 0f, 0f, 24f, 0f)
         )
 
         actionsRow.addView(
-            createActionButton(context, MezonIcon.linkIcon, "Copy Link") {
+            createActionButton(context, R.drawable.mz_link_24, "Copy Link") {
                 copyToClipboard(context, inviteLink)
             }
         )
@@ -100,7 +101,7 @@ class InviteMembersBottomSheet(
 
     private fun createActionButton(
         context: Context,
-        icon: MezonIcon,
+        icon: Int,
         label: String,
         onClick: () -> Unit
     ): LinearLayout {
@@ -117,7 +118,7 @@ class InviteMembersBottomSheet(
             }
         }
         val iconView = ImageView(context).apply {
-            setImageDrawable(icon.getDrawable(context, theme.getColor(ThemeColors.key_dialogIcon)))
+            setImageDrawable(MezonIcon.loadDrawable(context, icon).withDefaultIconTint(context, icon, ThemeColors.defaultIconTint))
         }
         circle.addView(iconView, LayoutHelper.createFrame(22, 22, Gravity.CENTER))
         column.addView(circle, LayoutHelper.createLinear(52, 52, 0f, Gravity.CENTER_HORIZONTAL))

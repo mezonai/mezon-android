@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.chat
 
+import com.mezon.mobile.ui.cells.MezonIcon
 import android.app.Dialog
 import android.content.Context
 import android.content.res.ColorStateList
@@ -35,8 +36,8 @@ import com.mezon.mobile.R
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.InAppOverlayHost
 import com.mezon.mobile.core.LayoutHelper
-import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.shared.TransformCanvasView
+import com.mezon.mobile.ui.theme.ThemeMode
 import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
@@ -296,7 +297,7 @@ class ChatImageEditorDialog(
         }
 
         drawButton = toolButton(
-            iconRes = R.drawable.ic_image_editor_draw,
+            iconRes = R.drawable.mz_draw_24,
             label = context.getString(R.string.image_editor_draw),
         ) {
             editorCanvas.setDrawingMode(true)
@@ -315,7 +316,7 @@ class ChatImageEditorDialog(
         addTool(textButton)
 
         cropButton = toolButton(
-            iconRes = R.drawable.ic_image_editor_crop,
+            iconRes = R.drawable.mz_crop_24,
             label = context.getString(R.string.image_editor_crop),
         ) {
             editorCanvas.setDrawingMode(false)
@@ -324,7 +325,7 @@ class ChatImageEditorDialog(
         addTool(cropButton)
 
         val rotateButton = toolButton(
-            iconRes = R.drawable.ic_image_editor_rotate,
+            iconRes = R.drawable.mz_rotate_left_24,
             label = context.getString(R.string.image_crop_rotate_left_cd),
         ) {
             editorCanvas.setDrawingMode(false)
@@ -350,8 +351,7 @@ class ChatImageEditorDialog(
         }
         addView(
             ImageView(context).apply {
-                setImageResource(R.drawable.ic_image_editor_eraser)
-                imageTintList = ColorStateList.valueOf(Color.WHITE)
+                setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_eraser_24, ThemeMode.DARK.iconTint))
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
             },
             FrameLayout.LayoutParams(LayoutHelper.dp(27f), LayoutHelper.dp(27f), Gravity.CENTER),
@@ -385,8 +385,7 @@ class ChatImageEditorDialog(
             }
         } else {
             ImageView(context).apply {
-                iconRes?.let(::setImageResource)
-                imageTintList = ColorStateList.valueOf(Color.WHITE)
+                iconRes?.let { setImageDrawable(MezonIcon.loadDrawable(context, it, ThemeMode.DARK.iconTint)) }
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             }
@@ -440,8 +439,7 @@ class ChatImageEditorDialog(
 
         addView(
             ImageView(context).apply {
-                setImageResource(MezonIcon.sendMessageIcon.resId)
-                imageTintList = ColorStateList.valueOf(Color.BLACK)
+                setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_send_24, ThemeMode.LIGHT.iconTint))
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
             },
             LinearLayout.LayoutParams(LayoutHelper.dp(23f), LayoutHelper.dp(23f)),
@@ -662,8 +660,7 @@ class ChatImageEditorDialog(
         background = textDeleteBackground(active = false)
         elevation = LayoutHelper.dpf(5f)
         textDeleteIcon = ImageView(context).apply {
-            setImageResource(MezonIcon.trashIcon.resId)
-            imageTintList = ColorStateList.valueOf(Color.BLACK)
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_trash_24, ThemeMode.LIGHT.iconTint))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
         }
         addView(textDeleteIcon, FrameLayout.LayoutParams(LayoutHelper.dp(23f), LayoutHelper.dp(23f), Gravity.CENTER))
@@ -679,7 +676,7 @@ class ChatImageEditorDialog(
             textDeleteTarget.scaleX = 1f
             textDeleteTarget.scaleY = 1f
             textDeleteTarget.background = textDeleteBackground(active = false)
-            textDeleteIcon.imageTintList = ColorStateList.valueOf(Color.BLACK)
+            textDeleteIcon.setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_trash_24, ThemeMode.LIGHT.iconTint))
             updateModeButtons()
             return false
         }
@@ -701,7 +698,12 @@ class ChatImageEditorDialog(
         if (isOverTarget != textDeleteTargetHot) {
             textDeleteTargetHot = isOverTarget
             textDeleteTarget.background = textDeleteBackground(isOverTarget)
-            textDeleteIcon.imageTintList = ColorStateList.valueOf(if (isOverTarget) Color.WHITE else Color.BLACK)
+            val icon = if (isOverTarget) {
+                MezonIcon.loadDrawable(context, R.drawable.mz_trash_24, ThemeMode.DARK.iconTint)
+            } else {
+                MezonIcon.loadDrawable(context, R.drawable.mz_trash_24, ThemeMode.LIGHT.iconTint)
+            }
+            textDeleteIcon.setImageDrawable(icon)
             val scale = if (isOverTarget) 1.08f else 1f
             textDeleteTarget.animate().scaleX(scale).scaleY(scale).setDuration(100L).start()
         }

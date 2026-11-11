@@ -1,8 +1,7 @@
 package com.mezon.mobile.home.voice
 
 import android.content.Context
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.Gravity
@@ -17,11 +16,12 @@ object VoiceChrome {
 
 class VoiceStyleCircleButton(
     context: Context,
-    private var icon: MezonIcon,
+    private var icon: Int,
     bgColor: Int,
     borderColor: Int,
     initialTint: Int,
-    private val iconSize: Int
+    private val iconSize: Int,
+    private val fixedIconLoader: ((Context, Int) -> Drawable)? = null
 ) : FrameLayout(context) {
 
     companion object {
@@ -38,7 +38,7 @@ class VoiceStyleCircleButton(
 
     constructor(
         context: Context,
-        icon: MezonIcon,
+        icon: Int,
         bgColor: Int,
         borderColor: Int,
         initialTint: Int
@@ -62,24 +62,25 @@ class VoiceStyleCircleButton(
         isFocusable = true
 
         iconView = ImageView(context).apply {
-            setImageDrawable(icon.getDrawable(context).apply {
-                if (applyTint) {
-                    colorFilter = PorterDuffColorFilter(iconTint, PorterDuff.Mode.SRC_IN)
-                }
-            })
+            setImageDrawable(loadIcon())
             scaleType = ImageView.ScaleType.CENTER_INSIDE
         }
         addView(iconView, LayoutParams(iconSize, iconSize, Gravity.CENTER))
         applyVoiceButtonPressFeedback()
     }
 
-    fun updateIcon(newIcon: MezonIcon) {
+    private fun loadIcon(): Drawable {
+        fixedIconLoader?.let { return it(context, icon) }
+        return if (applyTint) {
+            MezonIcon.loadDrawable(context, icon, iconTint)
+        } else {
+            MezonIcon.loadDrawable(context, icon)
+        }
+    }
+
+    fun updateIcon(newIcon: Int) {
         icon = newIcon
-        iconView.setImageDrawable(icon.getDrawable(context).apply {
-            if (applyTint) {
-                colorFilter = PorterDuffColorFilter(iconTint, PorterDuff.Mode.SRC_IN)
-            }
-        })
+        iconView.setImageDrawable(loadIcon())
     }
 
     fun setIconSize(px: Int) {
@@ -102,18 +103,12 @@ class VoiceStyleCircleButton(
     fun updateIconTint(color: Int) {
         iconTint = color
         if (!applyTint) return
-        iconView.setImageDrawable(icon.getDrawable(context).apply {
-            colorFilter = PorterDuffColorFilter(iconTint, PorterDuff.Mode.SRC_IN)
-        })
+        iconView.setImageDrawable(loadIcon())
     }
 
     fun setApplyTint(enabled: Boolean) {
         if (applyTint == enabled) return
         applyTint = enabled
-        iconView.setImageDrawable(icon.getDrawable(context).apply {
-            if (applyTint) {
-                colorFilter = PorterDuffColorFilter(iconTint, PorterDuff.Mode.SRC_IN)
-            }
-        })
+        iconView.setImageDrawable(loadIcon())
     }
 }

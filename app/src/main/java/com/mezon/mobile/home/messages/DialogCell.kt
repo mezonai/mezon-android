@@ -3,8 +3,6 @@ package com.mezon.mobile.home.messages
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.graphics.RectF
 import android.graphics.drawable.Drawable
 import android.text.StaticLayout
@@ -161,7 +159,7 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         if (activity != null) {
             val label = context.getString(activity.labelRes)
             inVoiceTextPaint.color = (theme.onSurface and 0x00FFFFFF) or IN_VOICE_ALPHA
-            val labelWidth = previewWidth - IN_VOICE_ICON_SIZE - IN_VOICE_ICON_GAP
+            val labelWidth = previewWidth - inVoiceIconSize - IN_VOICE_ICON_GAP
             previewLayout = StaticLayout.Builder.obtain(label, 0, label.length, inVoiceTextPaint, labelWidth.coerceAtLeast(0))
                 .setMaxLines(1)
                 .setEllipsize(TextUtils.TruncateAt.END)
@@ -232,15 +230,13 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
             val activity = previewVoiceActivity
             if (activity != null) {
                 val drawable = voiceActivityDrawables.getOrPut(activity) {
-                    activity.icon.getDrawable(context).mutate().apply {
-                        colorFilter = PorterDuffColorFilter(theme.voiceActiveGreen, PorterDuff.Mode.SRC_IN)
-                    }
+                    activity.loadIcon(context, theme)
                 }
                 val iconLeft = textLeft.toInt()
-                val iconTop = (textTop + (it.height - IN_VOICE_ICON_SIZE) / 2f).toInt()
-                drawable.setBounds(iconLeft, iconTop, iconLeft + IN_VOICE_ICON_SIZE, iconTop + IN_VOICE_ICON_SIZE)
+                val iconTop = (textTop + (it.height - inVoiceIconSize) / 2f).toInt()
+                drawable.setBounds(iconLeft, iconTop, iconLeft + inVoiceIconSize, iconTop + inVoiceIconSize)
                 drawable.draw(canvas)
-                previewLeft += IN_VOICE_ICON_SIZE + IN_VOICE_ICON_GAP
+                previewLeft += inVoiceIconSize + IN_VOICE_ICON_GAP
             }
             canvas.save()
             canvas.translate(previewLeft, textTop)
@@ -298,7 +294,8 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         private val BUZZ_H_PAD = LayoutHelper.dp(4).toFloat()
         private val BUZZ_BADGE_H = LayoutHelper.dp(20)
         private val BUZZ_RADIUS = LayoutHelper.dpf(4f)
-        private val IN_VOICE_ICON_SIZE = LayoutHelper.dp(12)
+        private val inVoiceIconSize: Int
+            get() = inVoiceTextPaint.textSize.toInt().coerceAtLeast(1)
         private val IN_VOICE_ICON_GAP = LayoutHelper.dp(4)
         private const val IN_VOICE_ALPHA = 0x99 shl 24
         private val inVoiceTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {

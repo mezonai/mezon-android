@@ -1,9 +1,8 @@
 package com.mezon.mobile.home.voice
 
+import com.mezon.mobile.R
 import android.content.Context
 import android.graphics.Outline
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.MotionEvent
@@ -23,6 +22,7 @@ import com.mezon.mobile.util.absoluteResourceUrl
 import com.mezon.mobile.util.avatarImgproxyUrl
 import com.mezon.mobile.util.createImgproxyUrl
 import com.mezon.mobile.home.call.EglBaseProvider
+import com.mezon.mobile.ui.theme.ThemeMode
 import org.webrtc.RendererCommon
 import org.webrtc.SurfaceViewRenderer
 import org.webrtc.VideoTrack
@@ -162,13 +162,8 @@ class VoiceOverlayView(
             loadAvatar(avatarUrl)
         }
 
-        val micDrawable = if (isMuted) {
-            MezonIcon.microphoneSlashIcon.getDrawable(context)
-        } else {
-            MezonIcon.microphoneIcon.getDrawable(context)
-        }
-        micDrawable.colorFilter = PorterDuffColorFilter(0xFFFFFFFF.toInt(), PorterDuff.Mode.SRC_IN)
-        micIcon.setImageDrawable(micDrawable)
+        val micIconRes = if (isMuted) R.drawable.mz_mic_off_16 else R.drawable.mz_mic_16
+        micIcon.setImageDrawable(MezonIcon.loadDrawable(context, micIconRes, ThemeMode.DARK.iconTint))
         nameText.text = name
         nameRow.visibility = VISIBLE
     }
@@ -185,10 +180,7 @@ class VoiceOverlayView(
         playback.update(session)
         backgroundImageView.visibility = if (session?.hasVideoFrames == true) GONE else VISIBLE
 
-        val streamIcon = MezonIcon.channelStream.getDrawable(context)?.apply {
-            colorFilter = PorterDuffColorFilter(0xFFFFFFFF.toInt(), PorterDuff.Mode.SRC_IN)
-        }
-        micIcon.setImageDrawable(streamIcon)
+        micIcon.setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_live_24, ThemeMode.DARK.iconTint))
         nameText.text = channelLabel
         nameRow.visibility = VISIBLE
         loadStreamBackground(avatarUrl)

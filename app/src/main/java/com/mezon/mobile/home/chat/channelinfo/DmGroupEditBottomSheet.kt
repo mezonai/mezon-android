@@ -2,8 +2,6 @@ package com.mezon.mobile.home.chat.channelinfo
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.text.Editable
@@ -276,9 +274,9 @@ class DmGroupEditBottomSheet(
         ))
 
         clearButton = ImageView(context).apply {
-            val drawable = MezonIcon.circleXIcon.getDrawable(context)
-            drawable.colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
-            setImageDrawable(drawable)
+            setImageDrawable(
+                MezonIcon.loadDrawable(context, R.drawable.mz_close_circle_20, themeColors.onSurface)
+            )
             alpha = 0.85f
             setPadding(LayoutHelper.dp(4), LayoutHelper.dp(4), LayoutHelper.dp(4), LayoutHelper.dp(4))
             setOnClickListener {

@@ -3,8 +3,6 @@ package com.mezon.mobile.home.profile
 import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Color
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.LayerDrawable
@@ -526,12 +524,12 @@ class AppearanceThemeFragment : BaseFragment() {
             }
             if (item.mode == ThemeMode.SYSTEM) {
                 holder.icon.visibility = View.VISIBLE
-                holder.icon.setImageDrawable(MezonIcon.reloadIcon.getDrawable(holder.itemView.context))
-                holder.icon.colorFilter = PorterDuffColorFilter(palette.semantic.textPrimary, PorterDuff.Mode.SRC_IN)
+                holder.icon.setImageDrawable(
+                    MezonIcon.loadDrawable(context, R.drawable.mz_refresh_16, palette.semantic.textPrimary)
+                )
             } else {
                 holder.icon.visibility = View.GONE
                 holder.icon.setImageDrawable(null)
-                holder.icon.colorFilter = null
             }
         }
 

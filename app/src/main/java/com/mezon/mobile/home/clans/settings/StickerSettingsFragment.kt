@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.clans.settings
 
+import com.mezon.mobile.core.ThemeColors
 import android.app.Activity
 import android.content.Context
 import android.content.DialogInterface
@@ -46,6 +47,7 @@ import com.mezon.mobile.ui.cells.ActionBarView
 import com.mezon.mobile.ui.cells.InputCell
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.ToastOverlay
+import com.mezon.mobile.ui.theme.ThemeMode
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -142,7 +144,7 @@ class StickerSettingsFragment : BaseFragment() {
 
         actionBar = ActionBarView(context, themeColors).apply {
             setTitle(getString(R.string.menu_clan_sticker))
-            setBackButtonImage(R.drawable.ic_close_24)
+            setBackButtonImage(R.drawable.mz_close_24)
             setBackButtonContentDescription(getString(R.string.common_close))
             setCenterTitle(true)
             setMenuOnItemClick(object : ActionBarView.ActionBarMenuOnItemClick() {
@@ -695,7 +697,7 @@ class StickerSettingsFragment : BaseFragment() {
             ))
 
             val forSaleBadge = ImageView(ctx).apply {
-                setImageDrawable(MezonIcon.saleIcon.getDrawable(ctx))
+                setImageDrawable(MezonIcon.loadDrawable(ctx, R.drawable.mz_shop_24, ThemeColors.defaultIconTint))
                 scaleType = ImageView.ScaleType.FIT_CENTER
                 visibility = View.GONE
             }
@@ -714,13 +716,13 @@ class StickerSettingsFragment : BaseFragment() {
                 visibility = View.GONE
             }
             val editBtn = ImageView(ctx).apply {
-                setImageDrawable(MezonIcon.pencilIcon.getDrawable(ctx, 0xFFFFFFFF.toInt()))
+                setImageDrawable(MezonIcon.loadDrawable(ctx, R.drawable.mz_edit_24, ThemeMode.DARK.iconTint))
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
                 setPadding(LayoutHelper.dp(10f), LayoutHelper.dp(10f), LayoutHelper.dp(10f), LayoutHelper.dp(10f))
                 isClickable = true
             }
             val deleteBtn = ImageView(ctx).apply {
-                setImageDrawable(MezonIcon.trashIcon.getDrawable(ctx, 0xFFFF6B6B.toInt()))
+                setImageDrawable(MezonIcon.loadDrawable(ctx, R.drawable.mz_trash_24, 0xFFFF6B6B.toInt()))
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
                 setPadding(LayoutHelper.dp(10f), LayoutHelper.dp(10f), LayoutHelper.dp(10f), LayoutHelper.dp(10f))
                 isClickable = true

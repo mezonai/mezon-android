@@ -1,7 +1,7 @@
 package com.mezon.mobile.home.messages
 
+import com.mezon.mobile.core.ThemeColors
 import android.content.Context
-import android.graphics.Color
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.GradientDrawable
@@ -39,6 +39,7 @@ import com.mezon.mobile.search.LOCAL_PAGE_SIZE
 import com.mezon.mobile.search.SearchController
 import com.mezon.mobile.ui.cells.ActionBarView
 import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.ui.theme.ThemeMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -99,7 +100,6 @@ class NewMessageFragment : BaseFragment() {
             setTitle(getString(R.string.screen_header_new_message))
             setCenterTitle(true)
             setTitleColor(themeColors.onSurface)
-            setItemsColor(themeColors.onSurface)
             setBackgroundColor(themeColors.surface)
         }
         root.addView(actionBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 56))
@@ -225,7 +225,7 @@ class NewMessageFragment : BaseFragment() {
         }
         card.addView(buildActionRow(
             context = context,
-            icon = MezonIcon.userGroupIcon,
+            icon = R.drawable.mz_members_20,
             iconBg = themeColors.blurple,
             title = getString(R.string.dm_new_group),
             onClick = { openNewGroup() }
@@ -236,7 +236,7 @@ class NewMessageFragment : BaseFragment() {
         )
         card.addView(buildActionRow(
             context = context,
-            icon = MezonIcon.userIcon,
+            icon = R.drawable.mz_user_24,
             iconBg = 0xFFE148C7.toInt(),
             title = getString(R.string.dm_add_friend),
             onClick = { presentFragment(AddFriendFragment()) }
@@ -246,7 +246,7 @@ class NewMessageFragment : BaseFragment() {
 
     private fun buildActionRow(
         context: Context,
-        icon: MezonIcon,
+        icon: Int,
         iconBg: Int,
         title: String,
         onClick: () -> Unit
@@ -269,9 +269,7 @@ class NewMessageFragment : BaseFragment() {
             background = roundedBg(iconBg, 50f, oval = true)
         }
         val iconView = ImageView(context).apply {
-            val d = icon.getDrawable(context)
-            d.colorFilter = PorterDuffColorFilter(Color.WHITE, PorterDuff.Mode.SRC_IN)
-            setImageDrawable(d)
+            setImageDrawable(MezonIcon.loadDrawable(context, icon, ThemeMode.DARK.iconTint))
         }
         circle.addView(iconView, LayoutHelper.createFrame(20, 20, Gravity.CENTER))
         row.addView(circle, LayoutHelper.createLinear(36, 36, gravity = Gravity.CENTER_VERTICAL, rightMargin = 12f))
@@ -288,7 +286,7 @@ class NewMessageFragment : BaseFragment() {
         row.addView(titleView, LayoutHelper.createLinear(0, LayoutHelper.MATCH_PARENT, 1f, Gravity.CENTER_VERTICAL))
 
         val chevron = ImageView(context).apply {
-            val d = MezonIcon.chevronSmallRightIcon.getDrawable(context)
+            val d = MezonIcon.loadDrawable(context, R.drawable.mz_chevron_right_16, ThemeColors.defaultIconTint)
             d.colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
             setImageDrawable(d)
             scaleType = ImageView.ScaleType.CENTER_INSIDE

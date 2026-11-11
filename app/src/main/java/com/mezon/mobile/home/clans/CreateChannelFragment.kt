@@ -1,6 +1,6 @@
 package com.mezon.mobile.home.clans
 
-import com.mezon.mobile.core.theme.DesktopThemeToken
+import com.mezon.mobile.core.ThemeColors
 import android.content.Context
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -68,6 +68,8 @@ class CreateChannelFragment : BaseFragment() {
         return super.onFragmentCreate()
     }
 
+    override fun getStatusBarColor(): Int = themeColors.background
+
     override fun createView(context: Context): View {
         val screenPadH = LayoutHelper.dp(16)
         val sectionCaptionToFieldSpacing = LayoutHelper.dp(8)
@@ -85,9 +87,9 @@ class CreateChannelFragment : BaseFragment() {
             setOnClickListener { submitCreate() }
         }
 
-        actionBar = ActionBarView(context, themeColors).apply {
+        actionBar = ActionBarView(context, themeColors, transparentBackground = true).apply {
             occupyStatusBar = false
-            setBackButtonImage(MezonIcon.closeLargeIcon.resId)
+            setBackButtonImage(R.drawable.mz_close_24)
             setTitle(getString(R.string.channel_creator_screen_title))
             setTitleColor(themeColors.textStrong)
             setCenterTitle(true)
@@ -133,7 +135,7 @@ class CreateChannelFragment : BaseFragment() {
 
         nameCell = InputCell(context, themeColors).apply {
             setLabel(null, false, false)
-            setCellBackgroundColor(themeColors.background)
+            setCellBackgroundColor(themeColors.surface)
             setMaxCharacter(64)
             setHint(getString(R.string.channel_creator_channel_name_placeholder))
             onTextChanged = {
@@ -151,18 +153,18 @@ class CreateChannelFragment : BaseFragment() {
         val typeBox = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             background = GradientDrawable().apply {
-                setColor(themeColors.background)
+                setColor(themeColors.surface)
                 cornerRadius = cardRadius
             }
         }
 
-        addTypeOption(context, typeBox, CHANNEL_TYPE_CHANNEL, MezonIcon.channelText,
+        addTypeOption(context, typeBox, CHANNEL_TYPE_CHANNEL, R.drawable.mz_channel_24,
             R.string.channel_creator_type_text_title, R.string.channel_creator_type_text_desc,
             showTopDivider = false, rowPad = typeAndPrivateCardInnerPadding)
-        addTypeOption(context, typeBox, CHANNEL_TYPE_VOICE, MezonIcon.channelVoice,
+        addTypeOption(context, typeBox, CHANNEL_TYPE_VOICE, R.drawable.mz_speaker_24,
             R.string.channel_creator_type_voice_title, R.string.channel_creator_type_voice_desc,
             showTopDivider = true, rowPad = typeAndPrivateCardInnerPadding)
-        addTypeOption(context, typeBox, CHANNEL_TYPE_STREAMING, MezonIcon.channelStream,
+        addTypeOption(context, typeBox, CHANNEL_TYPE_STREAMING, R.drawable.mz_live_24,
             R.string.channel_creator_type_stream_title, R.string.channel_creator_type_stream_desc,
             showTopDivider = true, rowPad = typeAndPrivateCardInnerPadding)
 
@@ -215,13 +217,13 @@ class CreateChannelFragment : BaseFragment() {
         }
 
         val bodyRoot = FrameLayout(context).apply {
-            setBackgroundColor(themeColors.desktop[DesktopThemeToken.THEME_SETTING_PRIMARY])
             addView(scroll, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
             addView(loadingOverlay, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
         }
 
         val rootWithBar = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
+            setBackgroundColor(themeColors.background)
             addView(actionBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
             addView(bodyRoot, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
         }
@@ -244,7 +246,7 @@ class CreateChannelFragment : BaseFragment() {
             setChecked(false, animated = false)
         }
         val lock = ImageView(context).apply {
-            setImageDrawable(MezonIcon.lockIcon.getDrawable(context, themeColors.textStrong))
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_lock_24, ThemeColors.defaultIconTint))
             scaleType = ImageView.ScaleType.FIT_CENTER
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
@@ -253,7 +255,7 @@ class CreateChannelFragment : BaseFragment() {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(rowPad, rowPad, rowPad, rowPad)
             background = GradientDrawable().apply {
-                setColor(themeColors.background)
+                setColor(themeColors.surface)
                 cornerRadius = cardRadius
             }
             addView(lock, LayoutHelper.createLinear(22, 22).apply { rightMargin = LayoutHelper.dp(12) })
@@ -278,7 +280,7 @@ class CreateChannelFragment : BaseFragment() {
         context: Context,
         parent: LinearLayout,
         typeConst: Int,
-        icon: MezonIcon,
+        icon: Int,
         titleRes: Int,
         descRes: Int,
         showTopDivider: Boolean,
@@ -310,7 +312,7 @@ class CreateChannelFragment : BaseFragment() {
         }
 
         val iconView = ImageView(context).apply {
-            setImageDrawable(icon.getDrawable(context, themeColors.textStrong))
+            setImageDrawable(MezonIcon.loadDrawable(context, icon, themeColors.textStrong))
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
         row.addView(

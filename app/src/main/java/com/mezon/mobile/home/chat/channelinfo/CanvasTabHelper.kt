@@ -89,7 +89,7 @@ class CanvasTabHelper(
         val clearSize = LayoutHelper.dp(20f)
         val clearInset = LayoutHelper.dp(8f)
         val searchIcon = ImageView(context).apply {
-            val d = MezonIcon.magnifyingIcon.getDrawable(context).mutate()
+            val d = MezonIcon.loadDrawable(context, R.drawable.mz_search_24, ThemeColors.defaultIconTint).mutate()
             d.colorFilter = PorterDuffColorFilter(themeColors.textDisabled, PorterDuff.Mode.SRC_IN)
             d.setBounds(0, 0, searchIconSize, searchIconSize)
             setImageDrawable(d)
@@ -144,7 +144,7 @@ class CanvasTabHelper(
         )
         clearButton = ImageView(context).apply {
             visibility = View.GONE
-            val d = MezonIcon.circleXIcon.getDrawable(context).mutate()
+            val d = MezonIcon.loadDrawable(context, R.drawable.mz_close_circle_24, ThemeColors.defaultIconTint).mutate()
             d.colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
             d.setBounds(0, 0, clearSize, clearSize)
             setImageDrawable(d)
@@ -337,7 +337,7 @@ class CanvasTabHelper(
             setPadding(0, LayoutHelper.dp(60f), 0, 0)
         }
         val icon = ImageView(context).apply {
-            setImageDrawable(MezonIcon.emptySearchIcon.getDrawable(context))
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.ic_empty_search))
         }
         container.addView(icon, LayoutHelper.createLinear(100, 100, 0f, Gravity.CENTER_HORIZONTAL))
         val label = TextView(context).apply {

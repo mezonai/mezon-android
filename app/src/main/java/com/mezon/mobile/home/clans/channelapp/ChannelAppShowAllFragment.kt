@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.clans.channelapp
 
+import com.mezon.mobile.core.ThemeColors
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Bitmap
@@ -115,7 +116,7 @@ class ChannelAppShowAllFragment : BaseFragment() {
             setPadding(LayoutHelper.dp(8), 0, LayoutHelper.dp(16), 0)
         }
         val backBtn = ImageView(context).apply {
-            setImageDrawable(MezonIcon.arrowLargeLeftIcon.getDrawable(context, themeColors.colorText))
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_arrow_left_20, ThemeColors.defaultIconTint))
             val sz = LayoutHelper.dp(40)
             layoutParams = LinearLayout.LayoutParams(sz, sz)
             val pad = LayoutHelper.dp(10)
@@ -164,7 +165,7 @@ class ChannelAppShowAllFragment : BaseFragment() {
             )
         }
         val icon = ImageView(context).apply {
-            setImageDrawable(MezonIcon.channelApp.getDrawable(context, themeColors.textDisabled))
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_channel_app_24, ThemeColors.defaultIconTint))
             val sz = LayoutHelper.dp(48)
             layoutParams = LinearLayout.LayoutParams(sz, sz)
         }
@@ -279,7 +280,7 @@ class ChannelAppShowAllFragment : BaseFragment() {
                 clipChildren = true
             }
             placeholder = ImageView(context).apply {
-                setImageDrawable(MezonIcon.channelApp.getDrawable(context, themeColors.colorText))
+                setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_channel_app_24, ThemeColors.defaultIconTint))
                 val sz = (logoSize * 0.5f).toInt()
                 layoutParams = FrameLayout.LayoutParams(sz, sz, Gravity.CENTER)
                 scaleType = ImageView.ScaleType.FIT_CENTER
@@ -317,7 +318,7 @@ class ChannelAppShowAllFragment : BaseFragment() {
 
             chevron = ImageView(context).apply {
                 setImageDrawable(
-                    MezonIcon.chevronSmallRightIcon.getDrawable(context, themeColors.textDisabled)
+                    MezonIcon.loadDrawable(context, R.drawable.mz_chevron_right_16, ThemeColors.defaultIconTint)
                 )
                 val sz = LayoutHelper.dp(20)
                 layoutParams = LayoutParams(sz, sz)

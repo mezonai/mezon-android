@@ -1,9 +1,8 @@
 package com.mezon.mobile.home.chat
 
+import com.mezon.mobile.R
 import com.mezon.mezon.api.MessageReaction
 import android.content.Context
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.AnimatedImageDrawable
 import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
@@ -25,6 +24,7 @@ import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.ui.theme.ThemeMode
 
 class ReactionDetailBottomSheet(
     context: Context,
@@ -194,9 +194,7 @@ class ReactionDetailBottomSheet(
             visibility = View.GONE
         }
         val trashIcon = ImageView(context).apply {
-            val d = MezonIcon.trashIcon.getDrawable(context)
-            d.colorFilter = PorterDuffColorFilter(0xFFFFFFFF.toInt(), PorterDuff.Mode.SRC_IN)
-            setImageDrawable(d)
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_trash_20, ThemeMode.DARK.iconTint))
         }
         deleteButton.addView(trashIcon, FrameLayout.LayoutParams(LayoutHelper.dp(20), LayoutHelper.dp(20), Gravity.CENTER))
         deleteButton.setOnClickListener { deleteMyReaction() }

@@ -128,23 +128,23 @@ class InviteQrBottomSheet(
         }
         val btnSize = LayoutHelper.dp(56f)
         row.addView(
-            buildIconButton(context, MezonIcon.downloadIcon) { downloadQr() },
+            buildIconButton(context, R.drawable.mz_download_24) { downloadQr() },
             LinearLayout.LayoutParams(btnSize, btnSize).apply { rightMargin = LayoutHelper.dp(16f) },
         )
         row.addView(
-            buildIconButton(context, MezonIcon.shareIcon) { shareQr() },
+            buildIconButton(context, R.drawable.mz_share_24) { shareQr() },
             LinearLayout.LayoutParams(btnSize, btnSize),
         )
         return row
     }
 
-    private fun buildIconButton(context: Context, icon: MezonIcon, onClick: () -> Unit): ImageView {
+    private fun buildIconButton(context: Context, icon: Int, onClick: () -> Unit): ImageView {
         return ImageView(context).apply {
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dpf(12f)
                 setColor(theme.surfaceVariant)
             }
-            setImageDrawable(icon.getDrawable(context, theme.colorText))
+            setImageDrawable(MezonIcon.loadDrawable(context, icon, theme.colorText))
             val pad = LayoutHelper.dp(16f)
             setPadding(pad, pad, pad, pad)
             scaleType = ImageView.ScaleType.CENTER_INSIDE

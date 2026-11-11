@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.clans.settings
 
+import com.mezon.mobile.core.ThemeColors
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
@@ -149,7 +150,7 @@ class ClanSettingFragment : BaseFragment() {
         }
         closeWrap.addView(
             ImageView(context).apply {
-                setImageDrawable(MezonIcon.closeIcon.getDrawable(context, CreateClanRnUiTokens.closeIcon(themeColors)))
+                setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_close_24, ThemeColors.defaultIconTint))
                 scaleType = ImageView.ScaleType.FIT_CENTER
                 adjustViewBounds = true
             },
@@ -322,7 +323,7 @@ class ClanSettingFragment : BaseFragment() {
             val innerRightDp = gapDpF + tileDp
             val innerTopDp = gapDpF
             val removeBtn = ImageView(ctx).apply {
-                setImageDrawable(MezonIcon.circleXIcon.getDrawable(context, themeColors.error))
+                setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_close_circle_24, themeColors.error))
                 scaleType = ImageView.ScaleType.FIT_CENTER
                 isClickable = true
                 contentDescription = context.getString(R.string.clan_settings_remove_logo)
@@ -540,7 +541,7 @@ class ClanSettingFragment : BaseFragment() {
                 ClanSettingsUiHelpers.buildMezonChevronRow(
                     ctx,
                     themeColors,
-                    MezonIcon.linkIcon,
+                    R.drawable.mz_link_24,
                     getString(R.string.clan_settings_invites),
                     null,
                     Runnable { openInvitePeople() }
@@ -548,7 +549,7 @@ class ClanSettingFragment : BaseFragment() {
         }
     }
 
-    private fun navigationRow(ctx: Context, icon: MezonIcon, labelRes: Int, onNavigate: Runnable): View {
+    private fun navigationRow(ctx: Context, icon: Int, labelRes: Int, onNavigate: Runnable): View {
         return ClanSettingsUiHelpers.buildMezonChevronRow(
             ctx,
             themeColors,

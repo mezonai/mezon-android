@@ -190,7 +190,7 @@ class PinsTabHelper(
             setPadding(0, LayoutHelper.dp(50), 0, 0)
         }
         val icon = ImageView(context).apply {
-            setImageDrawable(MezonIcon.emptyPinIcon.getDrawable(context))
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.ic_empty_pin))
         }
         container.addView(icon, LayoutHelper.createLinear(120, 120, 0f, Gravity.CENTER_HORIZONTAL))
 

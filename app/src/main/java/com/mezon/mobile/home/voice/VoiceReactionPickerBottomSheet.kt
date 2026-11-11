@@ -1,21 +1,18 @@
 package com.mezon.mobile.home.voice
 
+import com.mezon.mobile.R
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
-import android.graphics.drawable.Drawable
 import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.os.Bundle
 import android.text.TextPaint
-import android.text.TextUtils
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -38,20 +35,13 @@ import com.mezon.mobile.home.chat.EmojiController
 import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.util.iconImgproxyUrl
 import com.mezon.mobile.home.chat.StickerItem
+import com.mezon.mobile.home.chat.emoji.SoundStickerCell
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.util.resolveStickerSourceUrl
 
 private val CATEGORY_CELL_SIZE = LayoutHelper.dp(32f)
 private val CATEGORY_ICON_SIZE = LayoutHelper.dp(24f)
 private val HEADER_HEIGHT = LayoutHelper.dp(32f)
-private val SOUND_ITEM_HEIGHT = LayoutHelper.dp(50f)
-private val SOUND_ITEM_CORNER = LayoutHelper.dp(10f).toFloat()
-private val SOUND_ITEM_PADDING = LayoutHelper.dp(8f)
-private val SOUND_ITEM_PLAY_SIZE = LayoutHelper.dp(32f)
-private val SOUND_ITEM_PLAY_ICON_SIZE = LayoutHelper.dp(16f)
-private val SOUND_ITEM_SEND_ICON_SIZE = LayoutHelper.dp(20f)
-private val SOUND_ITEM_GAP = LayoutHelper.dp(8f)
-private val SOUND_GRID_ITEM_MARGIN = LayoutHelper.dp(4f)
 
 class VoiceReactionPickerBottomSheet(
     context: Context,
@@ -420,7 +410,7 @@ class VoiceReactionPickerBottomSheet(
                 }
                 TYPE_EMPTY -> EmptyHolder(SoundEmptyCell(parent.context, themeColors))
                 else -> {
-                    val cell = SoundItemCell(parent.context, themeColors)
+                    val cell = SoundStickerCell(parent.context, themeColors, sendOnItemTap = true)
                     val holder = SoundHolder(cell)
                     cell.onPreviewTap = {
                         val pos = holder.bindingAdapterPosition
@@ -446,7 +436,7 @@ class VoiceReactionPickerBottomSheet(
         }
 
         class HeaderHolder(val cell: SoundHeaderCell) : RecyclerView.ViewHolder(cell)
-        class SoundHolder(val cell: SoundItemCell) : RecyclerView.ViewHolder(cell)
+        class SoundHolder(val cell: SoundStickerCell) : RecyclerView.ViewHolder(cell)
         class EmptyHolder(val cell: SoundEmptyCell) : RecyclerView.ViewHolder(cell)
     }
 
@@ -463,12 +453,7 @@ class VoiceReactionPickerBottomSheet(
             if (position == RecyclerView.NO_POSITION) return
             if (adapter.isFullSpan(position)) {
                 outRect.set(0, LayoutHelper.dp(6f), 0, LayoutHelper.dp(2f))
-                return
             }
-            outRect.left = SOUND_GRID_ITEM_MARGIN
-            outRect.right = SOUND_GRID_ITEM_MARGIN
-            outRect.top = SOUND_GRID_ITEM_MARGIN
-            outRect.bottom = SOUND_GRID_ITEM_MARGIN
         }
     }
 
@@ -600,12 +585,10 @@ class VoiceReactionPickerBottomSheet(
         private var title: String = ""
         private var expanded = true
         var onTap: (() -> Unit)? = null
-        private val chevronDown = MezonIcon.chevronDownSmallIcon.getDrawable(context).mutate().apply {
-            colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
-        }
-        private val chevronRight = MezonIcon.chevronSmallRightIcon.getDrawable(context).mutate().apply {
-            colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
-        }
+        private val chevronDown =
+            MezonIcon.loadDrawable(context, R.drawable.mz_chevron_down_16, themeColors.onSurfaceVariant)
+        private val chevronRight =
+            MezonIcon.loadDrawable(context, R.drawable.mz_chevron_right_16, themeColors.onSurfaceVariant)
 
         init {
             isClickable = true
@@ -676,122 +659,6 @@ class VoiceReactionPickerBottomSheet(
         override fun allowCaching(): Boolean = false
 
         companion object {
-            private val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-                textSize = LayoutHelper.dp(14f).toFloat()
-                textAlign = Paint.Align.CENTER
-            }
-        }
-    }
-
-    private class SoundItemCell(context: Context, private val themeColors: ThemeColors) : BaseCell(context) {
-
-        var onPreviewTap: (() -> Unit)? = null
-        var onSendTap: (() -> Unit)? = null
-
-        private var sticker: StickerItem? = null
-        private var isPlaying = false
-        private var isPressed = false
-        private val bgRect = RectF()
-        private val playRect = RectF()
-        private val sendRect = RectF()
-
-        private val playDrawable: Drawable = MezonIcon.playIcon.getDrawable(context).mutate().apply {
-            colorFilter = PorterDuffColorFilter(themeColors.blurple, PorterDuff.Mode.SRC_IN)
-        }
-        private val pauseDrawable: Drawable = MezonIcon.pauseIcon.getDrawable(context).mutate().apply {
-            colorFilter = PorterDuffColorFilter(themeColors.blurple, PorterDuff.Mode.SRC_IN)
-        }
-        private val sendDrawable: Drawable = MezonIcon.sendMessageIcon.getDrawable(context).mutate().apply {
-            colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
-        }
-
-        fun bind(sticker: StickerItem, isPlaying: Boolean) {
-            this.sticker = sticker
-            this.isPlaying = isPlaying
-            invalidate()
-        }
-
-        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-            setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), SOUND_ITEM_HEIGHT)
-        }
-
-        override fun onDraw(canvas: Canvas) {
-            val item = sticker ?: return
-            val w = measuredWidth.toFloat()
-            val h = measuredHeight.toFloat()
-            bgRect.set(0f, 0f, w, h)
-            bgPaint.color = themeColors.secondaryLight
-            bgPaint.alpha = if (isPressed) 210 else 255
-            canvas.drawRoundRect(bgRect, SOUND_ITEM_CORNER, SOUND_ITEM_CORNER, bgPaint)
-
-            val playLeft = SOUND_ITEM_PADDING.toFloat()
-            val playTop = (h - SOUND_ITEM_PLAY_SIZE) / 2f
-            playRect.set(playLeft, playTop, playLeft + SOUND_ITEM_PLAY_SIZE, playTop + SOUND_ITEM_PLAY_SIZE)
-            playCirclePaint.color = 0xFFFFFFFF.toInt()
-            canvas.drawOval(playRect, playCirclePaint)
-
-            val actionDrawable = if (isPlaying) pauseDrawable else playDrawable
-            val iconLeft = (playRect.left + (SOUND_ITEM_PLAY_SIZE - SOUND_ITEM_PLAY_ICON_SIZE) / 2f).toInt()
-            val iconTop = (playRect.top + (SOUND_ITEM_PLAY_SIZE - SOUND_ITEM_PLAY_ICON_SIZE) / 2f).toInt()
-            actionDrawable.setBounds(iconLeft, iconTop, iconLeft + SOUND_ITEM_PLAY_ICON_SIZE, iconTop + SOUND_ITEM_PLAY_ICON_SIZE)
-            actionDrawable.draw(canvas)
-
-            val sendLeft = (w - SOUND_ITEM_PADDING - SOUND_ITEM_SEND_ICON_SIZE).toInt()
-            val sendTop = ((h - SOUND_ITEM_SEND_ICON_SIZE) / 2f).toInt()
-            sendRect.set(sendLeft.toFloat(), sendTop.toFloat(), (sendLeft + SOUND_ITEM_SEND_ICON_SIZE).toFloat(), (sendTop + SOUND_ITEM_SEND_ICON_SIZE).toFloat())
-            sendDrawable.setBounds(sendLeft, sendTop, sendLeft + SOUND_ITEM_SEND_ICON_SIZE, sendTop + SOUND_ITEM_SEND_ICON_SIZE)
-            sendDrawable.draw(canvas)
-
-            textPaint.color = themeColors.onSurface
-            val textStart = playRect.right + SOUND_ITEM_GAP
-            val textEnd = sendRect.left - SOUND_ITEM_GAP
-            val available = (textEnd - textStart).coerceAtLeast(0f)
-            val text = TextUtils.ellipsize(item.shortname, textPaint, available, TextUtils.TruncateAt.END).toString()
-            val textBaseline = h / 2f - (textPaint.ascent() + textPaint.descent()) / 2f
-            canvas.drawText(text, textStart + available / 2f, textBaseline, textPaint)
-        }
-
-        override fun onTouchEvent(event: MotionEvent): Boolean {
-            if (sticker == null) return false
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    isPressed = true
-                    invalidate()
-                    return true
-                }
-                MotionEvent.ACTION_UP -> {
-                    val wasPressed = isPressed
-                    isPressed = false
-                    invalidate()
-                    if (wasPressed) {
-                        if (playRect.contains(event.x, event.y)) {
-                            onPreviewTap?.invoke()
-                        } else {
-                            onSendTap?.invoke()
-                        }
-                        performClick()
-                    }
-                    return true
-                }
-                MotionEvent.ACTION_CANCEL -> {
-                    isPressed = false
-                    invalidate()
-                    return true
-                }
-            }
-            return super.onTouchEvent(event)
-        }
-
-        override fun performClick(): Boolean {
-            super.performClick()
-            return true
-        }
-
-        override fun allowCaching(): Boolean = false
-
-        companion object {
-            private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-            private val playCirclePaint = Paint(Paint.ANTI_ALIAS_FLAG)
             private val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
                 textSize = LayoutHelper.dp(14f).toFloat()
                 textAlign = Paint.Align.CENTER

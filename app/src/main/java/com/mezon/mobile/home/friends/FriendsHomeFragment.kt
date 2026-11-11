@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.friends
 
+import com.mezon.mobile.core.ThemeColors
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
@@ -138,7 +139,7 @@ class FriendsHomeFragment : BaseFragment() {
 
         searchIcon = ImageView(context).apply {
             scaleType = ImageView.ScaleType.CENTER_INSIDE
-            setImageDrawable(MezonIcon.searchIcon.getDrawable(context))
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_search_20, ThemeColors.defaultIconTint))
         }
         searchRow.addView(
             searchIcon,
@@ -218,7 +219,7 @@ class FriendsHomeFragment : BaseFragment() {
                 }
             }
         })
-        actionBar?.createMenu()?.addItem(MENU_ADD_FRIEND, MezonIcon.userPlusIcon.resId)
+        actionBar?.createMenu()?.addItem(MENU_ADD_FRIEND, R.drawable.mz_user_plus_24)
         return wrapped
     }
 
@@ -262,10 +263,10 @@ class FriendsHomeFragment : BaseFragment() {
         }
 
         val icon = ImageView(context).apply {
-            setImageDrawable(MezonIcon.paperPlaneIcon.getDrawable(context))
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_send_24, ThemeColors.defaultIconTint))
             colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
         }
-        row.addView(icon, LayoutHelper.createLinear(22, 22, rightMargin = 10f))
+        row.addView(icon, LayoutHelper.createLinear(30, 30, gravity = Gravity.CENTER_VERTICAL, rightMargin = 10f))
 
         val textWrap = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
         row.addView(textWrap, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f))
@@ -287,14 +288,13 @@ class FriendsHomeFragment : BaseFragment() {
         requestBadgeText = createFriendRequestBadgeView(context)
         row.addView(
             requestBadgeText,
-            LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, 18, rightMargin = 8f)
+            LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, 18, gravity = Gravity.CENTER_VERTICAL, rightMargin = 8f)
         )
 
         val chevron = ImageView(context).apply {
-            setImageDrawable(MezonIcon.chevronSmallRightIcon.getDrawable(context))
-            colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_chevron_right_16, ThemeColors.defaultIconTint))
         }
-        row.addView(chevron, LayoutHelper.createLinear(16, 16))
+        row.addView(chevron, LayoutHelper.createLinear(16, 16, gravity = Gravity.CENTER_VERTICAL))
 
         return row
     }

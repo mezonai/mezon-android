@@ -1,8 +1,10 @@
 package com.mezon.mobile.home.clans.discover
 
+import com.mezon.mobile.ui.cells.drawCenteredIcon
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Rect
@@ -31,7 +33,7 @@ class DiscoverClanCell(
         private val DOT_RADIUS = LayoutHelper.dp(4).toFloat()
         private val FOOTER_ROW_CENTER = LayoutHelper.dp(9)
         private val MEMBER_TEXT_GAP = LayoutHelper.dp(4)
-        private val VERIFY_ICON_SIZE = LayoutHelper.dp(14)
+        private val VERIFY_ICON_SIZE = LayoutHelper.dp(16)
         private val VERIFY_BADGE_PAD_H = LayoutHelper.dp(4).toFloat()
         private val VERIFY_BADGE_HEIGHT = LayoutHelper.dp(18)
         private val VERIFY_BADGE_RADIUS = LayoutHelper.dp(4f).toFloat()
@@ -69,9 +71,7 @@ class DiscoverClanCell(
     private val bannerDrawPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
         isDither = true
     }
-    private val verifyIconDrawable = MezonIcon.verifyIcon.getDrawable(context).apply {
-        setTint(0xFFFFFFFF.toInt())
-    }
+    private val verifyIconDrawable = MezonIcon.loadDrawable(context, R.drawable.mz_verified_16, Color.WHITE)
 
     private val namePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = LayoutHelper.sp(13f)
@@ -86,7 +86,7 @@ class DiscoverClanCell(
     private val verifiedPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = LayoutHelper.sp(10f)
         typeface = Typeface.DEFAULT_BOLD
-        color = 0xFFFFFFFF.toInt()
+        color = Color.WHITE
     }
 
     private var nameLayout: StaticLayout? = null
@@ -328,7 +328,7 @@ class DiscoverClanCell(
             VERIFY_BADGE_RADIUS,
             verifiedBgPaint
         )
-        MezonIcon.drawIcon(canvas, verifyIconDrawable, (bx + VERIFY_BADGE_PAD_H + VERIFY_ICON_SIZE / 2).toInt(), (by + VERIFY_ICON_CENTER_Y).toInt(), VERIFY_ICON_SIZE)
+        verifyIconDrawable.drawCenteredIcon(canvas, (bx + VERIFY_BADGE_PAD_H + VERIFY_ICON_SIZE / 2).toInt(), (by + VERIFY_ICON_CENTER_Y).toInt())
         canvas.drawText(verified, bx + VERIFY_BADGE_PAD_H + VERIFY_ICON_SIZE + VERIFY_TEXT_GAP, by + VERIFY_TEXT_BASELINE, verifiedPaint)
 
         canvas.restore()
