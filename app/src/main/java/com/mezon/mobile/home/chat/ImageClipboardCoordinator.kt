@@ -48,7 +48,7 @@ class ImageClipboardCoordinator @Inject constructor(
 
     fun resolvePrimaryImageUrlForCopy(msg: MessageEntity): String? {
         val imgs = msg.allImageAttachments.filter { att ->
-            if (isVideoAttachmentType(att.filetype)) return@filter false
+            if (isVideoAttachmentType(att.filetype, att.filename, att.url)) return@filter false
             isImageAttachmentType(att.filetype) ||
                 isGifAttachment(att.filetype, att.filename, att.url)
         }

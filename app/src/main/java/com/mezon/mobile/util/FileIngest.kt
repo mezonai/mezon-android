@@ -283,6 +283,27 @@ object FileIngestPlaylist {
         return if (statusCode(Request.Builder().url(probe).head().build()) == 200) master else attachmentUrl
     }
 
+    /** Check the final CDN URL with its channel signature without transferring the video. */
+    suspend fun isOriginalAvailable(attachmentUrl: String): Boolean {
+        val request = CdnSigner.requestUrl(attachmentUrl)
+        var status = probeOriginal(request.url)
+        if (status != null && CdnSigner.shouldRetry(request, status)) {
+            val fresh = CdnSigner.freshRequestUrl(request, attachmentUrl)
+            if (fresh != null) status = probeOriginal(fresh.url)
+        }
+        return status != null && status in 200..299
+    }
+
+    private suspend fun probeOriginal(url: String): Int? {
+        val request = Request.Builder().url(url).header("Cache-Control", "no-cache")
+        val headStatus = statusCode(request.head().build())
+        return if (headStatus == 405 || headStatus == 501) {
+            statusCode(request.get().header("Range", "bytes=0-0").build())
+        } else {
+            headStatus
+        }
+    }
+
     private suspend fun statusCode(request: Request): Int? = runInterruptible(Dispatchers.IO) {
         try {
             client.newCall(request).execute().use { it.code }

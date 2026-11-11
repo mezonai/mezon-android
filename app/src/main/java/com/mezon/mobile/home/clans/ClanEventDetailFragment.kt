@@ -78,11 +78,33 @@ class ClanEventDetailFragment : BaseFragment() {
     private lateinit var clanEventController: ClanEventController
     private lateinit var userClanController: UserClanController
     private lateinit var contentHost: LinearLayout
+    private var renderedContent: Content? = null
     private var actionBarMenu: ActionBarMenu? = null
     private var moreMenuItem: ActionBarMenuItem? = null
     private var eventMenuPopup: PopupMenu? = null
     private var eventEditorDialog: ClanEventEditorDialog? = null
     private var deleting = false
+
+    private data class Content(
+        val event: EventContent?,
+        val loading: Boolean = false,
+        val error: String? = null,
+    )
+
+    private data class EventContent(
+        val event: ClanEventEntity,
+        val creator: MemberInfo,
+        val interestedMembers: List<MemberInfo>,
+        val voiceChannelLabel: String?,
+        val linkedChannelLabel: String?,
+        val status: Int,
+        val statusText: String,
+        val endTimeText: String?,
+        val interested: Boolean,
+        val canEnd: Boolean,
+    )
+
+    private data class MemberInfo(val name: String, val avatarUrl: String)
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
         clanEventController = entryPoint.clanEventController()
@@ -113,7 +135,7 @@ class ClanEventDetailFragment : BaseFragment() {
         observe(NotificationCenter.clanRolesDidLoad) { _, _, args ->
             if (isPaused || fragmentView == null) return@observe
             if (args.firstOrNull() == clanId) {
-                updateActionBarMenu(visibleEvent())
+                bindContent()
             }
         }
         return true
@@ -140,6 +162,8 @@ class ClanEventDetailFragment : BaseFragment() {
     }
 
     override fun createView(context: Context): View {
+        renderedContent = null
+        hideEventMenu()
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(themeColors.background)
@@ -187,7 +211,6 @@ class ClanEventDetailFragment : BaseFragment() {
         }
         root.addView(scroll, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
 
-        bindContent()
         return root
     }
 
@@ -196,45 +219,60 @@ class ClanEventDetailFragment : BaseFragment() {
 
     private fun bindContent() {
         val ctx = fragmentView?.context ?: return
-        contentHost.removeAllViews()
         val event = visibleEvent()
-        if (event != null) {
-            updateActionBarMenu(event)
-            val members = userClanController.getClanMembers(clanId)
-            val creator = members.firstOrNull { it.userId == event.creatorId }
-            val userId = currentUserId()
-            val voiceChannel = clanEventController.getChannel(clanId, event.channelVoiceId)
-            val linkedChannel = clanEventController.getChannel(clanId, event.channelId)
-            contentHost.addView(
-                buildEventDetailView(
-                    ctx,
-                    themeColors,
-                    event,
-                    clanName,
-                    clanLogo,
-                    creator,
-                    members,
-                    voiceChannel,
-                    linkedChannel,
-                    userId,
-                    onToggleInterest = {
-                        visibleEvent()?.let { latest ->
-                            val interested = !latest.isInterested(userId)
-                            clanEventController.setInterested(clanId, latest.id, interested) { _, _ -> bindContent() }
-                        }
-                    },
-                ),
-            )
-            return
+        val content = if (event != null) {
+            Content(eventContent(ctx, event))
+        } else {
+            val loading = clanEventController.isLoading(clanId)
+            Content(null, loading, if (loading) null else clanEventController.getLoadError(clanId))
         }
-        hideEventMenu()
-        val loading = clanEventController.isLoading(clanId)
-        val loadError = clanEventController.getLoadError(clanId)
-        when {
-            loading -> contentHost.addView(buildLoadingView(ctx))
-            loadError != null -> contentHost.addView(buildErrorView(ctx, loadError))
-            else -> contentHost.addView(buildNotFoundView(ctx))
+        updateActionBarMenu(event)
+        if (content == renderedContent) return
+
+        val view = when {
+            content.event != null -> buildEventDetailView(ctx, themeColors, content.event) {
+                visibleEvent()?.let { latest ->
+                    val interested = !latest.isInterested(currentUserId())
+                    clanEventController.setInterested(clanId, latest.id, interested) { _, _ -> bindContent() }
+                }
+            }
+            content.loading -> buildLoadingView(ctx)
+            content.error != null -> buildErrorView(ctx, content.error)
+            else -> buildNotFoundView(ctx)
         }
+        contentHost.removeAllViews()
+        contentHost.addView(view)
+        renderedContent = content
+    }
+
+    private fun eventContent(context: Context, event: ClanEventEntity): EventContent {
+        val members = userClanController.getClanMembers(clanId)
+        val creator = members.firstOrNull { it.userId == event.creatorId }
+        val membersById = members.associateBy { it.userId }
+        val status = event.displayStatus()
+        val statusText = when (status) {
+            ClanEventStatus.UPCOMING -> context.getString(R.string.clan_event_status_upcoming, event.minutesUntilStart())
+            ClanEventStatus.ONGOING -> context.getString(R.string.clan_event_status_ongoing)
+            else -> formatEventStartTime(context, event.startTimeSeconds)
+        }
+        val endTimeText = if (event.endTimeSeconds > event.startTimeSeconds) {
+            context.getString(R.string.clan_event_ends_at, formatEventStartTime(context, event.endTimeSeconds))
+        } else null
+        return EventContent(
+            event = event,
+            creator = MemberInfo(memberDisplayName(creator), memberAvatarUrl(creator)),
+            interestedMembers = event.interestedUserIds().map { id ->
+                val member = membersById[id]
+                MemberInfo(memberDisplayName(member), memberAvatarUrl(member))
+            },
+            voiceChannelLabel = clanEventController.getChannel(clanId, event.channelVoiceId)?.channelLabel,
+            linkedChannelLabel = clanEventController.getChannel(clanId, event.channelId)?.channelLabel,
+            status = status,
+            statusText = statusText,
+            endTimeText = endTimeText,
+            interested = event.isInterested(currentUserId()),
+            canEnd = clanEventController.canEndEvent(event),
+        )
     }
 
     private fun buildLoadingView(context: Context): View {
@@ -588,8 +626,8 @@ class ClanEventDetailFragment : BaseFragment() {
         }
     }
 
-    private fun openEventChannel(channel: ClanChannelEntity) {
-        val currentChannel = clanEventController.getChannel(clanId, channel.channelId) ?: return
+    private fun openEventChannel(channelId: Long) {
+        val currentChannel = clanEventController.getChannel(clanId, channelId) ?: return
         onOpenChannel?.invoke(currentChannel) ?: run {
             (getParentActivity() as? MainActivity)?.openChat(
                 currentChannel.channelId,
@@ -604,9 +642,8 @@ class ClanEventDetailFragment : BaseFragment() {
         context: Context,
         theme: ThemeColors,
         event: ClanEventEntity,
-        voiceChannel: ClanChannelEntity?,
-        topMarginDp: Float = 4f,
-        onChannelClick: ((ClanChannelEntity) -> Unit)? = null,
+        voiceChannelLabel: String?,
+        topMarginDp: Float,
     ): View {
         return if (event.isOfflineEvent()) {
             buildInlineInfoRow(
@@ -619,7 +656,7 @@ class ClanEventDetailFragment : BaseFragment() {
                 topMarginDp = topMarginDp,
             )
         } else {
-            val label = voiceChannel?.channelLabel?.takeIf { it.isNotBlank() }
+            val label = voiceChannelLabel?.takeIf { it.isNotBlank() }
                 ?: context.getString(
                     if (event.channelVoiceId != 0L) R.string.clan_event_private_room
                     else R.string.clan_event_external_meeting_room,
@@ -629,12 +666,14 @@ class ClanEventDetailFragment : BaseFragment() {
                 theme,
                 R.drawable.mz_speaker_24,
                 label,
-                iconColor = if (voiceChannel != null) theme.blurple else theme.textStrong,
-                textColor = if (voiceChannel != null) theme.blurple else theme.textStrong,
+                iconColor = if (voiceChannelLabel != null) theme.blurple else theme.textStrong,
+                textColor = if (voiceChannelLabel != null) theme.blurple else theme.textStrong,
                 topMarginDp = topMarginDp,
             )
-            if (voiceChannel != null && onChannelClick != null) {
-                applyChannelRowClick(row, voiceChannel, onChannelClick)
+            if (voiceChannelLabel != null) {
+                row.isClickable = true
+                row.isFocusable = true
+                row.setOnClickListener { openEventChannel(event.channelVoiceId) }
             }
             row
         }
@@ -643,49 +682,24 @@ class ClanEventDetailFragment : BaseFragment() {
     private fun buildEventChannelDetailRow(
         context: Context,
         theme: ThemeColors,
-        linkedChannel: ClanChannelEntity?,
-        topMarginDp: Float = 8f,
-        onChannelClick: ((ClanChannelEntity) -> Unit)? = null,
+        channelId: Long,
+        channelLabel: String?,
     ): View? {
-        if (linkedChannel == null) return null
+        if (channelLabel == null) return null
         return TextView(context).apply {
-            text = context.getString(R.string.clan_event_channel_in, linkedChannel.channelLabel)
+            text = context.getString(R.string.clan_event_channel_in, channelLabel)
             textSize = 12f
             setTextColor(theme.blurple)
-            if (onChannelClick != null) {
-                isClickable = true
-                isFocusable = true
-                setOnClickListener { onChannelClick(linkedChannel) }
-            }
-        }.also {
-            it.layoutParams = LayoutHelper.createLinear(
-                LayoutHelper.MATCH_PARENT,
-                LayoutHelper.WRAP_CONTENT,
-                0f,
-                Gravity.START,
-                0f,
-                topMarginDp,
-                0f,
-                0f,
-            )
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { openEventChannel(channelId) }
         }
-    }
-
-    private fun applyChannelRowClick(
-        row: View,
-        channel: ClanChannelEntity,
-        onChannelClick: (ClanChannelEntity) -> Unit,
-    ) {
-        row.isClickable = true
-        row.isFocusable = true
-        row.setOnClickListener { onChannelClick(channel) }
     }
 
     private fun buildInterestedMembersSection(
         context: Context,
         theme: ThemeColors,
-        interestedIds: List<Long>,
-        members: List<ClanMember>,
+        interestedMembers: List<MemberInfo>,
     ): View {
         val section = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -699,7 +713,7 @@ class ClanEventDetailFragment : BaseFragment() {
             },
             LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.START, 0f, 16f, 0f, 10f),
         )
-        if (interestedIds.isEmpty()) {
+        if (interestedMembers.isEmpty()) {
             val empty = LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER_HORIZONTAL
@@ -722,9 +736,7 @@ class ClanEventDetailFragment : BaseFragment() {
             section.addView(empty)
             return section
         }
-        val membersById = members.associateBy { it.userId }
-        interestedIds.forEach { userId ->
-            val member = membersById[userId]
+        interestedMembers.forEach { member ->
             val row = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
@@ -734,13 +746,13 @@ class ClanEventDetailFragment : BaseFragment() {
                 AvatarView(context).apply {
                     setSizeDp(40)
                     setRoundRadius(20f)
-                    val avatar = memberAvatarUrl(member)
+                    val avatar = member.avatarUrl
                     if (avatar.isNotEmpty()) setImageUrl(avatarImgproxyUrl(avatar, LayoutHelper.dp(40)))
                 },
             )
             row.addView(
                 TextView(context).apply {
-                    text = memberDisplayName(member).ifBlank { context.getString(R.string.account_username) }
+                    text = member.name.ifBlank { context.getString(R.string.account_username) }
                     textSize = 14f
                     setTextColor(theme.colorText)
                     setPadding(LayoutHelper.dp(10), 0, 0, 0)
@@ -755,16 +767,10 @@ class ClanEventDetailFragment : BaseFragment() {
     private fun buildEventDetailView(
         context: Context,
         theme: ThemeColors,
-        event: ClanEventEntity,
-        clanName: String,
-        clanLogo: String,
-        creator: ClanMember?,
-        members: List<ClanMember>,
-        voiceChannel: ClanChannelEntity?,
-        linkedChannel: ClanChannelEntity?,
-        currentUserId: Long,
+        eventContent: EventContent,
         onToggleInterest: () -> Unit,
     ): View {
+        val event = eventContent.event
         val contentPad = LayoutHelper.dp(16)
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -822,23 +828,18 @@ class ClanEventDetailFragment : BaseFragment() {
             setPadding(contentPad, contentPad, contentPad, contentPad)
         }
     
-        val status = event.displayStatus()
+        val status = eventContent.status
         val statusColor = when (status) {
             ClanEventStatus.UPCOMING -> theme.blurple
             ClanEventStatus.ONGOING -> 0xFF16A34A.toInt()
             else -> theme.textStrong
-        }
-        val statusText = when (status) {
-            ClanEventStatus.UPCOMING -> context.getString(R.string.clan_event_status_upcoming, event.minutesUntilStart())
-            ClanEventStatus.ONGOING -> context.getString(R.string.clan_event_status_ongoing)
-            else -> formatEventStartTime(context, event.startTimeSeconds)
         }
         content.addView(
             buildDetailInfoRow(
                 context,
                 theme,
                 buildInfoIconLeading(context, R.drawable.mz_event_24, statusColor),
-                statusText,
+                eventContent.statusText,
                 statusColor,
                 0f,
             ),
@@ -878,9 +879,7 @@ class ClanEventDetailFragment : BaseFragment() {
             ),
         )
         infoBlock.addView(
-            buildEventLocationRow(context, theme, event, voiceChannel, 10f) { channel ->
-                openEventChannel(channel)
-            },
+            buildEventLocationRow(context, theme, event, eventContent.voiceChannelLabel, 10f),
         )
         infoBlock.addView(
             buildInlineInfoRow(
@@ -896,8 +895,8 @@ class ClanEventDetailFragment : BaseFragment() {
             buildDetailInfoRow(
                 context,
                 theme,
-                buildInfoAvatarLeading(context, memberAvatarUrl(creator)),
-                context.getString(R.string.clan_event_created_by, memberDisplayName(creator)),
+                buildInfoAvatarLeading(context, eventContent.creator.avatarUrl),
+                context.getString(R.string.clan_event_created_by, eventContent.creator.name),
                 theme.onSurfaceVariant,
                 10f,
             ),
@@ -918,13 +917,13 @@ class ClanEventDetailFragment : BaseFragment() {
             )
         }
     
-        if (event.endTimeSeconds > event.startTimeSeconds) {
+        eventContent.endTimeText?.let { endTimeText ->
             content.addView(
                 buildInlineInfoRow(
                     context,
                     theme,
                     R.drawable.mz_event_24,
-                    context.getString(R.string.clan_event_ends_at, formatEventStartTime(context, event.endTimeSeconds)),
+                    endTimeText,
                     iconColor = theme.onSurfaceVariant,
                     topMarginDp = 0f,
                 ),
@@ -932,14 +931,12 @@ class ClanEventDetailFragment : BaseFragment() {
             )
         }
     
-        buildEventChannelDetailRow(context, theme, linkedChannel, 0f) { channel ->
-            openEventChannel(channel)
-        }?.let {
+        buildEventChannelDetailRow(context, theme, event.channelId, eventContent.linkedChannelLabel)?.let {
             content.addView(it, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.START, 0f, 8f, 0f, 0f))
         }
     
         if (status != ClanEventStatus.ONGOING) {
-            val interested = event.isInterested(currentUserId)
+            val interested = eventContent.interested
             content.addView(
                 buildEventActionChip(
                     context,
@@ -950,7 +947,7 @@ class ClanEventDetailFragment : BaseFragment() {
                 ),
                 LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 12f, 0f, 0f),
             )
-        } else if (clanEventController.canEndEvent(event)) {
+        } else if (eventContent.canEnd) {
             content.addView(
                 buildEventActionChip(context, theme, R.drawable.mz_close_20, context.getString(R.string.clan_event_end)) {
                     val latest = visibleEvent()
@@ -964,7 +961,7 @@ class ClanEventDetailFragment : BaseFragment() {
             View(context).apply { setBackgroundColor(theme.outlineVariant) },
             LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 1, 0f, Gravity.NO_GRAVITY, 0f, 4f, 0f, 0f),
         )
-        content.addView(buildInterestedMembersSection(context, theme, event.interestedUserIds(), members))
+        content.addView(buildInterestedMembersSection(context, theme, eventContent.interestedMembers))
         root.addView(
             content,
             LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT),

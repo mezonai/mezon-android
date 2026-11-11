@@ -77,10 +77,9 @@ class StreamingRoomFragment : BaseFragment() {
     private lateinit var poster: ImageView
     private lateinit var spinner: ProgressBar
     private lateinit var header: LinearLayout
-    private lateinit var footer: LinearLayout
+    private lateinit var footer: FrameLayout
     private var footerButtons: List<View> = emptyList()
-    private val footerSpacers = ArrayList<View>()
-    private var compactFooter: Boolean? = null
+    private var footerLandscape: Boolean? = null
     private lateinit var title: TextView
     private lateinit var live: TextView
     private lateinit var viewerCount: TextView
@@ -204,10 +203,8 @@ class StreamingRoomFragment : BaseFragment() {
             minWidth = LayoutHelper.dp(40)
         }
         root.addView(membersRow, FrameLayout.LayoutParams(-2, LayoutHelper.dp(40), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = LayoutHelper.dp(100) })
-        footer = LinearLayout(context).apply {
-            gravity = Gravity.CENTER_VERTICAL
-            setBackgroundColor(STREAM_CHROME_COLOR)
-        }
+        footer = FrameLayout(context).apply { setBackgroundColor(STREAM_CHROME_COLOR) }
+        val controls = LinearLayout(context).apply { gravity = Gravity.CENTER_VERTICAL }
         speaker = button(context, R.drawable.mz_speaker_24) { session.toggleSpeakerOutput() }
         speakerIcon = speaker.getChildAt(0) as ImageView
         qualityButton = button(context, R.drawable.mz_settings_24) {
@@ -223,19 +220,24 @@ class StreamingRoomFragment : BaseFragment() {
             background = rounded(0xFFFF3535.toInt(), 25)
         }
         footerButtons = listOf(speaker, qualityButton, chatButton, leave)
-        footerSpacers.clear()
-        compactFooter = null
+        footerLandscape = null
         for ((index, control) in footerButtons.withIndex()) {
             if (index > 0) {
-                val spacer = View(context)
-                footerSpacers.add(spacer)
-                footer.addView(spacer, LinearLayout.LayoutParams(0, 1, 1f))
+                val gap = LayoutHelper.dp(if (index == footerButtons.lastIndex) 24 else 14)
+                // Shrink the gaps proportionally when the window is narrow.
+                controls.addView(View(context), LinearLayout.LayoutParams(gap, 1, gap.toFloat()))
             }
-            footer.addView(control, LinearLayout.LayoutParams(LayoutHelper.dp(50), LayoutHelper.dp(50)))
+            controls.addView(control, LinearLayout.LayoutParams(LayoutHelper.dp(50), LayoutHelper.dp(50)))
         }
-        root.addView(footer, FrameLayout.LayoutParams(-1, LayoutHelper.dp(50), Gravity.BOTTOM).apply {
-            leftMargin = LayoutHelper.dp(24); rightMargin = LayoutHelper.dp(24); bottomMargin = LayoutHelper.dp(30)
-        })
+        footer.addView(controls, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.MATCH_PARENT, Gravity.CENTER))
+        root.addView(
+            footer,
+            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, LayoutHelper.dp(50), Gravity.BOTTOM).apply {
+                leftMargin = LayoutHelper.dp(24)
+                rightMargin = LayoutHelper.dp(24)
+                bottomMargin = LayoutHelper.dp(30)
+            },
+        )
         updateFooterLayout(context.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE)
         updateBottomChromeBackground()
         getParentActivity()?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -289,10 +291,10 @@ class StreamingRoomFragment : BaseFragment() {
         }
     }
 
-    private fun updateFooterLayout(compact: Boolean) {
-        if (compactFooter == compact) return
-        compactFooter = compact
-        val buttonSize = LayoutHelper.dp(if (compact) 48 else 50)
+    private fun updateFooterLayout(landscape: Boolean) {
+        if (footerLandscape == landscape) return
+        footerLandscape = landscape
+        val buttonSize = LayoutHelper.dp(if (landscape) 48 else 50)
         footerButtons.forEach { control ->
             (control.layoutParams as LinearLayout.LayoutParams).apply {
                 width = buttonSize
@@ -300,17 +302,8 @@ class StreamingRoomFragment : BaseFragment() {
                 control.layoutParams = this
             }
         }
-        footerSpacers.forEachIndexed { index, spacer ->
-            (spacer.layoutParams as LinearLayout.LayoutParams).apply {
-                width = if (compact) LayoutHelper.dp(if (index == footerSpacers.lastIndex) 24 else 14) else 0
-                weight = if (compact) 0f else 1f
-                spacer.layoutParams = this
-            }
-        }
         (footer.layoutParams as FrameLayout.LayoutParams).apply {
-            width = if (compact) FrameLayout.LayoutParams.WRAP_CONTENT else FrameLayout.LayoutParams.MATCH_PARENT
             height = buttonSize
-            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
             footer.layoutParams = this
         }
     }

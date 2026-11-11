@@ -44,13 +44,16 @@ object VideoCache {
 
     fun dataSourceFactory(context: Context): DataSource.Factory {
         val appContext = context.applicationContext
-        val upstream = CdnSigningDataSource.Factory(DefaultDataSource.Factory(appContext))
+        val upstream = upstreamDataSourceFactory(appContext)
         return DataSource.Factory {
             val source = upstream.createDataSource()
             val cache = cacheOrNull(appContext)
             if (cache == null) source else CacheDataSource(cache, source, CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
         }
     }
+
+    internal fun upstreamDataSourceFactory(context: Context): DataSource.Factory =
+        CdnSigningDataSource.Factory(DefaultDataSource.Factory(context.applicationContext))
 
     fun clear(context: Context) {
         val appContext = context.applicationContext
@@ -60,6 +63,7 @@ object VideoCache {
                 cache.keys.forEach { key -> runCatching { cache.removeResource(key) } }
             }
             VideoFrameStore.clear(appContext)
+            VideoPlaybackDownload.clear(appContext)
         }
     }
 }

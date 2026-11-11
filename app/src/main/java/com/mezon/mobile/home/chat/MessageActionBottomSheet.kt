@@ -420,7 +420,9 @@ class MessageActionBottomSheet(
         val actions = mutableListOf<ActionItem>()
 
         if (hasMedia) {
-            val isVideo = isVideoAttachmentType(message.attachmentFiletype)
+            val isVideo = isVideoAttachmentType(
+                message.attachmentFiletype, message.attachmentFilename, message.attachmentUrl,
+            )
             val saveMediaTitleRes = if (isVideo) {
                 R.string.action_save_video
             } else {

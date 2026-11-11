@@ -789,7 +789,7 @@ class CreateThreadFragment : BaseFragment() {
         if (!msg.hasAnyMedia) return emptyList()
         val withUrl = msg.allAttachmentsInfo.filter { it.url.isNotEmpty() }
         if (withUrl.isEmpty()) return emptyList()
-        val media = withUrl.filter { isMediaAttachment(it.filetype, it.url) }
+        val media = withUrl.filter { isMediaAttachment(it.filetype, it.url, it.filename) }
         return media.ifEmpty { withUrl.take(1) }
     }
 
@@ -806,7 +806,7 @@ class CreateThreadFragment : BaseFragment() {
             when {
                 isGifAttachment(a.filetype, a.filename, a.url) ||
                     isImageAttachmentType(a.filetype) -> img++
-                isVideoAttachmentType(a.filetype) -> vid++
+                isVideoAttachmentType(a.filetype, a.filename, a.url) -> vid++
                 else -> fil++
             }
         }

@@ -51,6 +51,7 @@ import com.mezon.mobile.home.chat.isGifAttachment
 import com.mezon.mobile.home.chat.isImageAttachmentType
 import com.mezon.mobile.home.chat.isMediaAttachment
 import com.mezon.mobile.home.chat.isVideoAttachmentType
+import com.mezon.mobile.home.chat.resolveWebmVideoMimeType
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.clans.ClanChannelEntity
 import com.mezon.mobile.home.clans.ClansController
@@ -1129,7 +1130,7 @@ class SharingFragment(
             when {
                 isGifAttachment(a.filetype, a.filename, a.url) ||
                     isImageAttachmentType(a.filetype) -> img++
-                isVideoAttachmentType(a.filetype) -> vid++
+                isVideoAttachmentType(a.filetype, a.filename, a.url) -> vid++
                 else -> fil++
             }
         }
@@ -1323,8 +1324,9 @@ class SharingFragment(
 
     private fun buildAttachments(context: Context, contentResolver: ContentResolver): List<AttachmentPickerItem> {
         return sharedUris.mapIndexed { index, uri ->
-            val mimeType = resolveSharedMimeType(contentResolver, uri)
-            val filename = resolveFilename(contentResolver, uri, index, mimeType)
+            val sharedType = resolveSharedMimeType(contentResolver, uri)
+            val filename = resolveFilename(contentResolver, uri, index, sharedType)
+            val mimeType = resolveWebmVideoMimeType(sharedType, filename, uri.toString())
             val size = resolveFileSize(contentResolver, uri)
             var width = 0
             var height = 0

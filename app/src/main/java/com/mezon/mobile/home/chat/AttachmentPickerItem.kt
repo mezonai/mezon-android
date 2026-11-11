@@ -50,7 +50,6 @@ data class AttachmentPickerItem(
 
         fun fromDocumentUri(context: Context, uri: Uri): AttachmentPickerItem? {
             val resolver = context.contentResolver
-            val mimeType = resolver.getType(uri) ?: "application/octet-stream"
             var displayName = "file"
             var fileSize = 0L
 
@@ -63,6 +62,11 @@ data class AttachmentPickerItem(
                 }
             }
 
+            val mimeType = resolveWebmVideoMimeType(
+                resolver.getType(uri) ?: "application/octet-stream",
+                displayName,
+                uri.toString(),
+            )
             return AttachmentPickerItem(
                 id = uri.hashCode().toLong(),
                 uri = uri,
@@ -73,7 +77,7 @@ data class AttachmentPickerItem(
                 height = 0,
                 size = fileSize,
                 duration = 0,
-                isVideo = false
+                isVideo = mimeType.startsWith("video/", ignoreCase = true)
             )
         }
 

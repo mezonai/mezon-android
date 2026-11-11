@@ -1939,6 +1939,8 @@
     <string name="message_toast_save_success">Save successfully</string>
     <string name="message_toast_save_failed">Save failed</string>
     <string name="video_playback_failed">Couldn\'t play this video</string>
+    <string name="video_playback_preparing">Preparing video…</string>
+    <string name="video_playback_open_external">Open in another player</string>
     <string name="video_save_still_uploading">This video is still uploading. Try again in a few minutes</string>
     <string name="video_save_network_failed">Couldn\'t download the video. Check your connection and try again</string>
     <string name="video_save_no_space">Not enough storage to save this video</string>

@@ -1842,6 +1842,8 @@
     <string name="message_toast_save_success">Lưu thành công</string>
     <string name="message_toast_save_failed">Lưu thất bại</string>
     <string name="video_playback_failed">Không thể phát video này</string>
+    <string name="video_playback_preparing">Đang chuẩn bị video…</string>
+    <string name="video_playback_open_external">Mở bằng trình phát khác</string>
     <string name="video_save_still_uploading">Video đang được tải lên. Hãy thử lại sau ít phút</string>
     <string name="video_save_network_failed">Không tải được video. Kiểm tra kết nối mạng rồi thử lại</string>
     <string name="video_save_no_space">Không đủ dung lượng để lưu video</string>

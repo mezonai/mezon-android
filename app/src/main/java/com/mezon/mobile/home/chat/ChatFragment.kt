@@ -2373,7 +2373,7 @@ open class ChatFragment : BaseFragment() {
                 val url = att.url
                 if (url.isEmpty()) return
 
-                val isVideo = isVideoAttachmentType(att.filetype)
+                val isVideo = isVideoAttachmentType(att.filetype, att.filename, url)
                 val thumbBmp = cell.getMediaBitmap(attachmentIndex)
 
                 if (isVideo) {
@@ -2404,7 +2404,7 @@ open class ChatFragment : BaseFragment() {
                     )
                 } else {
                     val seed = allMedia.filter {
-                        !isVideoAttachmentType(it.filetype) && it.url.isNotEmpty()
+                        !isVideoAttachmentType(it.filetype, it.filename, it.url) && it.url.isNotEmpty()
                     }.map { it.url }
                     openChannelPhotoViewer(context, url, thumbBmp, seed, msg)
                 }
@@ -7169,9 +7169,7 @@ open class ChatFragment : BaseFragment() {
         val isMyMessage = msg.senderId == userId
         val showEditMessage = msg.canEditMessage(userId)
         val allMedia = msg.allImageAttachments
-        val hasMedia = allMedia.isNotEmpty() ||
-            msg.attachmentUrl.isNotEmpty() &&
-            (isImageAttachmentType(msg.attachmentFiletype) || isVideoAttachmentType(msg.attachmentFiletype))
+        val hasMedia = allMedia.isNotEmpty()
         val hasImage = allMedia.any { isImageAttachmentType(it.filetype) }
         val allowFwd = !msg.isPollMessage
 
@@ -7655,7 +7653,7 @@ open class ChatFragment : BaseFragment() {
                 val url = msg.attachmentUrl
                 if (url.isNotEmpty()) {
                     val ctx = getContext() ?: return
-                    if (isVideoAttachmentType(msg.attachmentFiletype)) {
+                    if (isVideoAttachmentType(msg.attachmentFiletype, msg.attachmentFilename, url)) {
                         appScope.launch(ioDispatcher) {
                             val link = com.mezon.mobile.util.FileIngestPlaylist.linkForCopy(url)
                             withContext(Dispatchers.Main) {

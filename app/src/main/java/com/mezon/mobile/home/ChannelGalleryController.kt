@@ -53,7 +53,7 @@ data class ChannelGalleryMediaItem(
     val senderAvatar: String = "",
     val senderInfoResolved: Boolean = false
 ) {
-    val isVideo: Boolean get() = isVideoAttachmentType(filetype)
+    val isVideo: Boolean get() = isVideoAttachmentType(filetype, filename, url)
 }
 
 enum class ChannelGalleryMediaType(val apiValue: String) {
@@ -562,7 +562,7 @@ private fun MessageEntity.toGalleryMediaItems(): List<ChannelGalleryMediaItem> {
 
 private fun AttachmentInfo.toGalleryMediaItem(message: MessageEntity, index: Int): ChannelGalleryMediaItem? {
     val image = isImageAttachmentType(filetype)
-    val video = isVideoAttachmentType(filetype)
+    val video = isVideoAttachmentType(filetype, filename, url)
     if (!image && !video) return null
 
     val u = url.trim()
@@ -593,7 +593,7 @@ private fun AttachmentInfo.toGalleryMediaItem(message: MessageEntity, index: Int
 
 private fun ChannelAttachment.toFilteredMediaOrNull(): ChannelGalleryMediaItem? {
     val image = isImageAttachmentType(filetype)
-    val video = isVideoAttachmentType(filetype)
+    val video = isVideoAttachmentType(filetype, filename, url)
     if (!image && !video) return null
 
     val u = url

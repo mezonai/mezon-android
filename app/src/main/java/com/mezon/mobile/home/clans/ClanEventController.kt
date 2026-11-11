@@ -300,10 +300,9 @@ class ClanEventController @Inject constructor(
     fun visibleEvents(clanId: Long): List<ClanEventEntity> {
         val channelIds = channelController.getChannels(clanId).mapTo(HashSet()) { it.channelId }
         val nowMillis = System.currentTimeMillis()
-        val userId = currentUserId()
+        // isPrivate identifies an external meeting. The linked channel controls its audience.
         return getEvents(clanId).filter { event ->
             event.isActiveAt(nowMillis) &&
-                (!event.isPrivate || (userId != 0L && event.creatorId == userId)) &&
                 (event.channelId == 0L || event.channelId in channelIds)
         }
     }

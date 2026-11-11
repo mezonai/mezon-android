@@ -254,7 +254,7 @@ private fun PinMessageData.toMessageEntity(): MessageEntity {
         first.filetype.equals("sticker", true) -> MessageEntity.TYPE_GIF
         first.url.contains("/stickers/") -> MessageEntity.TYPE_GIF
         isImageAttachmentType(first.filetype) -> MessageEntity.TYPE_PHOTO
-        isVideoAttachmentType(first.filetype) -> MessageEntity.TYPE_VIDEO
+        isVideoAttachmentType(first.filetype, first.filename, first.url) -> MessageEntity.TYPE_VIDEO
         first.url.isNotEmpty() -> MessageEntity.TYPE_FILE
         else -> MessageEntity.TYPE_TEXT
     }
