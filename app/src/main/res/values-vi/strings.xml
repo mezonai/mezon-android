@@ -991,7 +991,8 @@
     <string name="clan_event_end">Kết thúc sự kiện</string>
     <string name="clan_event_interested">Quan tâm</string>
     <string name="clan_event_uninterested">Bỏ quan tâm</string>
-    <string name="clan_event_private_room">Phòng họp bên ngoài</string>
+    <string name="clan_event_private_room">Phòng thoại riêng tư</string>
+    <string name="clan_event_external_meeting_room">Phòng họp bên ngoài</string>
     <string name="clan_event_invite_action">Mời</string>
     <string name="clan_event_invite_title">Mời bạn bè tham gia Sự kiện bên ngoài</string>
     <string name="clan_event_invite_search_placeholder">Tìm kiếm bạn bè</string>
@@ -1018,6 +1019,7 @@
     <string name="event_creator_type_private_title">Tạo sự kiện bên ngoài</string>
     <string name="event_creator_type_private_desc">Người dùng có thể tham gia cuộc họp bằng liên kết mà không cần đăng nhập.</string>
     <string name="event_creator_voice_channel_label">Kênh thoại</string>
+    <string name="event_creator_private_voice_channel_tip">Tip: Đảm bảo tất cả khán giả đều có thể tham gia được sự kiện, hãy thêm họ vào %1$s.</string>
     <string name="event_creator_address_label">Địa chỉ</string>
     <string name="event_creator_address_placeholder">Nhập địa điểm sự kiện</string>
     <string name="event_creator_linked_channel_label">Kênh thông báo (tùy chọn)</string>

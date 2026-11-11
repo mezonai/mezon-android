@@ -62,6 +62,11 @@ class ClanEventBottomSheet(
         const val CREATE_BUTTON_COLOR = 0xFF6361E8.toInt()
         const val UPCOMING_EVENT_COLOR = 0xFF706BF2.toInt()
         const val ACTIVE_EVENT_COLOR = 0xFF33C759.toInt()
+        val CONTENT_UPDATE_NOTIFICATIONS = intArrayOf(
+            NotificationCenter.clanEventsDidLoad,
+            NotificationCenter.clanMembersDidLoad,
+            NotificationCenter.clanRolesDidLoad,
+        )
     }
 
     private val eventBorderColor: Int
@@ -69,13 +74,7 @@ class ClanEventBottomSheet(
 
     var onJoinExternalMeeting: ((ExternalMeetingRoom) -> Unit)? = null
     private val logoLoadTokens = ArrayList<MezonImageLoader.Cancellable>()
-    private val eventsLoadedObserver = object : NotificationCenter.NotificationCenterDelegate {
-        override fun didReceivedNotification(id: Int, account: Int, vararg args: Any?) {
-            val idArg = args.firstOrNull() as? Long ?: return
-            if (idArg == clanId) loadClanEvent()
-        }
-    }
-    private val membersLoadedObserver = object : NotificationCenter.NotificationCenterDelegate {
+    private val contentObserver = object : NotificationCenter.NotificationCenterDelegate {
         override fun didReceivedNotification(id: Int, account: Int, vararg args: Any?) {
             val idArg = args.firstOrNull() as? Long ?: return
             if (idArg == clanId) loadClanEvent()
@@ -150,13 +149,9 @@ class ClanEventBottomSheet(
         setOnDismissListener {
             logoLoadTokens.forEach { it.cancel() }
             logoLoadTokens.clear()
-            notificationCenter.removeObserver(eventsLoadedObserver, NotificationCenter.clanEventsDidLoad)
-            notificationCenter.removeObserver(membersLoadedObserver, NotificationCenter.clanMembersDidLoad)
-            notificationCenter.removeObserver(membersLoadedObserver, NotificationCenter.clanRolesDidLoad)
+            CONTENT_UPDATE_NOTIFICATIONS.forEach { notificationCenter.removeObserver(contentObserver, it) }
         }
-        notificationCenter.addObserver(eventsLoadedObserver, NotificationCenter.clanEventsDidLoad)
-        notificationCenter.addObserver(membersLoadedObserver, NotificationCenter.clanMembersDidLoad)
-        notificationCenter.addObserver(membersLoadedObserver, NotificationCenter.clanRolesDidLoad)
+        CONTENT_UPDATE_NOTIFICATIONS.forEach { notificationCenter.addObserver(contentObserver, it) }
         loadClanEvent()
     }
 
@@ -191,8 +186,10 @@ class ClanEventBottomSheet(
                         onOpenEventDetail(event)
                     },
                     onOpenChannel = { channel ->
-                        dismiss()
-                        onOpenChannel(channel)
+                        clanEventController.getChannel(clanId, channel.channelId)?.let { currentChannel ->
+                            dismiss()
+                            onOpenChannel(currentChannel)
+                        }
                     },
                     onToggleInterest = {
                         val interested = !event.isInterested(userId)
@@ -511,7 +508,10 @@ class ClanEventBottomSheet(
             )
         } else {
             val label = voiceChannel?.channelLabel?.takeIf { it.isNotBlank() }
-                ?: context.getString(R.string.clan_event_private_room)
+                ?: context.getString(
+                    if (event.channelVoiceId != 0L) R.string.clan_event_private_room
+                    else R.string.clan_event_external_meeting_room,
+                )
             val row = buildInlineInfoRow(
                 context,
                 theme,

@@ -1,41 +1,14 @@
 package com.mezon.mobile.home.friends
 
 import android.content.Context
-import android.graphics.Color
-import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
-import android.util.TypedValue
-import android.view.Gravity
-import android.view.View
 import android.widget.TextView
-import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.theme.MobileThemeColors
+import com.mezon.mobile.ui.cells.createCountBadgeView
+import com.mezon.mobile.ui.cells.updateCountBadge
 
-internal fun createFriendRequestBadgeView(context: Context): TextView {
-    return TextView(context).apply {
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
-        setTypeface(typeface, Typeface.BOLD)
-        setTextColor(Color.WHITE)
-        gravity = Gravity.CENTER
-        includeFontPadding = false
-        minWidth = LayoutHelper.dp(18)
-        setPadding(LayoutHelper.dp(5), 0, LayoutHelper.dp(5), 0)
-        updateFriendRequestBadge(0)
-    }
-}
+internal fun createFriendRequestBadgeView(context: Context): TextView =
+    createCountBadgeView(context, MobileThemeColors.unreadBadge)
 
 internal fun TextView.updateFriendRequestBadge(count: Int) {
-    val safeCount = count.coerceAtLeast(0)
-    if (safeCount > 0) {
-        text = if (safeCount > 99) "99+" else safeCount.toString()
-        background = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = LayoutHelper.dp(9f).toFloat()
-            setColor(MobileThemeColors.unreadBadge)
-        }
-        visibility = View.VISIBLE
-    } else {
-        text = ""
-        visibility = View.GONE
-    }
+    updateCountBadge(count, MobileThemeColors.unreadBadge)
 }

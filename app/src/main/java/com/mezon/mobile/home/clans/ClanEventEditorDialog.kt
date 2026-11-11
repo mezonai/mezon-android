@@ -9,7 +9,10 @@ import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
+import android.text.SpannableString
+import android.text.Spanned
 import android.text.format.DateFormat
+import android.text.style.ForegroundColorSpan
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -40,6 +43,7 @@ import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.ui.MezonToast
 import com.mezon.mobile.ui.cells.ActionButton
+import com.mezon.mobile.ui.cells.ColoredImageSpan
 import com.mezon.mobile.ui.cells.InputCell
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.RadioCell
@@ -164,6 +168,7 @@ class ClanEventEditorDialog private constructor(
     private lateinit var addressCell: InputCell
     private lateinit var channelSection: LinearLayout
     private lateinit var channelPickerRow: ClanEventOptionPicker
+    private lateinit var privateVoiceChannelTip: TextView
 
     private lateinit var titleCell: InputCell
     private lateinit var descriptionCell: InputCell
@@ -476,7 +481,7 @@ class ClanEventEditorDialog private constructor(
             onPickRequested = { showVoiceChannelPicker(context, voiceChannels) }
             onClearRequested = {
                 channelVoiceId = 0L
-                clearSelection()
+                refreshVoicePickerRow()
                 refreshPrimaryAction()
             }
             bind(channelVoiceId, voiceChannels)
@@ -504,7 +509,6 @@ class ClanEventEditorDialog private constructor(
             }
         }
 
-        val textChannels = clanEventController.textChannels(clanId)
         channelPickerRow = ClanEventOptionPicker(
             context,
             themeColors,
@@ -515,11 +519,21 @@ class ClanEventEditorDialog private constructor(
                 channelId = 0L
                 clearSelection()
             }
-            bind(channelId, textChannels)
+            bind(clanEventController.getChannel(clanId, channelId))
+        }
+        privateVoiceChannelTip = TextView(context).apply {
+            visibility = View.GONE
+            textSize = 13f
+            setTextColor(themeColors.onSurfaceVariant)
+            setLineSpacing(LayoutHelper.dp(2).toFloat(), 1f)
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
         }
         channelSection = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             addView(channelPickerRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+            addView(privateVoiceChannelTip, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
+                topMargin = LayoutHelper.dp(8)
+            })
         }
 
         return LinearLayout(context).apply {
@@ -810,6 +824,7 @@ class ClanEventEditorDialog private constructor(
         }
         channelSection.visibility =
             if (selectedOption != ClanEventOption.PRIVATE) View.VISIBLE else View.GONE
+        refreshPrivateVoiceChannelTip()
     }
 
     private fun goToStep(step: Step) {
@@ -888,6 +903,40 @@ class ClanEventEditorDialog private constructor(
     private fun refreshVoicePickerRow() {
         if (!::voicePickerRow.isInitialized) return
         voicePickerRow.bind(channelVoiceId, clanEventController.voiceChannels(clanId))
+        refreshPrivateVoiceChannelTip()
+    }
+
+    private fun refreshPrivateVoiceChannelTip() {
+        val channel = clanEventController.voiceChannels(clanId)
+            .firstOrNull { it.channelId == channelVoiceId && it.isPrivate }
+        if (selectedOption != ClanEventOption.SPEAKER || channel == null) {
+            privateVoiceChannelTip.visibility = View.GONE
+            privateVoiceChannelTip.text = ""
+            privateVoiceChannelTip.contentDescription = null
+            return
+        }
+
+        val channelName = ClanEventOptionPicker.formatChannelLabel(channel.channelLabel)
+        val channelLabel = "\uFFFC\u00A0$channelName"
+        val tip = getString(R.string.event_creator_private_voice_channel_tip, channelLabel)
+        val channelStart = tip.lastIndexOf(channelLabel)
+        val icon = ChannelItemCell.resolveChannelIcon(channel.type, channel.isPrivate, channel.isAgeRestricted)
+        val iconSpan = ColoredImageSpan(icon.getDrawable(context), ColoredImageSpan.ALIGN_CENTER).apply {
+            setSize(privateVoiceChannelTip.textSize.toInt())
+            overrideColor = themeColors.primary
+        }
+        privateVoiceChannelTip.text = SpannableString(tip).apply {
+            setSpan(iconSpan, channelStart, channelStart + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            setSpan(
+                ForegroundColorSpan(themeColors.primary),
+                channelStart,
+                channelStart + channelLabel.length,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
+        }
+        privateVoiceChannelTip.contentDescription =
+            getString(R.string.event_creator_private_voice_channel_tip, channelName)
+        privateVoiceChannelTip.visibility = View.VISIBLE
     }
 
     private fun hasValidDetails(): Boolean = ClanEventCreateUi.validateDetails(
@@ -896,7 +945,7 @@ class ClanEventEditorDialog private constructor(
 
     private fun refreshChannelPickerRow() {
         if (!::channelPickerRow.isInitialized) return
-        channelPickerRow.bind(channelId, clanEventController.textChannels(clanId))
+        channelPickerRow.bind(clanEventController.getChannel(clanId, channelId))
     }
 
     private fun showVoiceChannelPicker(context: Context, channels: List<ClanChannelEntity>) {
@@ -1177,7 +1226,7 @@ class ClanEventEditorDialog private constructor(
             ClanEventOption.SPEAKER ->
                 clanEventController.getChannel(clanId, draft.channelVoiceId)?.channelLabel
                     ?: context.getString(R.string.clan_event_private_room)
-            else -> context.getString(R.string.clan_event_private_room)
+            else -> context.getString(R.string.clan_event_external_meeting_room)
         }
         val locationIcon = if (draft.option == ClanEventOption.LOCATION) MezonIcon.locationIcon else MezonIcon.channelVoice
         textCol.addView(
