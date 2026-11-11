@@ -14,9 +14,13 @@ import kotlinx.coroutines.launch
 import java.util.concurrent.ThreadLocalRandom
 import javax.inject.Inject
 import javax.inject.Singleton
+import android.content.Context
+import com.mezon.mobile.util.NetworkErrorMessages
+import dagger.hilt.android.qualifiers.ApplicationContext
 
 @Singleton
 class StickerSettingsController @Inject constructor(
+    @ApplicationContext private val appContext: Context,
     private val api: MezonApi,
     private val sessionManager: SessionManager,
     private val emojiController: EmojiController,
@@ -58,7 +62,7 @@ class StickerSettingsController @Inject constructor(
                 emojiController.invalidateStickerCacheAndReload()
                 onDone(true, null)
             } catch (e: Exception) {
-                onDone(false, e.message)
+                onDone(false, NetworkErrorMessages.userMessageOrNull(appContext, e))
             }
         }
     }
@@ -84,7 +88,7 @@ class StickerSettingsController @Inject constructor(
                 emojiController.invalidateStickerCacheAndReload()
                 onDone(true, null)
             } catch (e: Exception) {
-                onDone(false, e.message)
+                onDone(false, NetworkErrorMessages.userMessageOrNull(appContext, e))
             }
         }
     }
@@ -107,7 +111,7 @@ class StickerSettingsController @Inject constructor(
                 emojiController.invalidateStickerCacheAndReload()
                 onDone(true, null)
             } catch (e: Exception) {
-                onDone(false, e.message)
+                onDone(false, NetworkErrorMessages.userMessageOrNull(appContext, e))
             }
         }
     }

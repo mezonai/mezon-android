@@ -4,6 +4,7 @@ import android.content.ContentResolver
 import android.net.Uri
 import android.util.Log
 import com.mezon.mobile.R
+import com.mezon.mobile.util.NetworkErrorMessages
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.StartupCache
@@ -11,9 +12,11 @@ import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.network.ApiCacheTracker
+import com.mezon.mobile.network.HttpRpcStatusException
 import com.mezon.mobile.network.MmnApi
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.network.SocketEventDispatcher
+import com.mezon.mobile.network.SocketRpcServerException
 import com.mezon.mobile.network.UnauthorizedException
 import com.mezon.mobile.network.apiCacheKey
 import com.mezon.mobile.session.SessionManager
@@ -31,7 +34,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
 import java.math.BigInteger
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -157,61 +159,25 @@ class AccountController @Inject constructor(
 
     private companion object {
         private const val ACCOUNT_CACHE_PREFIX = "getAccount"
-
-        private val LINK_SMS_RPC_FAIL_REGEX = Regex(
-            """RPC\s+LinkSms\s+failed\s+\((\d+)\):\s*(.*)""",
-            setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)
-        )
-    }
-
-    private fun extractLinkSmsErrorDetail(body: String): String {
-        val t = body.trim()
-        if (t.isEmpty()) return ""
-        return try {
-            val o = JSONObject(t)
-            o.optString("message", "").trim()
-                .ifEmpty { o.optString("error", "").trim() }
-                .ifEmpty { o.optString("msg", "").trim() }
-        } catch (_: Exception) {
-            if (t.length <= 240 && !t.startsWith("<") && t.lines().size <= 3) t else ""
-        }
     }
 
     private fun humanizeLinkPhoneFailure(e: Exception): String {
-        if (e is UnauthorizedException) {
-            return appContext.getString(R.string.phone_link_error_session)
+        val code = when (e) {
+            is UnauthorizedException -> 401
+            is HttpRpcStatusException -> e.code
+            is SocketRpcServerException -> e.code
+            else -> null
         }
-        when (e) {
-            is java.net.UnknownHostException,
-            is java.net.SocketTimeoutException,
-            is java.net.ConnectException,
-            is javax.net.ssl.SSLException -> return appContext.getString(R.string.common_error_connection_failed)
+        val messageRes = when (code) {
+            400 -> R.string.phone_link_error_bad_request
+            401 -> R.string.phone_link_error_session
+            403 -> R.string.phone_link_error_forbidden
+            404 -> R.string.phone_link_error_not_found
+            429 -> R.string.phone_link_error_rate_limit
+            in 500..599 -> R.string.phone_link_error_server
+            else -> return NetworkErrorMessages.userMessage(appContext, e, appContext.getString(R.string.phone_link_failed))
         }
-        val raw = e.message?.trim().orEmpty()
-        if (raw.isEmpty()) return appContext.getString(R.string.phone_link_failed)
-
-        if (Regex("""RPC\s+LinkSms\s*:\s*401\s+Unauthorized""", RegexOption.IGNORE_CASE).containsMatchIn(raw)) {
-            return appContext.getString(R.string.phone_link_error_session)
-        }
-
-        val match = LINK_SMS_RPC_FAIL_REGEX.find(raw)
-        if (match != null) {
-            val code = match.groupValues[1].toIntOrNull()
-                ?: return appContext.getString(R.string.phone_link_failed)
-            val detail = extractLinkSmsErrorDetail(match.groupValues[2])
-            if (detail.isNotEmpty()) return detail
-
-            return when (code) {
-                400 -> appContext.getString(R.string.phone_link_error_bad_request)
-                403 -> appContext.getString(R.string.phone_link_error_forbidden)
-                404 -> appContext.getString(R.string.phone_link_error_not_found)
-                429 -> appContext.getString(R.string.phone_link_error_rate_limit)
-                in 500..599 -> appContext.getString(R.string.phone_link_error_server)
-                else -> appContext.getString(R.string.phone_link_failed)
-            }
-        }
-
-        return appContext.getString(R.string.phone_link_failed)
+        return appContext.getString(messageRes)
     }
 
     private fun scheduleDmLogoPrefetch(logoRaw: String) {
@@ -304,7 +270,7 @@ class AccountController @Inject constructor(
                 }
             } catch (e: Exception) {
                 withContext(kotlinx.coroutines.Dispatchers.Main) {
-                    onResult(false, "", e.message ?: "")
+                    onResult(false, "", NetworkErrorMessages.userMessageOrNull(appContext, e).orEmpty())
                 }
             } finally {
                 _isLoading.value = false
@@ -333,7 +299,7 @@ class AccountController @Inject constructor(
                 }
             } catch (e: Exception) {
                 withContext(kotlinx.coroutines.Dispatchers.Main) {
-                    onResult(false, e.message ?: "")
+                    onResult(false, NetworkErrorMessages.userMessageOrNull(appContext, e).orEmpty())
                 }
             } finally {
                 _isLoading.value = false
@@ -405,7 +371,7 @@ class AccountController @Inject constructor(
                 _accountInfo.value = _accountInfo.value.copy(passwordSetted = true)
                 withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(true, "") }
             } catch (e: Exception) {
-                withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(false, e.message ?: "") }
+                withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(false, NetworkErrorMessages.userMessageOrNull(appContext, e).orEmpty()) }
             } finally {
                 _isLoading.value = false
             }
@@ -449,7 +415,7 @@ class AccountController @Inject constructor(
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.accountInfoLoaded)
                 withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(true, "") }
             } catch (e: Exception) {
-                withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(false, e.message ?: "") }
+                withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(false, NetworkErrorMessages.userMessageOrNull(appContext, e).orEmpty()) }
             } finally {
                 _isLoading.value = false
             }
@@ -537,7 +503,7 @@ class AccountController @Inject constructor(
                 }
                 withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(true, "") }
             } catch (e: Exception) {
-                withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(false, e.message ?: "") }
+                withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(false, NetworkErrorMessages.userMessageOrNull(appContext, e).orEmpty()) }
             } finally {
                 _isLoading.value = false
             }

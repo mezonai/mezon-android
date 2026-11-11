@@ -413,7 +413,9 @@ class ClanEventDetailFragment : BaseFragment() {
         val ctx = fragmentView?.context ?: return
         val clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
-        MezonToast.show(this, ToastOverlay.ToastType.SUCCESS, getString(messageResId))
+        if (AndroidUtilities.shouldShowClipboardToast) {
+            MezonToast.show(this, ToastOverlay.ToastType.SUCCESS, getString(messageResId))
+        }
     }
 
     private fun dismissEventMenu() {

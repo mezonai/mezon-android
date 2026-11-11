@@ -291,7 +291,7 @@ class RoleSetupPermissionsFragment : BaseFragment() {
                         removeLast = true
                     )
                 } else {
-                    MezonToast.show(this@RoleSetupPermissionsFragment, ToastOverlay.ToastType.ERROR, getString(R.string.clan_roles_failed))
+                    RoleErrorToast.show(this@RoleSetupPermissionsFragment, getString(R.string.clan_roles_error_save), result.exceptionOrNull())
                 }
             }
         }
@@ -323,7 +323,7 @@ class RoleSetupPermissionsFragment : BaseFragment() {
                     MezonToast.show(this@RoleSetupPermissionsFragment, ToastOverlay.ToastType.SUCCESS, getString(R.string.clan_roles_changes_saved))
                     finishFragment()
                 } else {
-                    MezonToast.show(this@RoleSetupPermissionsFragment, ToastOverlay.ToastType.ERROR, getString(R.string.clan_roles_failed))
+                    RoleErrorToast.show(this@RoleSetupPermissionsFragment, getString(R.string.clan_roles_error_save), result.exceptionOrNull())
                 }
             }
         }

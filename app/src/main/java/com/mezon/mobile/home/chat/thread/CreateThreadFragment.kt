@@ -1137,7 +1137,7 @@ class CreateThreadFragment : BaseFragment() {
                 if (!canSelectMore()) {
                     android.widget.Toast.makeText(
                         ctx,
-                        "Maximum ${AttachmentPickerItem.GALLERY_MAX_SELECTION} items",
+                        ctx.getString(R.string.attachment_max_items, AttachmentPickerItem.GALLERY_MAX_SELECTION),
                         android.widget.Toast.LENGTH_SHORT
                     ).show()
                     return

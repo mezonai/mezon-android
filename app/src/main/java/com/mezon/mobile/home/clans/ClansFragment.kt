@@ -35,6 +35,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.R
 import com.mezon.mobile.core.AlertDialog
+import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
@@ -1435,14 +1436,14 @@ class ClansFragment : BaseFragment() {
             val currentVoice = voiceController.currentVoiceInfo
             if (inRoom && currentVoice != null && currentVoice.channelId != channel.channelId) {
                 val activity = getParentActivity() ?: return
-                val currentName = currentVoice.channelLabel.ifEmpty { "current voice room" }
+                val currentName = currentVoice.channelLabel.ifEmpty { getString(R.string.voice_switch_room_current) }
                 AlertDialog.Builder(activity)
-                    .setTitle("Switch Voice Room")
-                    .setMessage("You are in \"$currentName\". Leave and join \"${channel.channelLabel}\"?")
-                    .setPositiveButton("Switch") { _, _ ->
+                    .setTitle(getString(R.string.voice_switch_room_title))
+                    .setMessage(getString(R.string.voice_switch_room_message, currentName, channel.channelLabel))
+                    .setPositiveButton(getString(R.string.voice_switch_room_confirm)) { _, _ ->
                         showJoinVoiceBottomSheet(channel, clanIdForJoin)
                     }
-                    .setNegativeButton("Cancel", null)
+                    .setNegativeButton(getString(R.string.common_cancel), null)
                     .show()
                 return
             }
@@ -1470,7 +1471,9 @@ class ClansFragment : BaseFragment() {
         val link = "$baseUrl/chat/clans/$clanId/channels/${channel.channelId}"
         val clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText("channel_link", link))
-        MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(R.string.invite_link_copied))
+        if (AndroidUtilities.shouldShowClipboardToast) {
+            MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(R.string.invite_link_copied))
+        }
     }
 
     private fun toggleChannelFavorite(channel: ClanChannelEntity, clanId: Long) {

@@ -467,7 +467,7 @@ class VoiceRoomFragment : BaseFragment() {
                 val scope = roomScope
                 val ctx = context
                 if (scope == null) {
-                    Toast.makeText(ctx, "Connecting...", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(ctx, R.string.connection_connecting, Toast.LENGTH_SHORT).show()
                     return@agentClick
                 }
                 val info = voiceController.currentVoiceInfo

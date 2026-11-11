@@ -21,9 +21,14 @@ import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
+import android.content.Context
+import com.mezon.mobile.util.NetworkErrorMessages
+import dagger.hilt.android.qualifiers.ApplicationContext
+import com.mezon.mobile.R
 
 @Singleton
 class ClanEventController @Inject constructor(
+    @ApplicationContext private val appContext: Context,
     private val api: MezonApi,
     private val sessionManager: SessionManager,
     private val channelController: ChannelController,
@@ -243,8 +248,11 @@ class ClanEventController @Inject constructor(
                 apiCacheTracker.markCalled(cacheKey)
             } catch (e: Exception) {
                 Log.w(TAG, "loadEvents failed clanId=$clanId", e)
-                loadErrorsByClan[clanId] = e.message?.takeIf { it.isNotBlank() }
-                    ?: "Failed to load events"
+                loadErrorsByClan[clanId] = NetworkErrorMessages.userMessage(
+                    appContext,
+                    e,
+                    appContext.getString(R.string.clan_event_load_failed)
+                )
             } finally {
                 val reload = synchronized(cacheLock) {
                     loadingClanIds.remove(clanId)
@@ -292,7 +300,7 @@ class ClanEventController @Inject constructor(
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main.immediate) {
-                    onDone(false, e.message)
+                    onDone(false, NetworkErrorMessages.userMessageOrNull(appContext, e))
                 }
             }
         }
@@ -332,7 +340,7 @@ class ClanEventController @Inject constructor(
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main.immediate) {
-                    onDone(false, e.message)
+                    onDone(false, NetworkErrorMessages.userMessageOrNull(appContext, e))
                 }
             }
         }
@@ -372,7 +380,7 @@ class ClanEventController @Inject constructor(
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main.immediate) {
-                    onDone(false, e.message)
+                    onDone(false, NetworkErrorMessages.userMessageOrNull(appContext, e))
                 }
             }
         }
@@ -417,7 +425,7 @@ class ClanEventController @Inject constructor(
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main.immediate) {
-                    onDone(false, e.message)
+                    onDone(false, NetworkErrorMessages.userMessageOrNull(appContext, e))
                 }
             }
         }
