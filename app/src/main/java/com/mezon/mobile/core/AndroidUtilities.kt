@@ -38,6 +38,9 @@ object AndroidUtilities {
     @JvmStatic val displaySize = Point()
     @JvmStatic val displayMetrics = DisplayMetrics()
 
+    val shouldShowClipboardToast: Boolean
+        get() = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU
+
     @JvmStatic var statusBarHeight = 0
     @JvmStatic var navigationBarHeight = 0
     @JvmStatic var screenRefreshRate = 60f

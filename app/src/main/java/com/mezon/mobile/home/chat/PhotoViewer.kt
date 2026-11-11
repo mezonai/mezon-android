@@ -907,10 +907,10 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
         entryPoint.applicationScope().launch {
             val ok = coordinator.copyRemoteUrlToClipboard(context, url, ImageShareHelper.mimeTypeForUrl(url))
             withContext(entryPoint.mainDispatcher()) {
-                if (ok) {
-                    showToast(ToastOverlay.ToastType.SUCCESS, R.string.message_toast_copy_image_done)
-                } else {
+                if (!ok) {
                     showToast(ToastOverlay.ToastType.ERROR, R.string.message_toast_copy_image_failed)
+                } else if (AndroidUtilities.shouldShowClipboardToast) {
+                    showToast(ToastOverlay.ToastType.SUCCESS, R.string.message_toast_copy_image_done)
                 }
             }
         }

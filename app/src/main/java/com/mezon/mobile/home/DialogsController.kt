@@ -1,5 +1,7 @@
 package com.mezon.mobile.home
 
+import com.mezon.mobile.util.NetworkErrorMessages
+import com.mezon.mobile.R
 import android.content.Context
 import android.content.ContentResolver
 import android.graphics.Bitmap
@@ -737,7 +739,10 @@ class DialogsController @Inject constructor(
             } catch (e: Exception) {
                 Log.e(TAG, "loadDialogs failed", e)
                 dialogsLoaded = true
-                notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsLoadError, e.message ?: "Failed to load")
+                notificationCenter.postNotificationOnMainThread(
+                    NotificationCenter.dialogsLoadError,
+                    NetworkErrorMessages.userMessage(appContext, e, appContext.getString(R.string.chat_load_messages_failed))
+                )
                 badgeCoordinator.get().processDeferredQueue()
             }
         }

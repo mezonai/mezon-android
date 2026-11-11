@@ -20,9 +20,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
+import android.content.Context
+import com.mezon.mobile.util.NetworkErrorMessages
+import dagger.hilt.android.qualifiers.ApplicationContext
 
 @Singleton
 class CommunitySettingsController @Inject constructor(
+    @ApplicationContext private val appContext: Context,
     private val api: MezonApi,
     private val sessionManager: SessionManager,
     private val clansController: ClansController,
@@ -237,7 +241,7 @@ class CommunitySettingsController @Inject constructor(
                 withContext(Dispatchers.Main.immediate) { onDone(true, null) }
             } catch (e: Exception) {
                 _uiState.update { it.copy(server = it.server.copy(isSaving = false)) }
-                withContext(Dispatchers.Main.immediate) { onDone(false, e.message) }
+                withContext(Dispatchers.Main.immediate) { onDone(false, NetworkErrorMessages.userMessageOrNull(appContext, e)) }
             }
         }
     }
@@ -308,7 +312,7 @@ class CommunitySettingsController @Inject constructor(
                 withContext(Dispatchers.Main.immediate) { onDone(true, null) }
             } catch (e: Exception) {
                 _uiState.update { it.copy(server = it.server.copy(isSaving = false)) }
-                withContext(Dispatchers.Main.immediate) { onDone(false, e.message) }
+                withContext(Dispatchers.Main.immediate) { onDone(false, NetworkErrorMessages.userMessageOrNull(appContext, e)) }
             }
         }
     }
@@ -335,7 +339,7 @@ class CommunitySettingsController @Inject constructor(
                 }
                 withContext(Dispatchers.Main.immediate) { onDone(true, null) }
             } catch (e: Exception) {
-                withContext(Dispatchers.Main.immediate) { onDone(false, e.message) }
+                withContext(Dispatchers.Main.immediate) { onDone(false, NetworkErrorMessages.userMessageOrNull(appContext, e)) }
             }
         }
     }

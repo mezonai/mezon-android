@@ -49,6 +49,10 @@ class DrawerLayoutContainer(context: Context) : FrameLayout(context) {
     init {
         descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
         isFocusableInTouchMode = true
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            // This container takes focus when an input is removed. Highlighting it dims the whole screen.
+            defaultFocusHighlightEnabled = false
+        }
         setWillNotDraw(false)
 
         ViewCompat.setOnApplyWindowInsetsListener(this) { v, insets ->

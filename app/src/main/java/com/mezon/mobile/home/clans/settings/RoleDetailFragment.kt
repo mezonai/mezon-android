@@ -248,9 +248,9 @@ class RoleDetailFragment : BaseFragment() {
             gravity = Gravity.CENTER_VERTICAL
         }
         colorSwatch = View(context).apply {
-            layoutParams = LinearLayout.LayoutParams(LayoutHelper.dp(40f), LayoutHelper.dp(40f))
+            layoutParams = LinearLayout.LayoutParams(LayoutHelper.dp(20f), LayoutHelper.dp(20f))
             background = GradientDrawable().apply {
-                cornerRadius = LayoutHelper.dpf(6f)
+                shape = GradientDrawable.OVAL
                 setColor(Color.parseColor(DEFAULT_ROLE_COLOR_HEX))
             }
         }
@@ -343,12 +343,12 @@ class RoleDetailFragment : BaseFragment() {
             LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, 20f, 0f),
         )
         iconPickerHit = FrameLayout(context).apply {
-            layoutParams = LinearLayout.LayoutParams(LayoutHelper.dp(50f), LayoutHelper.dp(50f))
+            layoutParams = LinearLayout.LayoutParams(LayoutHelper.dp(36f), LayoutHelper.dp(36f))
             isClickable = false
             isFocusable = false
         }
         iconPlaceholder = ImageView(context).apply {
-            scaleType = ImageView.ScaleType.CENTER
+            scaleType = ImageView.ScaleType.FIT_CENTER
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 setColor(themeColors.surfaceVariant)
@@ -356,11 +356,11 @@ class RoleDetailFragment : BaseFragment() {
             setImageDrawable(
                 MezonIcon.loadDrawable(context, R.drawable.mz_image_24, themeColors.colorText),
             )
-            setPadding(LayoutHelper.dp(12f), LayoutHelper.dp(12f), LayoutHelper.dp(12f), LayoutHelper.dp(12f))
+            setPadding(LayoutHelper.dp(9f), LayoutHelper.dp(9f), LayoutHelper.dp(9f), LayoutHelper.dp(9f))
         }
         iconPickerHit.addView(iconPlaceholder, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
         iconAvatar = com.mezon.mobile.ui.cells.CdnIconView(context, themeColors).apply {
-            setSizeDp(50)
+            setSizeDp(36)
             setCircular(true)
             visibility = View.GONE
         }
@@ -497,7 +497,7 @@ class RoleDetailFragment : BaseFragment() {
         val perm = permissionPolicy.clanSettingsPermissionState(clanId)
         if (userController.userId != 0L && userController.userId == clan.creatorId) return true
         if (!perm.isCanEditRole) return false
-        return effectiveSelfMaxPermissionLevel() >= role.maxLevelPermission
+        return effectiveSelfMaxPermissionLevel() > role.maxLevelPermission
     }
 
     private fun draftFillColorInt(): Int {
@@ -508,7 +508,7 @@ class RoleDetailFragment : BaseFragment() {
 
     private fun refreshColorRowUi() {
         colorSwatch.background = GradientDrawable().apply {
-            cornerRadius = LayoutHelper.dpf(6f)
+            shape = GradientDrawable.OVAL
             setColor(draftFillColorInt())
         }
         val raw = draftColorHex.trim().removePrefix("#").lowercase()
@@ -588,7 +588,11 @@ class RoleDetailFragment : BaseFragment() {
                         FileUtils.readContentUriBytesCapped(cr, uri, ROLE_ICON_MAX_BYTES)
                     }
                     if (bytes.isEmpty()) {
-                        MezonToast.show(this@RoleDetailFragment, ToastOverlay.ToastType.ERROR, getString(R.string.clan_roles_failed))
+                        RoleErrorToast.show(
+                            this@RoleDetailFragment,
+                            getString(R.string.clan_roles_error_icon_upload),
+                            getString(R.string.clan_roles_error_reason_image)
+                        )
                         return@runCatching
                     }
                     val mime = cr.getType(uri) ?: "image/jpeg"
@@ -603,7 +607,7 @@ class RoleDetailFragment : BaseFragment() {
                     if (e is ContentUriTooLargeException) {
                         MezonToast.show(this@RoleDetailFragment, ToastOverlay.ToastType.ERROR, getString(R.string.clan_roles_icon_too_large))
                     } else {
-                        MezonToast.show(this@RoleDetailFragment, ToastOverlay.ToastType.ERROR, getString(R.string.clan_roles_failed))
+                        RoleErrorToast.show(this@RoleDetailFragment, getString(R.string.clan_roles_error_icon_upload), e)
                     }
                 }
             } finally {
@@ -758,10 +762,14 @@ class RoleDetailFragment : BaseFragment() {
                     MezonToast.show(this@RoleDetailFragment, ToastOverlay.ToastType.SUCCESS, getString(R.string.clan_roles_changes_saved))
                     finishFragment()
                 } else {
-                    MezonToast.show(this@RoleDetailFragment, ToastOverlay.ToastType.ERROR, getString(R.string.clan_roles_failed))
+                    showRoleError(result, getString(R.string.clan_roles_error_save))
                 }
             }
         }
+    }
+
+    private fun showRoleError(result: Result<Unit>, title: String) {
+        RoleErrorToast.show(this, title, result.exceptionOrNull())
     }
 
     private fun confirmDelete() {
@@ -778,7 +786,7 @@ class RoleDetailFragment : BaseFragment() {
                         if (r.isSuccess) {
                             finishFragment()
                         } else {
-                            MezonToast.show(this@RoleDetailFragment, ToastOverlay.ToastType.ERROR, getString(R.string.clan_roles_failed))
+                            showRoleError(r, getString(R.string.clan_roles_error_delete))
                         }
                     }
                 }

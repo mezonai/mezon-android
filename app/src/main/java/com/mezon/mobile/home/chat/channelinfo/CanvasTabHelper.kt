@@ -24,6 +24,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.R
+import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.RecyclerListView
@@ -323,7 +324,9 @@ class CanvasTabHelper(
         val link = "$baseUrl/chat/clans/$clanId/channels/$channelId/canvas/${item.id}"
         val clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText("canvas_link", link))
-        MezonToast.show(hostFragment, ToastOverlay.ToastType.INFO, getString(R.string.channel_canvas_link_copied))
+        if (AndroidUtilities.shouldShowClipboardToast) {
+            MezonToast.show(hostFragment, ToastOverlay.ToastType.INFO, getString(R.string.channel_canvas_link_copied))
+        }
     }
 
     private fun buildEmptyView(context: Context): View {

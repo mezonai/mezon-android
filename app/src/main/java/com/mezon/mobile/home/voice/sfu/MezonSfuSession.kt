@@ -409,6 +409,7 @@ class MezonSfuSession @Inject constructor(
     private var admitted = false
     private var selfPeerId: String? = null
     private var networkQuality = SfuNetworkQuality()
+    private var cameraUplinkQuality = SfuCameraUplinkQuality()
     private var networkWeak = false
     private var moderatorMuteJob: Job? = null
     private val participantActionCallbacks = ArrayDeque<(Boolean, String?) -> Unit>()
@@ -456,6 +457,8 @@ class MezonSfuSession @Inject constructor(
     private var lastParticipants: List<SfuParticipant> = emptyList()
     private var lastSpeakingIds: Set<String> = emptySet()
     private var cameraTierIndex = 0
+    private var cameraCountTierIndex = 0
+    private var cameraTierLowered = false
     private var cameraTierJob: Job? = null
 
     private class RemoteEntry(val id: String) {
@@ -737,18 +740,29 @@ class MezonSfuSession @Inject constructor(
                     it.type == "outbound-rtp" && (it.members["kind"] ?: it.members["mediaType"]) == "audio"
                 }.sumOf { (it.members["packetsSent"] as? Number)?.toLong() ?: 0L }
                 val lossSamples = SfuNetworkQuality.lossSamples(report)
+                val cameraUplink = SfuCameraUplinkQuality.sample(report, MID_CAMERA)
                 appScope.launch(mainDispatcher) statsResult@{
                     if (!active || !isCurrentConnection(pc, gen)) return@statsResult
                     if (localTracksAdded) evaluateAudioFlow(packets)
-                    updateNetworkQuality(lossSamples)
+                    updateNetworkQuality(lossSamples, cameraUplink)
                 }
             }
         }
     }
 
-    private fun updateNetworkQuality(samples: List<SfuNetworkQuality.LossSample>) {
+    private fun updateNetworkQuality(
+        samples: List<SfuNetworkQuality.LossSample>,
+        cameraUplink: SfuCameraUplinkQuality.Sample?
+    ) {
         if (connectionState != SfuConnectionState.CONNECTED) return
-        setNetworkWeak(networkQuality.update(samples))
+        val weak = networkQuality.update(samples)
+        setNetworkWeak(weak)
+        val tier = CAMERA_TIERS.getOrElse(cameraTierIndex) { CAMERA_TIERS[0] }
+        val uplinkLimited = cameraUplinkQuality.update(cameraUplink, tier.maxBitrateBps)
+        val lowered = weak || uplinkLimited
+        if (lowered == cameraTierLowered) return
+        cameraTierLowered = lowered
+        scheduleCameraTier()
     }
 
     private fun setNetworkWeak(weak: Boolean) {
@@ -927,6 +941,7 @@ class MezonSfuSession @Inject constructor(
         active = false
         connectionState = SfuConnectionState.DISCONNECTED
         networkQuality = SfuNetworkQuality()
+        cameraUplinkQuality = SfuCameraUplinkQuality()
         setNetworkWeak(false)
         callIdentity = null
         externalPeerProfilesByUserId.clear()
@@ -1827,12 +1842,19 @@ class MezonSfuSession @Inject constructor(
         remote.values.count { it.cameraActive } + if (cameraEnabled) 1 else 0
 
     private fun scheduleCameraTier() {
-        val next = resolveCameraTier(activeCameraCount(), cameraTierIndex)
-        if (next == cameraTierIndex) return
+        val countTier = resolveCameraTier(activeCameraCount(), cameraCountTierIndex)
+        val next = if (cameraTierLowered) minOf(countTier + 1, CAMERA_TIERS.lastIndex) else countTier
+        if (next == cameraTierIndex) {
+            cameraCountTierIndex = countTier
+            cameraTierJob?.cancel()
+            cameraTierJob = null
+            return
+        }
         val delayMs = if (next > cameraTierIndex) CAMERA_TIER_DOWNGRADE_MS else CAMERA_TIER_UPGRADE_MS
         cameraTierJob?.cancel()
         cameraTierJob = scope?.launch {
             delay(delayMs)
+            cameraCountTierIndex = countTier
             cameraTierIndex = next
             findTransceiver(MID_CAMERA, "video")?.sender?.let { applyCameraTier(it, next) }
         }
@@ -3016,6 +3038,7 @@ class MezonSfuSession @Inject constructor(
         if (state != SfuConnectionState.CONNECTED) {
             stopAudioSendProbe()
             networkQuality = SfuNetworkQuality()
+            cameraUplinkQuality = SfuCameraUplinkQuality()
             setNetworkWeak(false)
         }
         onConnectionState?.invoke(state)

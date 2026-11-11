@@ -2,15 +2,19 @@ package com.mezon.mobile.util
 
 import com.mezon.mobile.ui.cells.setIconColor
 import android.content.Context
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
+import android.text.Layout
 import android.text.Spannable
 import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.BackgroundColorSpan
 import android.text.style.ClickableSpan
 import android.text.style.ForegroundColorSpan
+import android.text.style.LeadingMarginSpan
 import android.text.style.RelativeSizeSpan
 import android.text.style.StrikethroughSpan
 import android.text.style.StyleSpan
@@ -125,7 +129,8 @@ data class ContentElement(
     val channelPrivate: Int? = null,
     val parentId: String? = null,
     val channelLabel: String? = null,
-    val channelType: Int? = null
+    val channelType: Int? = null,
+    val url: String? = null
 )
 
 internal fun filterOverlappingContentElements(elements: List<ContentElement>): List<ContentElement> {
@@ -151,10 +156,170 @@ fun hasHeadingLine(text: String): Boolean {
 }
 
 fun buildPlainTextWithHeadings(text: String, theme: ThemeColors): CharSequence {
-    if (!hasHeadingLine(text)) return text
+    if (!hasHeadingLine(text) && !MARKDOWN_BLOCK_LINE.containsMatchIn(text)) return text
     val sb = SpannableStringBuilder()
     applyPlainTextWithHeadings(sb, text, theme)
+    applyMarkdownBlocks(sb, theme)
     return sb
+}
+
+private val MARKDOWN_BLOCK_LINE = Regex("(?m)^[ \\t]*(?:[-*]|\\d{1,9}\\.|>)[ \\t]+\\S")
+
+private const val MAX_LIST_LEVEL = 4
+
+private sealed class MarkdownBlock {
+    data class Bullet(val level: Int) : MarkdownBlock()
+    data class Ordered(val level: Int, val number: String) : MarkdownBlock()
+    object Quote : MarkdownBlock()
+}
+
+private class MarkdownBlockMatch(val lineStart: Int, val lineEnd: Int, val block: MarkdownBlock, val prefixLength: Int)
+
+private fun isBlankChar(c: Char): Boolean = c == ' ' || c == '\t'
+
+private fun markdownBlock(line: CharSequence): Pair<MarkdownBlock, Int>? {
+    var i = 0
+    var indent = 0
+    while (i < line.length && isBlankChar(line[i])) {
+        indent += if (line[i] == '\t') 4 else 1
+        i++
+    }
+    if (i >= line.length) return null
+    val level = minOf(indent / 2, MAX_LIST_LEVEL)
+    var j = i
+    val block: MarkdownBlock = when (line[i]) {
+        '>' -> {
+            if (indent > 3) return null
+            j++
+            MarkdownBlock.Quote
+        }
+        '-', '*' -> {
+            j++
+            MarkdownBlock.Bullet(level)
+        }
+        in '0'..'9' -> {
+            while (j < line.length && j - i < 9 && line[j] in '0'..'9') j++
+            if (j >= line.length || line[j] != '.') return null
+            val number = line.subSequence(i, j).toString()
+            j++
+            MarkdownBlock.Ordered(level, number)
+        }
+        else -> return null
+    }
+    if (j >= line.length || !isBlankChar(line[j])) return null
+    while (j < line.length && isBlankChar(line[j])) j++
+    if (j >= line.length) return null
+    return block to j
+}
+
+private fun prefixCarriesToken(sb: Spanned, start: Int, end: Int): Boolean =
+    sb.getSpans(start, end, Any::class.java).any { span ->
+        span !is StyleSpan && span !is StrikethroughSpan && span !is RelativeSizeSpan &&
+            sb.getSpanEnd(span) > start && sb.getSpanStart(span) < end
+    }
+
+private class QuoteBarSpan(
+    private val color: Int,
+    private val stripeWidth: Int,
+    private val gapWidth: Int
+) : LeadingMarginSpan {
+    override fun getLeadingMargin(first: Boolean): Int = stripeWidth + gapWidth
+
+    override fun drawLeadingMargin(
+        c: Canvas,
+        p: Paint,
+        x: Int,
+        dir: Int,
+        top: Int,
+        baseline: Int,
+        bottom: Int,
+        text: CharSequence,
+        start: Int,
+        end: Int,
+        first: Boolean,
+        layout: Layout?
+    ) {
+        val oldStyle = p.style
+        val oldColor = p.color
+        p.style = Paint.Style.FILL
+        p.color = color
+        val edge = x + dir * stripeWidth
+        c.drawRect(minOf(x, edge).toFloat(), top.toFloat(), maxOf(x, edge).toFloat(), bottom.toFloat(), p)
+        p.style = oldStyle
+        p.color = oldColor
+    }
+}
+
+fun applyMarkdownBlocks(sb: SpannableStringBuilder, theme: ThemeColors) {
+    if (sb.isEmpty()) return
+    val matches = ArrayList<MarkdownBlockMatch>()
+    var lineStart = 0
+    while (lineStart < sb.length) {
+        val newline = sb.indexOf('\n', lineStart)
+        val lineEnd = if (newline < 0) sb.length else newline
+        if (lineEnd > lineStart) {
+            markdownBlock(sb.subSequence(lineStart, lineEnd))?.let { (block, prefixLength) ->
+                if (!prefixCarriesToken(sb, lineStart, lineStart + prefixLength)) {
+                    matches.add(MarkdownBlockMatch(lineStart, lineEnd, block, prefixLength))
+                }
+            }
+        }
+        lineStart = lineEnd + 1
+    }
+    if (matches.isEmpty()) return
+
+    val paint = theme.chatContentPaint
+    val indentStep = (paint.textSize * 1.25f).toInt()
+    for (match in matches.asReversed()) {
+        val prefixEnd = match.lineStart + match.prefixLength
+        val marker: String
+        val level: Int
+        when (val block = match.block) {
+            is MarkdownBlock.Bullet -> {
+                level = block.level
+                marker = if (block.level % 2 == 0) "\u2022 " else "\u25E6 "
+            }
+            is MarkdownBlock.Ordered -> {
+                level = block.level
+                marker = "${block.number}. "
+            }
+            MarkdownBlock.Quote -> {
+                level = 0
+                marker = ""
+            }
+        }
+        sb.replace(match.lineStart, prefixEnd, marker)
+        var paragraphEnd = match.lineEnd - match.prefixLength + marker.length
+        if (paragraphEnd < sb.length) paragraphEnd++
+        val span: Any = if (match.block is MarkdownBlock.Quote) {
+            QuoteBarSpan(theme.textDisabled, LayoutHelper.dp(3), LayoutHelper.dp(8))
+        } else {
+            val first = level * indentStep
+            LeadingMarginSpan.Standard(first, first + paint.measureText(marker).toInt())
+        }
+        sb.setSpan(span, match.lineStart, paragraphEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+    }
+}
+
+private val NAMED_LINK_REGEX = Regex("\\[([^\\[\\]\\n]+)\\]\\((https?://[^\\s()]+)\\)", RegexOption.IGNORE_CASE)
+
+private val NAMED_LINK_REPLACEABLE_TYPES = setOf("lk", "vk", "lk_yt", "lk_fb", "lk_tt", "lk_ogp")
+
+private fun extractNamedLinks(text: String, elements: MutableList<ContentElement>) {
+    if (!text.contains("](")) return
+    for (match in NAMED_LINK_REGEX.findAll(text)) {
+        val label = match.groups[1] ?: continue
+        val url = match.groups[2] ?: continue
+        val start = match.range.first
+        val end = match.range.last + 1
+        val overlapping = elements.filter { !it.isInlineStyle() && it.s < end && it.e > start }
+        val blocked = overlapping.any {
+            !(it.kind == "k" && it.type in NAMED_LINK_REPLACEABLE_TYPES && it.s >= url.range.first)
+        }
+        if (blocked) continue
+        elements.removeAll(overlapping.toSet())
+        elements.add(ContentElement("n", start, end, title = label.value, url = url.value))
+    }
 }
 
 fun applyHeadingSpans(sb: SpannableStringBuilder, start: Int, end: Int, level: Int) {
@@ -170,24 +335,63 @@ fun applyHeadingSpans(sb: SpannableStringBuilder, start: Int, end: Int, level: I
     sb.setExclusiveSpan(RelativeSizeSpan(sizeFactor), start, end)
 }
 
-fun applyPlainTextWithHeadings(sb: SpannableStringBuilder, text: String, theme: ThemeColors) {
+class PlainTextRun(val textStart: Int, val length: Int, val sbStart: Int)
+
+fun applyPlainTextWithHeadings(
+    sb: SpannableStringBuilder,
+    text: String,
+    theme: ThemeColors,
+    textOffset: Int = 0,
+    runs: MutableList<PlainTextRun>? = null
+) {
     val lines = text.split("\n")
+    var lineStart = textOffset
     lines.forEachIndexed { idx, line ->
         val spanStart = sb.length
         val headingMatch = HEADING_REGEX.matchEntire(line)
         if (headingMatch != null) {
             val level = headingMatch.groupValues[1].length
-            val headingText = headingMatch.groupValues[2].trim()
+            val headingBody = headingMatch.groupValues[2]
+            val headingText = headingBody.trim()
             if (headingText.isNotEmpty()) {
                 sb.append(headingText)
                 applyHeadingSpans(sb, spanStart, sb.length, level)
+                val bodyStart = (headingMatch.groups[2]?.range?.first ?: 0) + headingBody.length - headingBody.trimStart().length
+                runs?.add(PlainTextRun(lineStart + bodyStart, headingText.length, spanStart))
             } else {
                 sb.append(line)
+                runs?.add(PlainTextRun(lineStart, line.length, spanStart))
             }
         } else {
             sb.append(line)
+            runs?.add(PlainTextRun(lineStart, line.length, spanStart))
         }
         if (idx < lines.size - 1) sb.append("\n")
+        lineStart += line.length + 1
+    }
+}
+
+private val INLINE_STYLE_MK_TYPES = setOf("b", "i", "st")
+
+private fun ContentElement.isInlineStyle(): Boolean = kind == "k" && type in INLINE_STYLE_MK_TYPES
+
+private fun applyInlineStyleSpans(
+    sb: SpannableStringBuilder,
+    styles: List<ContentElement>,
+    runs: List<PlainTextRun>
+) {
+    for (style in styles) {
+        for (run in runs) {
+            val start = maxOf(style.s, run.textStart)
+            val end = minOf(style.e, run.textStart + run.length)
+            if (end <= start) continue
+            val span: Any = when (style.type) {
+                "b" -> StyleSpan(Typeface.BOLD)
+                "i" -> StyleSpan(Typeface.ITALIC)
+                else -> StrikethroughSpan()
+            }
+            sb.setExclusiveSpan(span, run.sbStart + start - run.textStart, run.sbStart + end - run.textStart)
+        }
     }
 }
 
@@ -418,8 +622,14 @@ fun parseContentToSpannable(
     if (systemPlainHost != null) {
         mergeSyntheticAtHereForSystemPlain(text, elements)
     }
+    extractNamedLinks(text, elements)
 
-    val renderElements = filterOverlappingContentElements(elements)
+    val richPlainMarkdown = isEmbedOrComponentsPayload(content)
+    val inlineStyles = if (richPlainMarkdown) emptyList<ContentElement>() else elements.filter { it.isInlineStyle() }
+    val renderElements = filterOverlappingContentElements(
+        if (inlineStyles.isEmpty()) elements else elements.filterNot { it.isInlineStyle() }
+    )
+    val plainRuns = if (inlineStyles.isEmpty()) null else ArrayList<PlainTextRun>()
     
     val UNICODE_EMOJI_REGEX = Regex("^(?:[\\p{So}\\p{Sk}\\u200D\\uFE0F\\s]|\\d\\uFE0F\\u20E3|[#*]\\uFE0F\\u20E3)+$")
     val isOnlyEmoji = run {
@@ -446,7 +656,6 @@ fun parseContentToSpannable(
 
     var last = 0
     val viewRef = view?.let { java.lang.ref.WeakReference(it) }
-    val richPlainMarkdown = isEmbedOrComponentsPayload(content)
 
     for (el in renderElements) {
         var nextLast = el.e
@@ -469,7 +678,7 @@ fun parseContentToSpannable(
                 if (richPlainMarkdown) {
                     appendRichMarkdownWithFences(sb, plain, theme)
                 } else {
-                    applyPlainTextWithHeadings(sb, plain, theme)
+                    applyPlainTextWithHeadings(sb, plain, theme, last, plainRuns)
                 }
             }
         }
@@ -516,6 +725,10 @@ fun parseContentToSpannable(
                     preResolvedEntity = null
                 )
             }
+            "n" -> {
+                sb.append(el.title.orEmpty())
+                sb.setExclusiveSpan(LinkSpan(el.url.orEmpty(), linkColor), spanStart, sb.length)
+            }
             "e" -> {
                 if (viewRef != null && el.emojiid != null) {
                     sb.append("\uFFFC")
@@ -534,11 +747,11 @@ fun parseContentToSpannable(
                     sb.append(segText)
                     sb.setExclusiveSpan(StyleSpan(Typeface.ITALIC), spanStart, sb.length)
                 }
-                "s" -> {
+                "st" -> {
                     sb.append(segText)
                     sb.setExclusiveSpan(StrikethroughSpan(), spanStart, sb.length)
                 }
-                "c" -> {
+                "c", "s" -> {
                     val codeText = segText.removeSurrounding("`").trim()
                     sb.append(" $codeText ")
                     sb.setExclusiveSpan(TypefaceSpan("monospace"), spanStart, sb.length)
@@ -612,13 +825,15 @@ fun parseContentToSpannable(
         if (richPlainMarkdown) {
             appendRichMarkdownWithFences(sb, tail, theme)
         } else {
-            applyPlainTextWithHeadings(sb, tail, theme)
+            applyPlainTextWithHeadings(sb, tail, theme, last, plainRuns)
         }
     }
+    plainRuns?.let { applyInlineStyleSpans(sb, inlineStyles, it) }
     if (richPlainMarkdown) {
         applyAutoDetectedHttpLinks(sb, linkColor)
     }
     trimTrailingNewlines(sb)
+    applyMarkdownBlocks(sb, theme)
     return sb
 }
 

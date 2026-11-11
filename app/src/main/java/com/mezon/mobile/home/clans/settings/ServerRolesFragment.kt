@@ -383,7 +383,7 @@ class ServerRolesFragment : BaseFragment() {
             val div = View(context).apply {
                 setBackgroundColor(themeColors.border)
             }
-            wrap.addView(div, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.dp(1), 0f, Gravity.NO_GRAVITY, 12f, 0f, 12f, 0f))
+            wrap.addView(div, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 1, 0f, Gravity.NO_GRAVITY, 12f, 0f, 12f, 0f))
         }
         return wrap
     }

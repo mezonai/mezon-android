@@ -5200,6 +5200,13 @@ open class ChatFragment : BaseFragment() {
         return m.copy(startOffset = s - leading, endOffset = e - leading)
     }
 
+    private fun markdownProtectedRanges(rawInput: String, text: String): List<IntRange> =
+        mentionTrackers.mapNotNull { m ->
+            mentionOffsetsForTrimmed(rawInput, text, m)?.let { it.startOffset until it.endOffset }
+        } + hashtagTrackers.mapNotNull { h ->
+            hashtagOffsetsForTrimmed(rawInput, h)?.let { it.startOffset until it.endOffset }
+        }
+
     private fun sendMessage(attachmentOverride: List<AttachmentPickerItem>? = null) {
         dismissPasteImagePopup()
         val outgoingAttachments = attachmentOverride ?: pendingAttachments
@@ -5256,7 +5263,11 @@ open class ChatFragment : BaseFragment() {
         val isPrivate = resolveChannelPrivate()
         val references = buildReplyReferences()
 
-        val mdResult = parseMarkdownAndStrip(text)
+        val mdResult = parseMarkdownAndStrip(
+            text,
+            protectedRanges = markdownProtectedRanges(rawInput, text),
+            protectedTokens = emojiObjPicked.keys
+        )
         val cleanedText = mdResult.cleanedText
         val mdMarkers = mdResult.markers.ifEmpty { null }
         val ogpPreview = inputOgpPreviewData
@@ -5608,7 +5619,7 @@ open class ChatFragment : BaseFragment() {
     private fun convertTextToPlainTextAttachment(content: String, clearInput: Boolean): Boolean {
         val ctx = getContext() ?: return false
         if (pendingAttachments.size >= AttachmentPickerItem.GALLERY_MAX_SELECTION) {
-            Toast.makeText(ctx, "Maximum ${AttachmentPickerItem.GALLERY_MAX_SELECTION} items", Toast.LENGTH_SHORT).show()
+            Toast.makeText(ctx, ctx.getString(R.string.attachment_max_items, AttachmentPickerItem.GALLERY_MAX_SELECTION), Toast.LENGTH_SHORT).show()
             return false
         }
         appScope.launch {
@@ -5777,7 +5788,7 @@ open class ChatFragment : BaseFragment() {
             override fun onCameraRequested() {
                 if (!ensureCanSendMessageOrNotify()) return
                 if (!canSelectMore()) {
-                    Toast.makeText(ctx, "Maximum ${AttachmentPickerItem.GALLERY_MAX_SELECTION} items", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(ctx, ctx.getString(R.string.attachment_max_items, AttachmentPickerItem.GALLERY_MAX_SELECTION), Toast.LENGTH_SHORT).show()
                     return
                 }
                 requestCameraPhoto()
@@ -7523,7 +7534,9 @@ open class ChatFragment : BaseFragment() {
     private fun copyMediaLink(ctx: android.content.Context, link: String, messageRes: Int) {
         val clipboard = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
         clipboard.setPrimaryClip(android.content.ClipData.newPlainText("media_url", link))
-        if (isAdded) MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(messageRes))
+        if (!isFinished && AndroidUtilities.shouldShowClipboardToast) {
+            MezonToast.show(this, ToastOverlay.ToastType.INFO, ctx.getString(messageRes))
+        }
     }
 
     private fun handleMessageAction(action: MessageActionBottomSheet.ActionType, msg: MessageEntity) {
@@ -7542,7 +7555,9 @@ open class ChatFragment : BaseFragment() {
                 val plainText = buildMessageCopyText(msg.code, msg.content, themeColors)
                 val clipboard = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                 clipboard.setPrimaryClip(android.content.ClipData.newPlainText("message", plainText))
-                MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(R.string.message_toast_copy_text))
+                if (AndroidUtilities.shouldShowClipboardToast) {
+                    MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(R.string.message_toast_copy_text))
+                }
             }
             MessageActionBottomSheet.ActionType.ShareText -> {
                 shareMessageText(msg)
@@ -7655,10 +7670,10 @@ open class ChatFragment : BaseFragment() {
                 appScope.launch {
                     val ok = imageClipboardCoordinator.copyRemoteUrlToClipboard(ctx, url, null)
                     withContext(mainDispatcher) {
-                        if (ok) {
-                            MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.INFO, getString(R.string.message_toast_copy_image_done))
-                        } else {
+                        if (!ok) {
                             MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.ERROR, getString(R.string.message_toast_copy_image_failed))
+                        } else if (AndroidUtilities.shouldShowClipboardToast) {
+                            MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.INFO, getString(R.string.message_toast_copy_image_done))
                         }
                     }
                 }
@@ -7937,10 +7952,13 @@ open class ChatFragment : BaseFragment() {
                 )
 
                 if (sendResult.isFailure) {
-                    val errorMsg = sendResult.exceptionOrNull()?.message
-                        ?.takeIf { it.isNotBlank() }
-                        ?: getString(R.string.give_coffee_error_send)
                     withContext(mainDispatcher) {
+                        val ctx = getContext() ?: return@withContext
+                        val errorMsg = NetworkErrorMessages.userMessage(
+                            ctx,
+                            sendResult.exceptionOrNull(),
+                            ctx.getString(R.string.give_coffee_error_send)
+                        )
                         MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.ERROR, errorMsg)
                     }
                     return@launch

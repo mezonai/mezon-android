@@ -24,6 +24,7 @@ import com.mezon.mobile.R
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.di.FragmentEntryPoint
+import com.mezon.mobile.network.HttpRpcStatusException
 import com.mezon.mobile.ui.cells.ActionButton
 import com.mezon.mobile.ui.cells.InputCell
 import com.mezon.mobile.util.NetworkErrorMessages
@@ -498,7 +499,7 @@ class LoginFragment : AuthFragment() {
                         NetworkErrorMessages.userMessage(
                             ctx,
                             err,
-                            err.message ?: getString(R.string.otp_send_failed)
+                            getString(R.string.otp_send_failed)
                         )
                     )
                 }
@@ -544,7 +545,7 @@ class LoginFragment : AuthFragment() {
                         NetworkErrorMessages.userMessage(
                             ctx,
                             err,
-                            err.message ?: getString(R.string.otp_send_failed)
+                            getString(R.string.otp_send_failed)
                         )
                     )
                 }
@@ -580,28 +581,20 @@ class LoginFragment : AuthFragment() {
                 .onFailure { err ->
                     Log.e(TAG, "Password login failed: ${err.message}", err)
                     hideLoading()
-                    val ctx = getContext() ?: return@onFailure    
-                    val rawUserMessage = NetworkErrorMessages.userMessage(
-                        ctx,
-                        err,
-                        err.message ?: ""
-                    )
-                    showToast(
-                        ctx,
-                        messageForPasswordLoginFailure(rawUserMessage)
-                    )
+                    val ctx = getContext() ?: return@onFailure
+                    showToast(ctx, messageForPasswordLoginFailure(ctx, err))
                 }
         }
     }
 
-    private fun messageForPasswordLoginFailure(message: String?): String {
-        val genericInvalid = getString(R.string.common_login_email_password_incorrect)
-        val m = message?.trim().orEmpty()
-        if (m.isEmpty()) return genericInvalid
-        if (m.trimEnd('.').trim().equals("Invalid credentials", ignoreCase = true)) {
-            return genericInvalid
+    private fun messageForPasswordLoginFailure(context: Context, error: Throwable): String {
+        if (error is HttpRpcStatusException && error.code in 400..499) {
+            val detail = error.serverMessage.ifBlank { error.message.orEmpty() }.trim().trimEnd('.')
+            if (error.code == 401 || detail.equals("Invalid credentials", ignoreCase = true)) {
+                return context.getString(R.string.common_login_email_password_incorrect)
+            }
         }
-        return m
+        return NetworkErrorMessages.userMessage(context, error)
     }
 
     private fun navigateToOTP(reqId: String, identifier: String, isSms: Boolean) {

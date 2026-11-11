@@ -28,6 +28,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import androidx.core.graphics.ColorUtils
 import com.mezon.mobile.R
+import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.theme.MobileThemeColors
@@ -848,7 +849,8 @@ class ProfileFragment : BaseFragment() {
         if (userId.isBlank()) return
         val clipboard = requireContext().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText("User ID", userId))
-        
+        if (!AndroidUtilities.shouldShowClipboardToast) return
+
         val parent = getLayoutContainer() ?: (fragmentView as? ViewGroup) ?: return
         ToastOverlay(requireContext(), themeColors).show(
             parent,

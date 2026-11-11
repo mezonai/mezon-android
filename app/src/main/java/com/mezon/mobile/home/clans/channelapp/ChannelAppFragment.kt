@@ -440,7 +440,7 @@ class ChannelAppFragment : BaseFragment() {
         }
         if (!isAllowedAppUrl(appUrl)) {
             val ctx = getParentActivity() ?: return
-            Toast.makeText(ctx, "Invalid app URL", Toast.LENGTH_SHORT).show()
+            Toast.makeText(ctx, R.string.channel_app_launch_unavailable, Toast.LENGTH_SHORT).show()
             finishFragment()
             return
         }

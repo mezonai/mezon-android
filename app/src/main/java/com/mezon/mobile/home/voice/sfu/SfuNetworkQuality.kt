@@ -78,3 +78,75 @@ class SfuNetworkQuality {
         }
     }
 }
+
+class SfuCameraUplinkQuality {
+
+    class Sample(val framesEncoded: Long, val targetBitrate: Double, val bandwidthLimited: Boolean)
+
+    private var limited = false
+    private var limitedSamples = 0
+    private var cleanSamples = 0
+    private var recoverySamples = RECOVERY_SAMPLES
+    private var samplesSinceRecovery = Int.MAX_VALUE
+    private var framesEncoded: Long? = null
+
+    fun update(sample: Sample?, maxBitrateBps: Int): Boolean {
+        val previousFrames = framesEncoded
+        framesEncoded = sample?.framesEncoded
+        if (sample == null || previousFrames == null || sample.framesEncoded <= previousFrames) {
+            limited = false
+            limitedSamples = 0
+            cleanSamples = 0
+            return false
+        }
+        val sampleLimited = sample.bandwidthLimited && sample.targetBitrate < maxBitrateBps * TARGET_RATIO
+        if (sampleLimited) {
+            limitedSamples += 1
+            cleanSamples = 0
+        } else {
+            limitedSamples = 0
+            cleanSamples += 1
+        }
+        if (limited) {
+            if (cleanSamples >= recoverySamples) {
+                limited = false
+                samplesSinceRecovery = 0
+            }
+            return limited
+        }
+        if (samplesSinceRecovery < Int.MAX_VALUE) samplesSinceRecovery += 1
+        if (limitedSamples >= LIMITED_SAMPLES) {
+            limited = true
+            recoverySamples = if (samplesSinceRecovery <= RELAPSE_SAMPLES) {
+                (recoverySamples * 2).coerceAtMost(MAX_RECOVERY_SAMPLES)
+            } else {
+                RECOVERY_SAMPLES
+            }
+        }
+        return limited
+    }
+
+    companion object {
+        private const val TARGET_RATIO = 0.8
+        private const val LIMITED_SAMPLES = 2
+        private const val RECOVERY_SAMPLES = 6
+        private const val MAX_RECOVERY_SAMPLES = 24
+        private const val RELAPSE_SAMPLES = 12
+
+        fun sample(report: RTCStatsReport, mid: String): Sample? {
+            var best: Sample? = null
+            for (stat in report.statsMap.values) {
+                if (stat.type != "outbound-rtp") continue
+                val members = stat.members
+                if ((members["kind"] ?: members["mediaType"]) != "video" || members["mid"] != mid) continue
+                val frames = (members["framesEncoded"] as? Number)?.toLong() ?: continue
+                val target = (members["targetBitrate"] as? Number)?.toDouble() ?: continue
+                val reason = members["qualityLimitationReason"] as? String ?: continue
+                val current = best
+                if (current != null && current.framesEncoded >= frames) continue
+                best = Sample(frames, target, reason == "bandwidth")
+            }
+            return best
+        }
+    }
+}

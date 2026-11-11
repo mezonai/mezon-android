@@ -1,5 +1,9 @@
 package com.mezon.mobile.wallet
 
+import dagger.hilt.android.qualifiers.ApplicationContext
+import com.mezon.mobile.util.UserFacingException
+import com.mezon.mobile.R
+import android.content.Context
 import android.util.Log
 import com.mezon.mmn.MmnClient
 import com.mezon.mmn.MmnClientConfig
@@ -19,6 +23,7 @@ import com.mezon.mmn.createIndexerClient
 import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
+import com.mezon.mobile.network.HttpRpcStatusException
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.session.StoredSession
 import io.ktor.client.HttpClient
@@ -55,15 +60,11 @@ data class LuckyMoneyClaimAmount(
     val description: String?
 )
 
-class LuckyMoneyException(
-    val reason: Reason,
-    message: String? = null
-) : Exception(message) {
+class LuckyMoneyException(val reason: Reason) : Exception() {
     enum class Reason {
         SERVICE_NOT_CONFIGURED,
         WALLET_NOT_READY,
-        INVALID_PAYLOAD,
-        HTTP
+        INVALID_PAYLOAD
     }
 }
 
@@ -86,6 +87,7 @@ private data class LuckyMoneyClaimRequest(
 
 @Singleton
 class WalletController @Inject constructor(
+    @ApplicationContext private val appContext: Context,
     @ApplicationScope private val appScope: CoroutineScope,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     private val sessionManager: SessionManager,
@@ -291,14 +293,11 @@ class WalletController @Inject constructor(
                     )
                 )
             }
-            val rawBody = response.bodyAsText()
             if (!response.status.isSuccess()) {
-                throw LuckyMoneyException(
-                    LuckyMoneyException.Reason.HTTP,
-                    luckyMoneyErrorMessage(rawBody, "HTTP ${response.status.value}")
-                )
+                val status = response.status.value
+                throw HttpRpcStatusException("Could not load lucky money claim amount (HTTP $status)", status)
             }
-            parseLuckyMoneyClaimAmount(rawBody)
+            parseLuckyMoneyClaimAmount(response.bodyAsText())
         }
     }
 
@@ -322,12 +321,9 @@ class WalletController @Inject constructor(
                     )
                 )
             }
-            val rawBody = response.bodyAsText()
             if (!response.status.isSuccess()) {
-                throw LuckyMoneyException(
-                    LuckyMoneyException.Reason.HTTP,
-                    luckyMoneyErrorMessage(rawBody, "HTTP ${response.status.value}")
-                )
+                val status = response.status.value
+                throw HttpRpcStatusException("Could not claim lucky money (HTTP $status)", status)
             }
             fetchWalletDetail()
         }
@@ -375,16 +371,6 @@ class WalletController @Inject constructor(
         }
     }
 
-    private fun luckyMoneyErrorMessage(rawBody: String, fallback: String): String {
-        val trimmed = rawBody.trim()
-        if (trimmed.isEmpty()) return fallback
-        val json = runCatching { JSONObject(trimmed) }.getOrNull() ?: return trimmed
-        val direct = json.optString("message", "").trim()
-        if (direct.isNotEmpty()) return direct
-        val nested = json.optJSONObject("data")?.optString("message", "")?.trim().orEmpty()
-        return nested.ifEmpty { fallback }
-    }
-
     private suspend inline fun <T> luckyMoneyResult(
         crossinline block: suspend () -> T
     ): Result<T> {
@@ -406,7 +392,7 @@ class WalletController @Inject constructor(
         senderUsername: String
     ): Result<AddTxResponse> = withContext(ioDispatcher) {
         val s = signing
-            ?: return@withContext Result.failure(IllegalStateException("Wallet not available"))
+            ?: return@withContext Result.failure(UserFacingException(appContext.getString(R.string.send_token_wallet_not_available)))
         val amount = runCatching { amountHuman.toBigInteger() }
             .getOrElse { return@withContext Result.failure(IllegalStateException("Invalid amount")) }
         if (amount <= BigInteger.ZERO) {
@@ -442,7 +428,7 @@ class WalletController @Inject constructor(
             publicKey = s.ephemeral.publicKey
         )
         runCatching {
-            if (receiverMmnAddress != null) {
+            val response = if (receiverMmnAddress != null) {
                 mmn.sendTransactionByAddress(
                     req.copy(
                         sender = s.addressMmn,
@@ -457,6 +443,8 @@ class WalletController @Inject constructor(
                     )
                 )
             }
+            check(response.ok) { response.error.ifBlank { "MMN rejected the transfer" } }
+            response
         }
     }
 }

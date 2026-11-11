@@ -133,7 +133,7 @@ class MessagesFragment : BaseFragment() {
         observe(NotificationCenter.dialogsLoadError) { _, _, args ->
             if (fragmentView == null) return@observe
             if (controller.getDialogs().isEmpty()) {
-                showError(args.firstOrNull() as? String ?: "Failed to load")
+                showError(args.firstOrNull() as? String ?: getString(R.string.chat_load_messages_failed))
             }
         }
         observe(NotificationCenter.friendsLoaded) { _, _, _ ->

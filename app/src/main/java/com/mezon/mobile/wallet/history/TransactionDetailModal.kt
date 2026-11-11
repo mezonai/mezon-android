@@ -11,6 +11,7 @@ import android.widget.ImageView
 import android.widget.TextView
 import com.mezon.mmn.Transaction
 import com.mezon.mobile.R
+import com.mezon.mobile.core.AndroidUtilities
 import android.app.Dialog
 import com.mezon.mobile.home.profile.UserController
 import com.mezon.mobile.ui.cells.ToastOverlay
@@ -90,9 +91,10 @@ class TransactionDetailModal(
             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
             val clip = ClipData.newPlainText("Transaction Hash", tvIdValue.text)
             clipboard.setPrimaryClip(clip)
+            if (!AndroidUtilities.shouldShowClipboardToast) return@setOnClickListener
             val themeColors = com.mezon.mobile.core.ThemeColors.instance
             
-            val activity = com.mezon.mobile.core.AndroidUtilities.findActivity(context)
+            val activity = AndroidUtilities.findActivity(context)
             val parentView = activity?.findViewById<android.view.ViewGroup>(android.R.id.content) 
                 ?: view as android.view.ViewGroup
                 

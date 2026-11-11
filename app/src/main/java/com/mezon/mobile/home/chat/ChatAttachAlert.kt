@@ -346,14 +346,14 @@ class ChatAttachAlert(
             if (attachDelegate?.canSelectMore() == false ||
                 selectedPhotosOrder.size >= AttachmentPickerItem.GALLERY_MAX_SELECTION
             ) {
-                Toast.makeText(context, "Maximum ${AttachmentPickerItem.GALLERY_MAX_SELECTION} items", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, context.getString(R.string.attachment_max_items, AttachmentPickerItem.GALLERY_MAX_SELECTION), Toast.LENGTH_SHORT).show()
                 return
             }
 
             val maxSize = AttachmentPickerItem.maxFileSizeBytes(item.mimeType)
             if (item.size > maxSize) {
                 val limitMB = maxSize / (1024 * 1024)
-                Toast.makeText(context, "File exceeds ${limitMB}MB limit", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, context.getString(R.string.file_too_large, "${limitMB}MB"), Toast.LENGTH_SHORT).show()
                 return
             }
 

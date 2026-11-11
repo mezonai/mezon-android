@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.clans.discover
 
+import com.mezon.mobile.util.NetworkErrorMessages
 import android.content.Context
 import android.graphics.Color
 import android.graphics.PorterDuff
@@ -235,13 +236,10 @@ class DiscoverClansListSection(
     }
 
     private fun resolveLoadErrorMessage(e: Throwable): String {
-        val msg = e.message.orEmpty()
-        val ctx = host.fragmentView?.context ?: return msg.ifBlank { "Error" }
-        return when {
-            msg.contains("404") -> ctx.getString(R.string.discover_list_load_error)
-            msg.isNotBlank() -> msg
-            else -> ctx.getString(R.string.discover_list_load_error)
-        }
+        val ctx = host.fragmentView?.context ?: return ""
+        val fallback = ctx.getString(R.string.discover_list_load_error)
+        if (e.message.orEmpty().contains("404")) return fallback
+        return NetworkErrorMessages.userMessage(ctx, e, fallback)
     }
 
     private fun updateEmptyState() {
