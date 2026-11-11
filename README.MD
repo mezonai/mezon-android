@@ -13,6 +13,7 @@ Native Android client for the Mezon messaging platform. The app is built in **Ko
 - [Firebase configuration](#firebase-configuration)
 - [Build and test](#build-and-test)
 - [Updating `mezon-protocol`](#updating-mezon-protocol)
+- [Updating the desktop theme palette](#updating-the-desktop-theme-palette)
 - [Architecture](#architecture)
 - [Repository layout](#repository-layout)
 - [Technology stack](#technology-stack)
@@ -143,6 +144,29 @@ To only sync your working copy to the commit recorded by the parent repo (no bum
 cd /path/to/mezon
 git submodule update --init --recursive
 ```
+
+---
+
+## Updating the desktop theme palette
+
+`DesktopThemePalette.generated.kt` is generated from a specific commit of the
+`mezon-desktop` repository. The generator writes the token enum and every theme's
+color array in the same order. Regenerate the Kotlin file instead of editing it
+by hand.
+
+From the Android repository root, use Git and Python 3 with a local checkout of
+`mezon-desktop`. The desktop checkout must contain the source commit, but its
+current branch and uncommitted files do not affect the output.
+
+```bash
+python3 scripts/sync_desktop_theme.py ../mezon-desktop --ref SOURCE_COMMIT_SHA --check
+
+python3 scripts/sync_desktop_theme.py ../mezon-desktop --ref NEW_DESKTOP_COMMIT_SHA
+python3 scripts/sync_desktop_theme.py ../mezon-desktop --ref NEW_DESKTOP_COMMIT_SHA --check
+```
+
+`--check` exits with an error if the output differs and leaves the file untouched.
+Review the generated diff and include it in the palette update PR.
 
 ---
 

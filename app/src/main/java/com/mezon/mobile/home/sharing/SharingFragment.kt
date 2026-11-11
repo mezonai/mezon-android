@@ -337,7 +337,7 @@ class SharingFragment(
     private fun buildContent(context: Context): View {
         rootView = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(themeColors.background)
+            setBackgroundColor(themeColors.surface)
         }
 
         rootView.addView(buildSearchBar(context), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
@@ -350,7 +350,9 @@ class SharingFragment(
         }
         rootView.addView(suggestionsLabel, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
-        val listFrame = FrameLayout(context)
+        val listFrame = FrameLayout(context).apply {
+            if (!isForwardMode) setBackgroundColor(themeColors.background)
+        }
         emptyView = TextView(context).apply {
             text = getString(R.string.common_no_results_found)
             setTextColor(themeColors.onSurfaceVariant)
@@ -430,7 +432,7 @@ class SharingFragment(
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             background = GradientDrawable().apply {
-                setColor(themeColors.surfaceVariant)
+                setColor(if (isForwardMode) themeColors.background else themeColors.mobile.charcoal)
                 cornerRadius = LayoutHelper.dpf(20f)
             }
             setPadding(LayoutHelper.dp(12), LayoutHelper.dp(8), LayoutHelper.dp(12), LayoutHelper.dp(8))
@@ -625,7 +627,7 @@ class SharingFragment(
             setHintTextColor(themeColors.onSurfaceVariant)
             setTextColor(themeColors.onSurface)
             background = GradientDrawable().apply {
-                setColor(themeColors.tertiary)
+                setColor(themeColors.background)
                 cornerRadius = LayoutHelper.dpf(20f)
             }
             textSize = 14f
@@ -669,7 +671,7 @@ class SharingFragment(
     private fun buildDeviceChatArea(context: Context): LinearLayout {
         val area = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(themeColors.surface)
+            setBackgroundColor(themeColors.background)
         }
 
         val thumbScroll = HorizontalScrollView(context).apply {
@@ -744,7 +746,7 @@ class SharingFragment(
             setHintTextColor(themeColors.onSurfaceVariant)
             setTextColor(themeColors.onSurface)
             background = GradientDrawable().apply {
-                setColor(themeColors.tertiary)
+                setColor(themeColors.mobile.charcoal)
                 cornerRadius = LayoutHelper.dpf(20f)
             }
             textSize = 14f
@@ -976,7 +978,6 @@ class SharingFragment(
 
     private fun rebuildForwardTargets() {
         allTargets.clear()
-        val blocked = friendController.blockedUsers.value.asSequence().map { it.user.id }.toSet()
         val clans = clansController.clans.value
         val channelLabelById = HashMap<Long, String>()
         for (clan in clans) {
@@ -997,7 +998,7 @@ class SharingFragment(
             val t = dm.type
             if (t != CHANNEL_TYPE_DM && t != CHANNEL_TYPE_GROUP) continue
             if (dm.label.isBlank()) continue
-            if (t == CHANNEL_TYPE_DM && dm.otherUserId != 0L && dm.otherUserId in blocked) continue
+            if (t == CHANNEL_TYPE_DM && friendController.isUserBlocked(dm.otherUserId)) continue
             allTargets.add(dm.toSharingTarget())
         }
         allTargets.sortWith(

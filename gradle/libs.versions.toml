@@ -3,10 +3,6 @@ agp = "9.1.1"
 kotlin = "2.2.10"
 ksp = "2.3.4"
 coreKtx = "1.10.1"
-junit = "4.13.2"
-mockk = "1.13.11"
-junitVersion = "1.1.5"
-espressoCore = "3.5.1"
 lifecycleRuntimeKtx = "2.6.1"
 protobuf = "4.28.2"
 protobufPlugin = "0.10.0"
@@ -25,6 +21,7 @@ firebaseBom = "33.1.0"
 googleServices = "4.4.2"
 cameraX = "1.4.1"
 zxing = "3.5.3"
+mlkitBarcodeScanning = "17.3.0"
 bouncyCastle = "1.78.1"
 photoView = "2.3.0"
 appcompat = "1.7.0"
@@ -35,10 +32,6 @@ audioswitch = "1.2.0"
 [libraries]
 google-webrtc = { module = "io.github.webrtc-sdk:android", version.ref = "webrtc" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
-junit = { group = "junit", name = "junit", version.ref = "junit" }
-mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
-androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
-androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
 androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycleRuntimeKtx" }
 androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
 protobuf-kotlin-lite = { group = "com.google.protobuf", name = "protobuf-kotlin-lite", version.ref = "protobuf" }
@@ -70,6 +63,7 @@ androidx-camera-camera2 = { group = "androidx.camera", name = "camera-camera2", 
 androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "cameraX" }
 androidx-camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "cameraX" }
 zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxing" }
+mlkit-barcode-scanning = { group = "com.google.mlkit", name = "barcode-scanning", version.ref = "mlkitBarcodeScanning" }
 photoview = { group = "com.github.chrisbanes", name = "PhotoView", version.ref = "photoView" }
 androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
 sentry-android = { group = "io.sentry", name = "sentry-android", version.ref = "sentry" }

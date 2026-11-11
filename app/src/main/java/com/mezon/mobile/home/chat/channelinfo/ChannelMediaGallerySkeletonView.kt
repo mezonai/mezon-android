@@ -9,7 +9,6 @@ import android.os.Looper
 import android.view.View
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
-import com.mezon.mobile.ui.theme.ThemeMode
 import kotlin.math.min
 import kotlin.math.sin
 
@@ -41,7 +40,7 @@ class ChannelMediaGallerySkeletonView(
         }
 
     private val isDark: Boolean
-        get() = theme.resolvedMode != ThemeMode.LIGHT
+        get() = !theme.resolvedMode.isLight
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()

@@ -23,24 +23,13 @@ class ThemeManager @Inject constructor(
         private set
 
     val themeMode: Flow<ThemeMode> = dataStore.data.map { prefs ->
-        when (prefs[THEME_KEY]) {
-            "light" -> ThemeMode.LIGHT
-            "dark" -> ThemeMode.DARK
-            "abyss" -> ThemeMode.ABYSS
-            "system" -> ThemeMode.SYSTEM
-            else -> ThemeMode.DARK
-        }
+        prefs[THEME_KEY]?.let { ThemeMode.fromStorage(it) } ?: StartupCache.themeMode
     }
 
     suspend fun setTheme(mode: ThemeMode) {
         StartupCache.themeMode = mode
         dataStore.edit { prefs ->
-            prefs[THEME_KEY] = when (mode) {
-                ThemeMode.LIGHT -> "light"
-                ThemeMode.DARK -> "dark"
-                ThemeMode.ABYSS -> "abyss"
-                ThemeMode.SYSTEM -> "system"
-            }
+            prefs[THEME_KEY] = mode.storageKey
         }
     }
 

@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.clans
 
+import com.mezon.mobile.core.theme.applyThemeSurface
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -557,11 +558,8 @@ class ClansFragment : BaseFragment() {
     }
 
     private fun LinearLayout.applyChannelPanelBg() {
-        val r = LayoutHelper.dp(20).toFloat()
-        background = GradientDrawable().apply {
-            setColor(themeColors.channelPanelBg)
-            cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
-        }
+        applyThemeSurface(themeColors.channelPanelBg, themeColors.desktop.conversationGradient)
+        normalClanHeaderRoot?.setBackgroundColor(themeColors.channelPanelBg)
     }
 
     private fun buildClanHeader(context: Context): View {

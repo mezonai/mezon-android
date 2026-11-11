@@ -48,7 +48,7 @@ object ClanSettingsUiHelpers {
         val circle = android.widget.FrameLayout(context).apply {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(theme.border)
+                setColor(theme.background)
                 setStroke(LayoutHelper.dp(1), theme.borderDim)
             }
         }
@@ -63,7 +63,7 @@ object ClanSettingsUiHelpers {
         val label = TextView(context).apply {
             text = title
             textSize = 10f
-            setTextColor(theme.textStrong)
+            setTextColor(theme.textDisabled)
             gravity = Gravity.CENTER
             maxLines = 1
         }
@@ -77,7 +77,10 @@ object ClanSettingsUiHelpers {
         context: Context,
         theme: ThemeColors,
         titleText: String?,
-        rows: List<View>
+        rows: List<View>,
+        cardColor: Int = theme.channelPanelBg,
+        separatorColor: Int = theme.tertiary,
+        titleColor: Int = theme.colorText
     ): LinearLayout {
         val outer = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -87,7 +90,7 @@ object ClanSettingsUiHelpers {
             outer.addView(
                 TextView(context).apply {
                     text = titleText
-                    setTextColor(theme.colorText)
+                    setTextColor(titleColor)
                     textSize = 14f
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                     setPadding(0, 0, 0, LayoutHelper.dp(10f))
@@ -99,7 +102,7 @@ object ClanSettingsUiHelpers {
         val card = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             background = GradientDrawable().apply {
-                setColor(theme.channelPanelBg)
+                setColor(cardColor)
                 cornerRadius = CreateClanRnUiTokens.clanSettingsMenuCornerPx()
             }
             clipToOutline = true
@@ -110,7 +113,7 @@ object ClanSettingsUiHelpers {
         visRows.forEachIndexed { index, child ->
             card.addView(child)
             if (index < visRows.lastIndex) {
-                val sep = View(context).apply { setBackgroundColor(theme.tertiary) }
+                val sep = View(context).apply { setBackgroundColor(separatorColor) }
                 card.addView(sep, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 1))
             }
         }
@@ -128,12 +131,13 @@ object ClanSettingsUiHelpers {
         iconTint: Int? = null,
         onPress: Runnable,
         keepOriginalIconColors: Boolean = false,
+        rowBackgroundColor: Int? = null,
     ): LinearLayout {
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(LayoutHelper.dp(14f), LayoutHelper.dp(13f), LayoutHelper.dp(14f), LayoutHelper.dp(13f))
-            setBackgroundColor(theme.border)
+            rowBackgroundColor?.let { setBackgroundColor(it) }
         }
         val tint = iconTint ?: theme.textStrong
         val iconIv = ImageView(context).apply {
@@ -167,19 +171,21 @@ object ClanSettingsUiHelpers {
         theme: ThemeColors,
         title: String,
         onPress: Runnable,
+        textColor: Int = theme.colorText,
+        rowBackgroundColor: Int? = null,
     ): LinearLayout {
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(LayoutHelper.dp(14f), LayoutHelper.dp(13f), LayoutHelper.dp(14f), LayoutHelper.dp(13f))
-            setBackgroundColor(theme.border)
+            rowBackgroundColor?.let { setBackgroundColor(it) }
         }
         row.addView(
             TextView(context).apply {
                 text = title
                 textSize = 15f
                 typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
-                setTextColor(theme.colorText)
+                setTextColor(textColor)
             },
             LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT)
         )
@@ -201,7 +207,6 @@ object ClanSettingsUiHelpers {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(LayoutHelper.dp(14f), LayoutHelper.dp(13f), LayoutHelper.dp(14f), LayoutHelper.dp(13f))
-            setBackgroundColor(theme.border)
         }
         val iconIv = ImageView(context).apply {
             scaleType = ImageView.ScaleType.FIT_CENTER
@@ -216,7 +221,7 @@ object ClanSettingsUiHelpers {
             text = title
             textSize = 15f
             typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
-            setTextColor(textColor ?: theme.colorText)
+            setTextColor(textColor ?: theme.textStrong)
         }
         row.addView(text, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.CENTER_VERTICAL))
 
@@ -245,13 +250,12 @@ object ClanSettingsUiHelpers {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(LayoutHelper.dp(14f), LayoutHelper.dp(13f), LayoutHelper.dp(14f), LayoutHelper.dp(13f))
-            setBackgroundColor(theme.border)
         }
         val iconIv = ImageView(context).apply {
             scaleType = ImageView.ScaleType.FIT_CENTER
             val d = icon.getDrawable(context)
             d.mutate()
-            d.colorFilter = PorterDuffColorFilter(theme.colorText, PorterDuff.Mode.SRC_IN)
+            d.colorFilter = PorterDuffColorFilter(theme.textStrong, PorterDuff.Mode.SRC_IN)
             setImageDrawable(d)
         }
         row.addView(iconIv, LayoutHelper.createLinear(menuRowLeadingIconDp, menuRowLeadingIconDp, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, 10f, 0f))
@@ -264,7 +268,7 @@ object ClanSettingsUiHelpers {
                 text = title
                 textSize = 15f
                 typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
-                setTextColor(theme.colorText)
+                setTextColor(theme.textStrong)
             },
             LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT)
         )
@@ -272,7 +276,7 @@ object ClanSettingsUiHelpers {
             TextView(context).apply {
                 text = subtitle
                 textSize = 12f
-                setTextColor(CreateClanRnUiTokens.textDisabled(theme))
+                setTextColor(theme.textDisabled)
                 setPadding(0, LayoutHelper.dp(4f), 0, 0)
             },
             LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT)
@@ -281,7 +285,7 @@ object ClanSettingsUiHelpers {
 
         val chev = ImageView(context).apply {
             val d = MezonIcon.chevronSmallRightIcon.getDrawable(context)
-            d.colorFilter = PorterDuffColorFilter(theme.colorText, PorterDuff.Mode.SRC_IN)
+            d.colorFilter = PorterDuffColorFilter(theme.textStrong, PorterDuff.Mode.SRC_IN)
             setImageDrawable(d)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
         }
@@ -303,13 +307,12 @@ object ClanSettingsUiHelpers {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(LayoutHelper.dp(14f), LayoutHelper.dp(13f), LayoutHelper.dp(14f), LayoutHelper.dp(13f))
-            setBackgroundColor(theme.border)
         }
         val text = TextView(context).apply {
             text = title
             textSize = 15f
             typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
-            setTextColor(textColor ?: theme.colorText)
+            setTextColor(textColor ?: theme.textStrong)
         }
         row.addView(text, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.CENTER_VERTICAL))
 

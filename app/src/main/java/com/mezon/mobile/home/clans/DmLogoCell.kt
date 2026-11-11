@@ -12,6 +12,7 @@ import android.text.TextPaint
 import android.view.View
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.core.theme.MobileThemeColors
 import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.util.avatarImgproxyUrl
@@ -138,7 +139,7 @@ class DmLogoCell(
         canvas.restore()
 
         if (pendingCount > 0) {
-            badgeBgPaint.color = themeColors.badgeRed
+            badgeBgPaint.color = MobileThemeColors.unreadBadge
             val textW = badgeTextPaint.measureText(badgeText)
             val badgeW = (textW + BADGE_PAD_H * 2).coerceAtLeast(BADGE_HEIGHT)
             val badgeRadius = BADGE_HEIGHT / 2f

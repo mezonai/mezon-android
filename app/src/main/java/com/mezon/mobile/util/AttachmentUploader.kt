@@ -87,6 +87,12 @@ object AttachmentUploader {
             val mimeType: String,
             val fileSize: Long,
         ) : UploadExecutionPlan()
+
+        data class Ingest(
+            val presignedUrl: String,
+            val ingestUrl: String,
+            val mimeType: String,
+        ) : UploadExecutionPlan()
     }
 
     data class PresignedFileResult(
@@ -334,7 +340,34 @@ object AttachmentUploader {
         height: Int = 0,
         cdnBaseUrl: String,
         channelId: Long = 0L,
+        allowIngest: Boolean = false,
+        file: File? = null,
     ): PresignedFileResult {
+        if (allowIngest && FileIngest.isCandidate(mimeType, uploadFilename, fileSize) &&
+            file != null && FileIngestHlsCheck.supportsHls(file)
+        ) {
+            val presign = api.uploadAttachmentFile(
+                apiUrl, token, uploadFilename, attachmentTypeForUpload(mimeType), fileSize.toInt(), width, height,
+                channelId = channelId,
+            )
+            require(presign.filename.isNotEmpty()) { "ingest presign returned an empty filename" }
+            val cdnUrl = cdnUrlForView(presign.typeCdn, cdnBaseUrl, presign.filename)
+            val ingestUrl = FileIngest.ingestUrl(presign.url)?.takeIf { FileIngestAvailability.isAvailable(it) }
+            if (ingestUrl != null) {
+                return PresignedFileResult(
+                    serverFilename = presign.filename,
+                    cdnUrl = cdnUrl,
+                    plan = UploadExecutionPlan.Ingest(presign.url, ingestUrl, mimeType),
+                )
+            }
+            if (!willUseMultipart(fileSize)) {
+                return PresignedFileResult(
+                    serverFilename = presign.filename,
+                    cdnUrl = cdnUrl,
+                    plan = UploadExecutionPlan.SinglePut(presign.url, mimeType),
+                )
+            }
+        }
         if (willUseMultipart(fileSize)) {
             try {
                 return presignMultipartFromFile(
@@ -368,6 +401,7 @@ object AttachmentUploader {
         bytes: ByteArray? = null,
         file: File? = null,
         onProgress: ((uploaded: Long, total: Long) -> Unit)? = null,
+        onSent: (() -> Unit)? = null,
     ) {
         when (plan) {
             is UploadExecutionPlan.SinglePut -> {
@@ -382,6 +416,20 @@ object AttachmentUploader {
             }
             is UploadExecutionPlan.Multipart -> {
                 executeMultipartPlan(api, apiUrl, token, plan, bytes, file, onProgress)
+            }
+            is UploadExecutionPlan.Ingest -> {
+                val source = file ?: throw IllegalArgumentException("executeUploadPlan Ingest requires a file")
+                val total = source.length()
+                onProgress?.invoke(0, total)
+                FileIngestUploader.upload(
+                    file = source,
+                    presignedUrl = plan.presignedUrl,
+                    ingestUrl = plan.ingestUrl,
+                    onProgress = { fraction -> onProgress?.invoke((fraction * total).toLong(), total) },
+                    onSent = { onSent?.invoke() },
+                    directPut = { api.putFileToPresignedUrlFromFile(plan.presignedUrl, source, plan.mimeType) },
+                )
+                onProgress?.invoke(total, total)
             }
         }
     }

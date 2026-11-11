@@ -36,6 +36,7 @@ import com.mezon.mezon.rtapi.statusUnfollow
 import com.mezon.mezon.rtapi.statusUpdate
 import com.mezon.mezon.rtapi.voiceReactionSend
 import com.mezon.mezon.rtapi.webrtcSignalingFwd
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -99,6 +100,7 @@ class MezonSocket @Inject constructor(
 
     private val _events = MutableSharedFlow<Envelope>(extraBufferCapacity = 64)
     val events: SharedFlow<Envelope> = _events.asSharedFlow()
+    private val pendingEvents = Channel<Envelope>(Channel.UNLIMITED)
 
     private val _reconnected = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val reconnected: SharedFlow<Unit> = _reconnected.asSharedFlow()
@@ -146,8 +148,12 @@ class MezonSocket @Inject constructor(
         if (token.isNullOrEmpty()) "?" else token.takeLast(6)
 
     private val connectLock = Any()
+    private val pendingStreamingUnwatches = mutableMapOf<Long, ByteArray>()
 
     init {
+        scope.launch {
+            for (event in pendingEvents) _events.emit(event)
+        }
         scope.launch { observeNetwork() }
     }
 
@@ -262,6 +268,7 @@ class MezonSocket @Inject constructor(
     fun disconnect() {
         synchronized(connectLock) {
             userDisconnected = true
+            pendingStreamingUnwatches.clear()
             hasConnectedBefore = false
             currentWsUrl = null
             currentToken = null
@@ -369,16 +376,41 @@ class MezonSocket @Inject constructor(
         }
     }
 
-    suspend fun writeStreamingWatch(channelId: Long, watching: Boolean): Envelope = send {
-        streamingWatch = com.mezon.mezon.rtapi.StreamingWatch.newBuilder()
-            .setChannelId(channelId).setWatching(watching).build()
+    suspend fun writeStreamingWatch(channelId: Long, watching: Boolean): Envelope {
+        if (watching) {
+            synchronized(connectLock) { pendingStreamingUnwatches.remove(channelId) }
+        }
+        return send {
+            streamingWatch = com.mezon.mezon.rtapi.StreamingWatch.newBuilder()
+                .setChannelId(channelId).setWatching(watching).build()
+        }
     }
 
     fun sendStreamingUnwatch(channelId: Long) {
-        sendFireAndForget(envelope {
+        val bytes = encodeEnvelopeCidLast(envelope {
             streamingWatch = com.mezon.mezon.rtapi.StreamingWatch.newBuilder()
                 .setChannelId(channelId).setWatching(false).build()
         })
+        synchronized(connectLock) {
+            if (userDisconnected) return
+            pendingStreamingUnwatches[channelId] = bytes
+            val t = transport ?: return
+            if (_connectionState.value == ConnectionState.CONNECTED) {
+                sendPendingStreamingUnwatch(t, channelId, bytes)
+            }
+        }
+    }
+
+    private fun sendPendingStreamingUnwatch(t: AbridgedTcpTransport, channelId: Long, bytes: ByteArray) {
+        t.send(bytes) { error ->
+            if (error == null) {
+                synchronized(connectLock) {
+                    if (t === transport && pendingStreamingUnwatches[channelId] === bytes) {
+                        pendingStreamingUnwatches.remove(channelId)
+                    }
+                }
+            }
+        }
     }
 
     fun sendFireAndForget(env: Envelope) {
@@ -448,7 +480,7 @@ class MezonSocket @Inject constructor(
         }
     }
 
-    suspend fun awaitConnected(timeoutMs: Long = 15_000L): Boolean {
+    suspend fun awaitConnected(timeoutMs: Long = 15_000L, reportTimeout: Boolean = true): Boolean {
         if (_connectionState.value == ConnectionState.CONNECTED) return true
         return try {
             withTimeout(timeoutMs) {
@@ -456,8 +488,10 @@ class MezonSocket @Inject constructor(
             }
             true
         } catch (_: TimeoutCancellationException) {
-            Log.w(TAG, "awaitConnected: timeout ${timeoutMs}ms")
-            sentryReporter.logSocketWarning("awaitConnected", "timeout ${timeoutMs}ms")
+            if (reportTimeout) {
+                Log.w(TAG, "awaitConnected: timeout ${timeoutMs}ms")
+                sentryReporter.logSocketWarning("awaitConnected", "timeout ${timeoutMs}ms")
+            }
             false
         }
     }
@@ -984,6 +1018,9 @@ class MezonSocket @Inject constructor(
 
             transportReadyPending = false
             cancelConnectReadyTimeout()
+            pendingStreamingUnwatches.forEach { (channelId, bytes) ->
+                sendPendingStreamingUnwatch(t, channelId, bytes)
+            }
             _connectionState.value = ConnectionState.CONNECTED
             isReconnecting = false
             lastPongAtMs = System.currentTimeMillis()
@@ -1089,9 +1126,7 @@ class MezonSocket @Inject constructor(
             else -> Unit
         }
 
-        if (!_events.tryEmit(envelope)) {
-            scope.launch { _events.emit(envelope) }
-        }
+        pendingEvents.trySend(envelope)
     }
 
     private fun startHeartbeat() {

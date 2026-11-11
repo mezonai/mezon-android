@@ -1,5 +1,8 @@
 package com.mezon.mobile.home.chat
 
+import android.graphics.drawable.LayerDrawable
+import com.mezon.mobile.core.theme.themeSurfaceShape
+import com.mezon.mobile.core.theme.applyThemeSurface
 import com.mezon.mezon.api.MessageReaction
 import android.Manifest
 import android.content.ClipboardManager
@@ -40,7 +43,6 @@ import android.view.ViewConfiguration
 import android.view.inputmethod.EditorInfo
 import android.widget.EditText
 import android.widget.FrameLayout
-import android.widget.HorizontalScrollView
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -70,6 +72,7 @@ import com.mezon.mobile.home.chat.thread.ThreadListFragment
 import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.home.LOAD_TYPE_INITIAL
 import com.mezon.mobile.home.DialogsController
+import com.mezon.mobile.home.DmOpenResult
 import com.mezon.mobile.home.MemberResolver
 import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.friends.FRIEND_STATE_BLOCKED
@@ -318,8 +321,7 @@ open class ChatFragment : BaseFragment() {
     private lateinit var inputWrapper: FrameLayout
     private lateinit var pageDownButton: PageDownButton
     private lateinit var unreadDecoration: UnreadDividerDecoration
-    private var attachmentPreviewStrip: LinearLayout? = null
-    private var attachmentPreviewScroll: HorizontalScrollView? = null
+    private var attachmentPreviewView: AttachmentPreviewView? = null
 
     private lateinit var emojiController: EmojiController
     private lateinit var anonymousController: com.mezon.mobile.home.AnonymousController
@@ -349,7 +351,6 @@ open class ChatFragment : BaseFragment() {
     private var locationFixDialog: com.mezon.mobile.core.AlertDialog? = null
     private var locationPreviewView: LocationPreviewView? = null
     private var bestLocationFix: android.location.Location? = null
-    private val pendingAttachmentThumbTasks = ArrayList<Runnable?>()
     private var attachmentProgressReloadRunnable: Runnable? = null
 
     private var voiceRecorder: VoiceRecorder? = null
@@ -379,8 +380,6 @@ open class ChatFragment : BaseFragment() {
     private var lastWelcomePeerUsername = ""
     private var lastWelcomeChannelName = ""
     private var clanId = 0L
-    private var chatCachedCreatorId: Long? = null
-    private var displayRoleCacheRefreshJob: Job? = null
     private var pendingDisplayRoleUiRefresh = false
     private var channelType = 0
     private var routeChannelPrivate = false
@@ -390,7 +389,7 @@ open class ChatFragment : BaseFragment() {
     private var startLoadFromMessageId = 0L
     private var startLoadFromMessageOffset = Int.MAX_VALUE
     private var pausedOnLastMessage = false
-    private var pausedFromAppBackground = false
+    private var refreshOnResume = false
     private var needScrollRestore = false
     private var isLoading = false
     private var isLoadingMore = false
@@ -567,9 +566,9 @@ open class ChatFragment : BaseFragment() {
 
     private val postponeNewMessagesCallback = object : NotificationCenter.PostponeNotificationCallback {
         override fun needPostpone(id: Int, currentAccount: Int, args: Array<out Any?>): Boolean {
-            if (id == NotificationCenter.didReceiveNewMessages) {
+            if (id == NotificationCenter.didReceiveNewMessages || id == NotificationCenter.messageDidUpdate) {
                 val did = args.firstOrNull() as? Long ?: return false
-                if (firstLoad && did == channelId) return true
+                if (firstLoad && did == messageListKey) return true
             }
             return false
         }
@@ -586,7 +585,6 @@ open class ChatFragment : BaseFragment() {
         rootMessageId = arguments?.getLong(ARG_ROOT_MESSAGE_ID) ?: 0L
         channelName = arguments?.getString(ARG_CHANNEL_NAME) ?: ""
         clanId = arguments?.getLong(ARG_CLAN_ID) ?: 0L
-        chatCachedCreatorId = null
         channelType = arguments?.getInt(ARG_CHANNEL_TYPE) ?: 0
         routeChannelPrivate = arguments?.getBoolean(ARG_CHANNEL_PRIVATE) ?: false
         routeChannelAgeRestricted = arguments?.getBoolean(ARG_CHANNEL_AGE_RESTRICTED) ?: false
@@ -657,8 +655,14 @@ open class ChatFragment : BaseFragment() {
         observe(NotificationCenter.clanRolesDidLoad) { _, _, args ->
             val changedClanId = args.getOrNull(0) as? Long ?: return@observe
             if (changedClanId == clanId || changedClanId == clansController.selectedClanId.value) refreshPermissionGates()
-            if (changedClanId == clanId) {
-                refreshChatDisplayRoleCache(refreshUi = !isPaused)
+            if (changedClanId == clanId) roleController.refreshDisplayRolesIfNeeded(clanId)
+        }
+        observe(NotificationCenter.clanDisplayRolesDidChange) { _, _, args ->
+            if (args.firstOrNull() != clanId) return@observe
+            if (isPaused || fragmentView == null) {
+                pendingDisplayRoleUiRefresh = true
+            } else {
+                refreshChatSenderRoleRows()
             }
         }
         observe(NotificationCenter.clanMembersDidLoad) { _, _, args ->
@@ -846,12 +850,18 @@ open class ChatFragment : BaseFragment() {
                         false
                     }
 
-                    if (hasOverlap) {
-                        for (m in loadedMessages) messagesDict.put(m.id, m)
-                    } else {
-                        messagesDict.clear()
-                        for (m in loadedMessages) messagesDict.put(m.id, m)
+                    val reconciledLoaded = loadedMessages.map { loaded ->
+                        val current = messagesDict.get(loaded.id)
+                        if (current == null) loaded else loaded.copy(
+                            content = PresignFinishContent.mergePresignFinishContent(current.content, loaded.content)
+                        )
                     }
+                    val newerRealtime = if (!hasOverlap && !isViewingOlder && !moreBottom) {
+                        messages.filter { !it.isSending && it.id > apiMaxId }
+                    } else emptyList()
+                    if (!hasOverlap) messagesDict.clear()
+                    for (m in reconciledLoaded) messagesDict.put(m.id, m)
+                    for (m in newerRealtime) messagesDict.put(m.id, m)
                     for (m in reconciledPending) {
                         if (messagesDict.get(m.id) == null) messagesDict.put(m.id, m)
                     }
@@ -1396,23 +1406,27 @@ open class ChatFragment : BaseFragment() {
 
         observe(NotificationCenter.themeChanged) { _, _, _ ->
             if (fragmentView == null) return@observe
-            rootView.setBackgroundColor(themeColors.chatBackground)
+            rootView.applyThemeSurface(themeColors.chatBackground, themeColors.desktop.chatGradient, anchorToWindow = true)
             remoteTypingStrip?.setTextColor(themeColors.textDisabled)
             remoteTypingDots?.color = themeColors.textDisabled
             refreshRemoteTypingStrip()
-            inputBar.setBackgroundColor(themeColors.surface)
-            noPermissionBar.setBackgroundColor(themeColors.surface)
+            inputBar.setBackgroundColor(themeColors.background)
+            noPermissionBar.setBackgroundColor(themeColors.background)
             noPermissionText.setTextColor(themeColors.textDisabled)
-            (noPermissionText.background as? android.graphics.drawable.GradientDrawable)?.setColor(themeColors.charcoal)
-            inputField.setTextColor(themeColors.onSurface)
-            inputField.setHintTextColor(themeColors.onSurfaceVariant)
-            (inputField.background as? android.graphics.drawable.GradientDrawable)?.setColor(themeColors.tertiary)
-            (attachButton.background as? android.graphics.drawable.GradientDrawable)?.setColor(themeColors.tertiary)
-            attachButton.setColorFilter(themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary))
-            advancedFunctionButton.setColorFilter(themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary))
-            emojiButton.setColorFilter(themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary))
-            micButton.setColorFilter(themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary))
-            attachmentPreviewScroll?.setBackgroundColor(themeColors.surface)
+            inputField.setTextColor(themeColors.textThemeMessage)
+            inputField.setHintTextColor(themeColors.textDisabled)
+            inputField.background = composerFieldBackground()
+            val composerButtonColor = themeColors.secondaryLight
+            (attachButton.background as? android.graphics.drawable.GradientDrawable)?.setColor(composerButtonColor)
+            (advancedFunctionButton.background as? android.graphics.drawable.GradientDrawable)?.setColor(composerButtonColor)
+            if (!voiceIsRecording) {
+                (micButton.background as? android.graphics.drawable.GradientDrawable)?.setColor(composerButtonColor)
+            }
+            attachButton.setColorFilter(themeColors.onSurface)
+            advancedFunctionButton.setColorFilter(themeColors.onSurface)
+            emojiButton.setColorFilter(themeColors.textDisabled)
+            micButton.setColorFilter(themeColors.onSurface)
+            updateAttachmentPreview()
             inputOgpBar?.background = android.graphics.drawable.GradientDrawable().apply {
                 setColor(themeColors.tertiary)
                 cornerRadius = INPUT_OGP_BAR_CORNER
@@ -1428,9 +1442,9 @@ open class ChatFragment : BaseFragment() {
                 d.colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
                 btn.setImageDrawable(d)
             }
-            replyBar?.setBackgroundColor(themeColors.surface)
-            replyNameView?.setTextColor(themeColors.onSurface)
-            ephemeralBar?.setBackgroundColor(themeColors.surface)
+            replyBar?.setBackgroundColor(themeColors.background)
+            replyNameView?.setTextColor(themeColors.textDisabled)
+            ephemeralBar?.setBackgroundColor(themeColors.background)
             ephemeralNameView?.setTextColor(themeColors.onSurface)
             ephemeralCloseButton?.let { btn ->
                 val d = MezonIcon.closeSmallBold.getDrawable(btn.context)
@@ -1439,10 +1453,10 @@ open class ChatFragment : BaseFragment() {
             }
             replyCloseButton?.let { btn ->
                 val d = MezonIcon.closeSmallBold.getDrawable(btn.context)
-                d.colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
+                d.colorFilter = PorterDuffColorFilter(themeColors.textDisabled, PorterDuff.Mode.SRC_IN)
                 btn.setImageDrawable(d)
             }
-            editBar?.setBackgroundColor(themeColors.surface)
+            editBar?.setBackgroundColor(themeColors.background)
             editNameView?.setTextColor(themeColors.onSurface)
             suggestionsPopup?.applyColors()
             editCloseButton?.let { btn ->
@@ -1463,9 +1477,11 @@ open class ChatFragment : BaseFragment() {
         }
 
         observe(NotificationCenter.appDidReconnect) { _, _, _ ->
-            if (isPaused) return@observe
-            rejoinChannelOnSocket()
-            chatController.loadMessages(channelId, clanId, forceRefresh = true, refreshWhenBackOnline = true, topicId = topicId)
+            if (isPaused) {
+                refreshOnResume = true
+                return@observe
+            }
+            rejoinChannelOnSocket(refreshAfterJoin = true)
         }
 
         observe(NotificationCenter.scrollToBottomChat) { _, _, args ->
@@ -1525,7 +1541,7 @@ open class ChatFragment : BaseFragment() {
             val loadedClanId = args.firstOrNull() as? Long ?: return@observe
             if (loadedClanId == clanId) {
                 if (!isPaused) checkSuggestionTrigger()
-                refreshChatDisplayRoleCache(refreshUi = !isPaused)
+                roleController.refreshDisplayRolesIfNeeded(clanId)
             }
         }
 
@@ -1545,6 +1561,10 @@ open class ChatFragment : BaseFragment() {
             actionBar?.let { applyDmVoicePresenceSubtitle(it) }
         }
 
+        observe(NotificationCenter.blockedUsersLoaded) { _, _, _ ->
+            refreshDmBlockState()
+        }
+
         observe(NotificationCenter.dialogsNeedReload) { _, _, _ ->
             if (isPaused) return@observe
             if (clanId == 0L && channelType == CHANNEL_TYPE_GROUP) {
@@ -1555,8 +1575,7 @@ open class ChatFragment : BaseFragment() {
                 actionBar?.let { applyDmVoicePresenceSubtitle(it) }
                 refreshWelcomeFromDialog()
             }
-            if (clanId != 0L || channelType != CHANNEL_TYPE_DM) return@observe
-            actionBar?.let { setupDmHeaderCallMenu(it) }
+            refreshDmBlockState()
         }
 
         observe(NotificationCenter.jumpToMessage) { _, _, args ->
@@ -1580,8 +1599,24 @@ open class ChatFragment : BaseFragment() {
         notificationCenter.addPostponeNotificationsCallback(postponeNewMessagesCallback)
 
         isLoading = true
-        loadInitialMessages()
+        if (startLoadFromMessageId == 0L) {
+            rejoinChannelOnSocket(refreshAfterJoin = true, showCachedMessagesFirst = true)
+        } else {
+            loadInitialMessages()
+        }
         return true
+    }
+
+    private fun composerFieldBackground(): Drawable {
+        val radius = LayoutHelper.dpf(20f)
+        val stroke = LayoutHelper.dp(1)
+        val gradient = themeColors.desktop.composerGradient ?: return themeSurfaceShape(
+            themeColors.secondaryLight, radius, themeColors.border, stroke
+        )
+        return LayerDrawable(arrayOf(
+            gradient.previewDrawable(radius),
+            themeSurfaceShape(Color.TRANSPARENT, radius, themeColors.border, stroke)
+        ))
     }
 
     private fun loadInitialMessages() {
@@ -1644,6 +1679,9 @@ open class ChatFragment : BaseFragment() {
 
     override fun createView(context: Context): View {
         sizeNotifierRoot = object : SizeNotifierFrameLayout(context, parentLayout) {
+            override fun getPopupTopInset(): Int =
+                actionBar?.takeIf { it.visibility != View.GONE }?.getActionBarFullHeight() ?: 0
+
             private val touchBounds = Rect()
             private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
             private var dismissKeyboardOnTap = false
@@ -1676,7 +1714,6 @@ open class ChatFragment : BaseFragment() {
                         dismissKeyboardOnTap = false
                     }
                 }
-                // Observe the touch without consuming message clicks, long presses or swipes.
                 return super.dispatchTouchEvent(event)
             }
 
@@ -1686,10 +1723,9 @@ open class ChatFragment : BaseFragment() {
             }
         }.apply {
             isFocusableInTouchMode = true
-            // Keep receiving the release event when tapping empty conversation space.
             isClickable = true
         }
-        sizeNotifierRoot.setBackgroundColor(themeColors.chatBackground)
+        sizeNotifierRoot.applyThemeSurface(themeColors.chatBackground, themeColors.desktop.chatGradient, anchorToWindow = true)
         rootView = sizeNotifierRoot
 
         val innerLayout = LinearLayout(context).apply {
@@ -1697,7 +1733,9 @@ open class ChatFragment : BaseFragment() {
             clipChildren = false
         }
 
-        val chatActionBar = ActionBarView(context, themeColors).apply {
+        val chatActionBar = ActionBarView(context, themeColors, transparentBackground = true).apply {
+            setAddToContainer(false)
+            occupyStatusBar = true
             setBackClickListener {
                 if (emojiViewVisible) {
                     hideEmojiView()
@@ -1891,25 +1929,18 @@ open class ChatFragment : BaseFragment() {
             }
         )
 
-        attachmentPreviewScroll = HorizontalScrollView(context).apply {
-            visibility = View.GONE
-            setBackgroundColor(themeColors.surface)
-            isHorizontalScrollBarEnabled = false
-            val pad = LayoutHelper.dp(8)
-            setPadding(pad, pad, pad, 0)
+        val attachmentPreview = AttachmentPreviewView(context, themeColors) { index ->
+            pendingAttachments.removeAt(index).deleteOwnedCacheFile()
+            updateAttachmentPreview()
+            updateSendButtonState()
         }
-        attachmentPreviewStrip = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-        }
-        attachmentPreviewScroll!!.addView(attachmentPreviewStrip, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LayoutHelper.dp(56f)
-        ))
-        innerLayout.addView(attachmentPreviewScroll, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+        attachmentPreviewView = attachmentPreview
+        innerLayout.addView(attachmentPreview, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
         replyBar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = android.view.Gravity.CENTER_VERTICAL
-            setBackgroundColor(themeColors.surface)
+            setBackgroundColor(themeColors.background)
             setPadding(LayoutHelper.dp(12f), LayoutHelper.dp(8f), LayoutHelper.dp(8f), LayoutHelper.dp(4f))
             visibility = View.GONE
         }
@@ -1922,7 +1953,7 @@ open class ChatFragment : BaseFragment() {
         ).apply { rightMargin = LayoutHelper.dp(8f) })
 
         replyNameView = TextView(context).apply {
-            setTextColor(themeColors.onSurface)
+            setTextColor(themeColors.textDisabled)
             textSize = 13f
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
@@ -1933,7 +1964,7 @@ open class ChatFragment : BaseFragment() {
 
         replyCloseButton = ImageButton(context).apply {
             val drawable = MezonIcon.closeSmallBold.getDrawable(context)
-            drawable.colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
+            drawable.colorFilter = PorterDuffColorFilter(themeColors.textDisabled, PorterDuff.Mode.SRC_IN)
             setImageDrawable(drawable)
             setBackgroundColor(android.graphics.Color.TRANSPARENT)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
@@ -1950,7 +1981,7 @@ open class ChatFragment : BaseFragment() {
         ephemeralBar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = android.view.Gravity.CENTER_VERTICAL
-            setBackgroundColor(themeColors.surface)
+            setBackgroundColor(themeColors.background)
             setPadding(LayoutHelper.dp(12f), LayoutHelper.dp(8f), LayoutHelper.dp(8f), LayoutHelper.dp(4f))
             visibility = View.GONE
         }
@@ -1988,7 +2019,7 @@ open class ChatFragment : BaseFragment() {
         editBar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = android.view.Gravity.CENTER_VERTICAL
-            setBackgroundColor(themeColors.surface)
+            setBackgroundColor(themeColors.background)
             setPadding(LayoutHelper.dp(12f), LayoutHelper.dp(8f), LayoutHelper.dp(8f), LayoutHelper.dp(4f))
             visibility = View.GONE
         }
@@ -2158,7 +2189,7 @@ open class ChatFragment : BaseFragment() {
         inputBar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.BOTTOM
-            setBackgroundColor(themeColors.surface)
+            setBackgroundColor(themeColors.background)
             setPadding(LayoutHelper.dp(8f), LayoutHelper.dp(10f), LayoutHelper.dp(8f), LayoutHelper.dp(10f))
             clipChildren = false
             clipToPadding = false
@@ -2168,13 +2199,13 @@ open class ChatFragment : BaseFragment() {
         val btnPad = LayoutHelper.dp(8f)
         attachButton = ImageButton(context).apply {
             val drawable = MezonIcon.plusLargeIcon.getDrawable(context)
-            drawable.colorFilter = PorterDuffColorFilter(themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary), PorterDuff.Mode.SRC_IN)
+            drawable.colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
             setImageDrawable(drawable)
             scaleType = ImageView.ScaleType.FIT_CENTER
             setPadding(btnPad, btnPad, btnPad, btnPad)
             background = android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.OVAL
-                setColor(themeColors.tertiary)
+                setColor(themeColors.secondaryLight)
             }
             setOnClickListener { showAttachmentPicker() }
         }
@@ -2182,13 +2213,13 @@ open class ChatFragment : BaseFragment() {
 
         advancedFunctionButton = ImageButton(context).apply {
             val drawable = MezonIcon.advancedFunctionIcon.getDrawable(context)
-            drawable.colorFilter = PorterDuffColorFilter(themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary), PorterDuff.Mode.SRC_IN)
+            drawable.colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
             setImageDrawable(drawable)
             scaleType = ImageView.ScaleType.FIT_CENTER
             setPadding(btnPad, btnPad, btnPad, btnPad)
             background = android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.OVAL
-                setColor(themeColors.tertiary)
+                setColor(themeColors.secondaryLight)
             }
             setOnClickListener { showAdvancedFunctionMenu() }
         }
@@ -2210,8 +2241,8 @@ open class ChatFragment : BaseFragment() {
             }
         }.apply {
             hint = getString(R.string.message_input_placeholder)
-            setHintTextColor(themeColors.onSurfaceVariant)
-            setTextColor(themeColors.onSurface)
+            setHintTextColor(themeColors.textDisabled)
+            setTextColor(themeColors.textThemeMessage)
             textSize = 16f
             maxLines = 4
             minimumHeight = LayoutHelper.dp(40f)
@@ -2219,10 +2250,7 @@ open class ChatFragment : BaseFragment() {
             inputType = android.text.InputType.TYPE_CLASS_TEXT or
                 android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or
                 android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
-            background = android.graphics.drawable.GradientDrawable().apply {
-                setColor(themeColors.tertiary)
-                cornerRadius = LayoutHelper.dp(20f).toFloat()
-            }
+            background = composerFieldBackground()
             val verticalPadding = ((LayoutHelper.dp(40f) - lineHeight) / 2).coerceAtLeast(LayoutHelper.dp(6f))
             setPadding(LayoutHelper.dp(14f), verticalPadding, LayoutHelper.dp(40f), verticalPadding)
         }
@@ -2232,7 +2260,7 @@ open class ChatFragment : BaseFragment() {
 
         emojiButton = ImageButton(context).apply {
             setImageResource(R.drawable.ic_emoji_icon)
-            setColorFilter(PorterDuffColorFilter(themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary), PorterDuff.Mode.SRC_IN))
+            setColorFilter(PorterDuffColorFilter(themeColors.textDisabled, PorterDuff.Mode.SRC_IN))
             setBackgroundColor(android.graphics.Color.TRANSPARENT)
             scaleType = ImageView.ScaleType.CENTER
             setOnClickListener {
@@ -2291,20 +2319,20 @@ open class ChatFragment : BaseFragment() {
 
         micButton = ImageButton(context).apply {
             val drawable = MezonIcon.microphoneIcon.getDrawable(context)
-            drawable.colorFilter = PorterDuffColorFilter(themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary), PorterDuff.Mode.SRC_IN)
+            drawable.colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
             setImageDrawable(drawable)
             scaleType = ImageView.ScaleType.FIT_CENTER
             setPadding(btnPad, btnPad, btnPad, btnPad)
             background = android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.OVAL
-                setColor(themeColors.tertiary)
+                setColor(themeColors.secondaryLight)
             }
             setOnTouchListener { v, event -> handleMicTouchEvent(v, event) }
         }
         inputBar.addView(micButton, LayoutHelper.createLinear(40, 40, gravity = Gravity.BOTTOM))
 
         noPermissionBar = FrameLayout(context).apply {
-            setBackgroundColor(themeColors.surface)
+            setBackgroundColor(themeColors.background)
             setPadding(LayoutHelper.dp(12f), LayoutHelper.dp(6f), LayoutHelper.dp(12f), LayoutHelper.dp(20f))
             visibility = View.GONE
         }
@@ -2314,10 +2342,6 @@ open class ChatFragment : BaseFragment() {
             textSize = 14f
             gravity = Gravity.CENTER
             setPadding(LayoutHelper.dp(16f), LayoutHelper.dp(16f), LayoutHelper.dp(16f), LayoutHelper.dp(16f))
-            background = android.graphics.drawable.GradientDrawable().apply {
-                cornerRadius = LayoutHelper.dp(20f).toFloat()
-                setColor(themeColors.charcoal)
-            }
         }
         noPermissionBar.addView(noPermissionText, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT
@@ -2388,7 +2412,10 @@ open class ChatFragment : BaseFragment() {
                             width = att.width,
                             height = att.height,
                             size = att.size,
-                            duration = att.duration
+                            duration = att.duration,
+                            isIngest = PresignFinishContent.isIngestAttachment(
+                                url, PresignFinishContent.parseIngestKeys(msg.content)
+                            ),
                         )
                     )
                 } else {
@@ -2642,7 +2669,7 @@ open class ChatFragment : BaseFragment() {
             requestTopicBadgeHydrate(0L)
         }
         refreshWelcomeFromDialog()
-        refreshChatDisplayRoleCache()
+        roleController.refreshDisplayRolesIfNeeded(clanId)
         prefetchQuickMenus()
         adapter.pollBridge = object : ChatPollBridge {
             override fun getLocalState(messageId: Long): PollLocalState {
@@ -2738,6 +2765,7 @@ open class ChatFragment : BaseFragment() {
             rootView, useInsetsAnimator = true
         ) {
             override fun heightAnimationEnabled(): Boolean {
+                if (emojiSearchExpanded) return false
                 val layout = parentLayout
                 if (layout == null) return false
                 if (android.os.SystemClock.elapsedRealtime() - lastResumeTime < 250) return false
@@ -2749,7 +2777,6 @@ open class ChatFragment : BaseFragment() {
             }
             override fun onPanTranslationUpdate(y: Float, progress: Float, keyboardVisible: Boolean) {
                 actionBar?.translationY = y
-                // The composer follows the root's IME animation; only the header stays fixed.
             }
         }
 
@@ -2831,12 +2858,16 @@ open class ChatFragment : BaseFragment() {
         } else if (!isTopicMode) {
             refreshClanHeaderFromChannel()
         }
-        if (pausedFromAppBackground) {
-            pausedFromAppBackground = false
-            rejoinChannelOnSocket()
-            chatController.loadMessages(channelId, clanId, forceRefresh = true, refreshWhenBackOnline = true, topicId = topicId)
+        if (refreshOnResume) {
+            refreshOnResume = false
+            rejoinChannelOnSocket(refreshAfterJoin = true)
         }
     }
+
+    override fun getStatusBarColor(): Int =
+        if (themeColors.desktop.chatGradient != null) Color.TRANSPARENT else themeColors.chatBackground
+
+    override fun isLightStatusBar(): Boolean = themeColors.resolvedMode.isLight
 
     override fun onBecomeFullyVisible() {
         super.onBecomeFullyVisible()
@@ -2934,7 +2965,7 @@ open class ChatFragment : BaseFragment() {
     override fun onPause() {
         super.onPause()
         saveComposerDraft(flush = true)
-        pausedFromAppBackground = MainActivity.applicationPaused
+        refreshOnResume = MainActivity.applicationPaused
         if (!isBackSwipePreview()) {
             dialogsController.clearCurrentChannel()
             if (clanId != 0L) {
@@ -3176,19 +3207,11 @@ open class ChatFragment : BaseFragment() {
 
     private fun updateEmojiButtonIcon(showingEmoji: Boolean) {
         if (showingEmoji) {
-            emojiButton.setImageDrawable(
-                MezonIcon.keyboardIcon.getDrawable(getContext()!!).also {
-                    it.colorFilter = PorterDuffColorFilter(
-                        themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary), PorterDuff.Mode.SRC_IN
-                    )
-                }
-            )
+            emojiButton.setImageDrawable(MezonIcon.keyboardIcon.getDrawable(emojiButton.context))
         } else {
             emojiButton.setImageResource(R.drawable.ic_emoji_icon)
-            emojiButton.setColorFilter(PorterDuffColorFilter(
-                themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary), PorterDuff.Mode.SRC_IN
-            ))
         }
+        emojiButton.setColorFilter(themeColors.textDisabled)
     }
 
     private fun createEmojiView() {
@@ -3281,14 +3304,15 @@ open class ChatFragment : BaseFragment() {
                 }
 
                 override fun onDragY(dy: Float, dragFromExpanded: Boolean) {
-                    val panelHeight = SharedConfig.getEmojiPanelHeight()
+                    val maxPanelHeight = sizeNotifierRoot.getMaxPopupHeight()
+                    val panelHeight = SharedConfig.getEmojiPanelHeight().coerceAtMost(maxPanelHeight)
                     if (dragFromExpanded) {
                         if (dy > 0) {
                             emojiSearchExpanded = false
                             sizeNotifierRoot.isSearchExpanded = false
                             emojiView?.clearSearchFocus()
                             AndroidUtilities.hideKeyboard(emojiView)
-                            val targetHeight = (sizeNotifierRoot.height - dy).toInt().coerceAtLeast(panelHeight)
+                            val targetHeight = (maxPanelHeight - dy).toInt().coerceIn(panelHeight, maxPanelHeight)
                             emojiView?.layoutParams = FrameLayout.LayoutParams(
                                 FrameLayout.LayoutParams.MATCH_PARENT, targetHeight, Gravity.BOTTOM
                             )
@@ -3299,7 +3323,7 @@ open class ChatFragment : BaseFragment() {
                     }
 
                     if (dy < 0) {
-                        val targetHeight = (panelHeight - dy).toInt().coerceAtMost(sizeNotifierRoot.height)
+                        val targetHeight = (panelHeight - dy).toInt().coerceAtMost(maxPanelHeight)
                         if (emojiView?.layoutParams?.height != targetHeight) {
                             emojiView?.layoutParams = FrameLayout.LayoutParams(
                                 FrameLayout.LayoutParams.MATCH_PARENT, targetHeight, Gravity.BOTTOM
@@ -3312,9 +3336,10 @@ open class ChatFragment : BaseFragment() {
 
                 override fun onAnimateExpand(expand: Boolean) {
                     if (emojiSearchExpanded) return
-                    val panelHeight = SharedConfig.getEmojiPanelHeight()
-                    val startHeight = emojiView?.layoutParams?.height ?: panelHeight
-                    val targetHeight = if (expand) sizeNotifierRoot.height else panelHeight
+                    val maxPanelHeight = sizeNotifierRoot.getMaxPopupHeight()
+                    val panelHeight = SharedConfig.getEmojiPanelHeight().coerceAtMost(maxPanelHeight)
+                    val startHeight = (emojiView?.layoutParams?.height ?: panelHeight).coerceIn(0, maxPanelHeight)
+                    val targetHeight = if (expand) maxPanelHeight else panelHeight
                     
                     emojiExpandAnimator?.cancel()
                     val anim = android.animation.ValueAnimator.ofInt(startHeight, targetHeight)
@@ -3372,8 +3397,6 @@ open class ChatFragment : BaseFragment() {
         notificationCenter.onAnimationFinish(transitionAnimationIndex)
         if (::recyclerView.isInitialized) cancelPendingScroll()
         cancelPendingLoading()
-        displayRoleCacheRefreshJob?.cancel()
-        displayRoleCacheRefreshJob = null
         topicBadgeHydrateJob?.cancel()
         topicBadgeHydrateJob = null
         pendingDisplayRoleUiRefresh = false
@@ -3387,8 +3410,8 @@ open class ChatFragment : BaseFragment() {
         sentByApiRealIds.clear()
         pendingEchoTempIds.clear()
         anonymousEchoKeyByTempId.clear()
-        for (t in pendingAttachmentThumbTasks) ThumbnailCache.cancel(t)
-        pendingAttachmentThumbTasks.clear()
+        attachmentPreviewView?.clear()
+        attachmentPreviewView = null
         attachmentProgressReloadRunnable?.let { AndroidUtilities.cancelRunOnUIThread(it) }
         attachmentProgressReloadRunnable = null
         pendingAttachments.forEach { it.deleteOwnedCacheFile() }
@@ -4278,18 +4301,8 @@ open class ChatFragment : BaseFragment() {
         }
     }
 
-    private fun chatClanCreatorId(): Long {
-        if (clanId == 0L) return 0L
-        val cached = chatCachedCreatorId
-        if (cached != null) return cached
-        val id = clansController.clans.value.firstOrNull { it.clanId == clanId }?.creatorId ?: 0L
-        chatCachedCreatorId = id
-        return id
-    }
-
     private fun chatDisplayRoleResolver(): (Long) -> UserDisplayRole? = { userId ->
-        if (clanId == 0L) null
-        else roleController.resolveHighestDisplayRole(clanId, userId, chatClanCreatorId())
+        roleController.resolveHighestDisplayRole(clanId, userId)
     }
 
     private fun resolveSelfRoleIds(): List<Long> {
@@ -4300,24 +4313,6 @@ open class ChatFragment : BaseFragment() {
             .firstOrNull { it.userId == selfId }
             ?.roleIds
             .orEmpty()
-    }
-
-    private fun refreshChatDisplayRoleCache(refreshUi: Boolean = true) {
-        if (clanId == 0L) return
-        displayRoleCacheRefreshJob?.cancel()
-        roleController.invalidateDisplayRoleCache(clanId)
-        val creatorId = chatClanCreatorId()
-        displayRoleCacheRefreshJob = appScope.launch(ioDispatcher) {
-            roleController.refreshDisplayRoleCache(clanId, creatorId)
-            withContext(mainDispatcher) {
-                displayRoleCacheRefreshJob = null
-                if (refreshUi) {
-                    refreshChatSenderRoleRows()
-                } else {
-                    pendingDisplayRoleUiRefresh = true
-                }
-            }
-        }
     }
 
     private fun refreshChatSenderRoleRows() {
@@ -4500,7 +4495,11 @@ open class ChatFragment : BaseFragment() {
         val merged = if (entity.isMe) {
             chatController.mergeSelfSentMessageEcho(existing, entity)
         } else {
-            entity.copy(sendState = MessageEntity.SEND_STATE_SENT, isError = false)
+            entity.copy(
+                content = PresignFinishContent.mergePresignFinishContent(existing.content, entity.content),
+                sendState = MessageEntity.SEND_STATE_SENT,
+                isError = false,
+            )
         }
         val idx = messages.indexOfFirst { it.id == entity.id }
         messagesDict.put(merged.id, merged)
@@ -4926,10 +4925,21 @@ open class ChatFragment : BaseFragment() {
 
     private fun dmHeaderCallOtherUserId(): Long? {
         val myId = chatController.getCurrentUserId()
-        dialogsController.getParticipants(channelId).firstOrNull { it.userId != myId }?.let { return it.userId }
+        dialogsController.getParticipants(channelId).firstOrNull { it.userId != 0L && it.userId != myId }
+            ?.let { return it.userId }
         val dm = dialogsController.getDialog(channelId) ?: return null
         if (dm.otherUserId != 0L && dm.otherUserId != myId) return dm.otherUserId
         return null
+    }
+
+    private fun isDmPeerBlocked(): Boolean =
+        clanId == 0L && channelType == CHANNEL_TYPE_DM &&
+            dmHeaderCallOtherUserId()?.let(friendController::isUserBlocked) == true
+
+    private fun refreshDmBlockState() {
+        if (clanId != 0L || channelType != CHANNEL_TYPE_DM || fragmentView == null) return
+        actionBar?.let { setupDmHeaderCallMenu(it) }
+        if (::sendButton.isInitialized) updateSendButtonState()
     }
 
     private fun resolveDmCallPeerForHeader(): CallPeer? {
@@ -4956,8 +4966,10 @@ open class ChatFragment : BaseFragment() {
         if (participants.isEmpty()) {
             dialogsController.loadDmParticipants(channelId)
         }
-        val otherId = dmHeaderCallOtherUserId()
-        if (otherId != null && friendController.isUserBlocked(otherId)) {
+        val menu = chatActionBar.createMenu()
+        val existingCallItem = menu.getItem(MENU_DM_VOICE_CALL)
+        if (isDmPeerBlocked()) {
+            existingCallItem?.visibility = View.GONE
             return
         }
         chatActionBar.setMenuOnItemClick(object : ActionBarView.ActionBarMenuOnItemClick() {
@@ -4980,7 +4992,11 @@ open class ChatFragment : BaseFragment() {
                         }
                         requestCallPermissions(needsCamera = false) {
                             runOutgoingCallAfterFullScreenIntentPrompt(
-                                {
+                                call@{
+                                    if (friendController.isUserBlocked(peer.userId)) {
+                                        MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.ERROR, getString(R.string.no_permission_call_blocked))
+                                        return@call
+                                    }
                                     callController.startCall(
                                         peer.userId,
                                         peer.displayName,
@@ -4999,8 +5015,8 @@ open class ChatFragment : BaseFragment() {
                 }
             }
         })
-        val menu = chatActionBar.createMenu()
-        if (menu.getItem(MENU_DM_VOICE_CALL) != null) {
+        if (existingCallItem != null) {
+            existingCallItem.visibility = View.VISIBLE
             chatActionBar.setItemsColor(themeColors.onSurface)
             return
         }
@@ -5088,9 +5104,13 @@ open class ChatFragment : BaseFragment() {
         }
     }
 
-    private fun rejoinChannelOnSocket() {
+    private fun rejoinChannelOnSocket(refreshAfterJoin: Boolean = false, showCachedMessagesFirst: Boolean = false) {
         if (channelId == 0L) return
-        chatController.openChannel(channelId, clanId, channelType, resolveChannelPrivate(), routeParentId)
+        chatController.openChannel(
+            channelId, clanId, channelType, resolveChannelPrivate(), routeParentId,
+            refreshTopicIdAfterJoin = if (refreshAfterJoin) topicId else null,
+            showCachedMessagesFirst = showCachedMessagesFirst,
+        )
     }
 
     private fun resolveChannelAgeRestricted(): Boolean {
@@ -6648,7 +6668,7 @@ open class ChatFragment : BaseFragment() {
             d.colorFilter = PorterDuffColorFilter(android.graphics.Color.WHITE, PorterDuff.Mode.SRC_IN)
             micButton.setImageDrawable(d)
         } else {
-            bg.setColor(themeColors.tertiary)
+            bg.setColor(themeColors.secondaryLight)
             val d = MezonIcon.microphoneIcon.getDrawable(micButton.context)
             d.colorFilter = PorterDuffColorFilter(
                 themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary),
@@ -6798,132 +6818,7 @@ open class ChatFragment : BaseFragment() {
     }
 
     private fun updateAttachmentPreview() {
-        val strip = attachmentPreviewStrip ?: return
-        val scroll = attachmentPreviewScroll ?: return
-        for (t in pendingAttachmentThumbTasks) ThumbnailCache.cancel(t)
-        pendingAttachmentThumbTasks.clear()
-        strip.removeAllViews()
-
-        if (pendingAttachments.isEmpty()) {
-            scroll.visibility = View.GONE
-            return
-        }
-        scroll.visibility = View.VISIBLE
-
-        val ctx = getContext() ?: return
-        val resolver = ctx.contentResolver
-        val thumbSize = LayoutHelper.dp(48f)
-        val margin = LayoutHelper.dp(4f)
-
-        for (i in pendingAttachments.indices) {
-            val item = pendingAttachments[i]
-            val container = FrameLayout(ctx)
-
-            if (item.isFileType) {
-                buildFilePreviewItem(ctx, container, item, thumbSize)
-            } else {
-                buildMediaPreviewItem(ctx, container, item, resolver, thumbSize)
-            }
-
-            val closeBtn = ImageView(ctx).apply {
-                val drawable = MezonIcon.closeSmallBold.getDrawable(ctx)
-                drawable.colorFilter = PorterDuffColorFilter(
-                    android.graphics.Color.WHITE, PorterDuff.Mode.SRC_IN
-                )
-                setImageDrawable(drawable)
-                setBackgroundColor(0x80000000.toInt())
-                setPadding(LayoutHelper.dp(2f), LayoutHelper.dp(2f), LayoutHelper.dp(2f), LayoutHelper.dp(2f))
-                setOnClickListener {
-                    pendingAttachments.removeAt(i).deleteOwnedCacheFile()
-                    updateAttachmentPreview()
-                    updateSendButtonState()
-                }
-            }
-            container.addView(closeBtn, FrameLayout.LayoutParams(
-                LayoutHelper.dp(18f), LayoutHelper.dp(18f), Gravity.TOP or Gravity.END
-            ))
-
-            val lp = LinearLayout.LayoutParams(thumbSize, thumbSize).apply {
-                rightMargin = margin
-            }
-            strip.addView(container, lp)
-        }
-    }
-
-    private fun buildMediaPreviewItem(
-        ctx: Context,
-        container: FrameLayout,
-        item: AttachmentPickerItem,
-        resolver: android.content.ContentResolver,
-        thumbSize: Int
-    ) {
-        val bindId = item.id
-        val thumb = ImageView(ctx).apply {
-            scaleType = ImageView.ScaleType.CENTER_CROP
-            tag = bindId
-        }
-        val cached = ThumbnailCache.get(bindId)
-        if (cached != null) {
-            thumb.setImageBitmap(cached)
-        } else {
-            val task = ThumbnailCache.load(resolver, item, object : ThumbnailCache.Callback {
-                override fun onThumbnailLoaded(id: Long, bitmap: Bitmap) {
-                    if (thumb.tag == bindId) thumb.setImageBitmap(bitmap)
-                }
-            })
-            if (task != null) pendingAttachmentThumbTasks.add(task)
-        }
-        container.addView(thumb, FrameLayout.LayoutParams(thumbSize, thumbSize))
-    }
-
-    private fun buildFilePreviewItem(
-        ctx: Context,
-        container: FrameLayout,
-        item: AttachmentPickerItem,
-        thumbSize: Int
-    ) {
-        val fileContainer = LinearLayout(ctx).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setBackgroundColor(themeColors.secondaryLight)
-        }
-
-        val iconSize = LayoutHelper.dp(24f)
-        val icon = ImageView(ctx).apply {
-            setImageDrawable(MezonIcon.fileIconNew.getDrawable(ctx))
-        }
-        fileContainer.addView(icon, LinearLayout.LayoutParams(iconSize, iconSize).apply {
-            gravity = Gravity.CENTER_HORIZONTAL
-        })
-
-        val nameLabel = TextView(ctx).apply {
-            text = item.filename
-            setTextColor(themeColors.onSurface)
-            textSize = 9f
-            maxLines = 1
-            ellipsize = android.text.TextUtils.TruncateAt.MIDDLE
-            gravity = Gravity.CENTER
-            setPadding(LayoutHelper.dp(2f), LayoutHelper.dp(1f), LayoutHelper.dp(2f), 0)
-        }
-        fileContainer.addView(nameLabel, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-        ))
-
-        val subtype = item.mimeType.substringAfterLast('/', "").uppercase()
-        if (subtype.isNotEmpty()) {
-            val typeLabel = TextView(ctx).apply {
-                text = subtype
-                setTextColor(themeColors.onSurfaceVariant)
-                textSize = 8f
-                maxLines = 1
-                gravity = Gravity.CENTER
-            }
-            fileContainer.addView(typeLabel, LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-            ))
-        }
-
-        container.addView(fileContainer, FrameLayout.LayoutParams(thumbSize, thumbSize))
+        attachmentPreviewView?.bind(pendingAttachments, themeColors.background)
     }
 
     private fun clearPendingAttachments() {
@@ -7067,7 +6962,7 @@ open class ChatFragment : BaseFragment() {
     private fun setupSwipeInterceptor() {
         recyclerView.setOnInterceptTouchListener(RecyclerListView.OnInterceptTouchListener { e ->
             processTouchEventForSwipe(e)
-            false // Don't consume — let RecyclerView handle normally
+            false 
         })
     }
 
@@ -7199,6 +7094,7 @@ open class ChatFragment : BaseFragment() {
 
     private fun canSendMessageInCurrentChannel(): Boolean {
         if (channelId == 0L) return false
+        if (isDmPeerBlocked()) return false
         if (clanId == 0L || channelType == CHANNEL_TYPE_DM || channelType == CHANNEL_TYPE_GROUP) return true
         if (!permissionPolicy.hasCachedChannelUserPermissions(channelId)) return true
         if (permissionPolicy.checkPermission(PermissionPolicy.SEND_MESSAGE, channelId, clanId)) return true
@@ -7352,13 +7248,17 @@ open class ChatFragment : BaseFragment() {
         return kotlin.math.abs(newer.timestampSeconds - older.timestampSeconds) <= FORWARD_NEARBY_WINDOW_SECONDS
     }
 
+    private fun dmOpenErrorRes(result: DmOpenResult): Int =
+        if (result == DmOpenResult.OnlyFriends) R.string.dm_only_friends_denied else R.string.contact_shared_error
+
     private fun openProfileDm(userId: Long, displayName: String, username: String) {
         if (userId == 0L) return
         fragmentScope.launch {
-            val dmId = withContext(ioDispatcher) { dialogsController.getOrCreateDm(userId) }
+            val result = withContext(ioDispatcher) { dialogsController.openOrCreateDm(userId) }
             withContext(mainDispatcher) {
-                if (dmId == 0L) {
-                    MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.ERROR, getString(R.string.contact_shared_error))
+                val dmId = (result as? DmOpenResult.Opened)?.channelId
+                if (dmId == null) {
+                    MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.ERROR, getString(dmOpenErrorRes(result)))
                     return@withContext
                 }
                 (getParentActivity() as? MainActivity)?.openChat(
@@ -7391,10 +7291,11 @@ open class ChatFragment : BaseFragment() {
         requestCallPermissions(needsCamera = false, reason = "profileVoiceCall") {
             runOutgoingCallAfterFullScreenIntentPrompt {
                 fragmentScope.launch {
-                    val dmId = withContext(ioDispatcher) { dialogsController.getOrCreateDm(userId) }
+                    val result = withContext(ioDispatcher) { dialogsController.openOrCreateDm(userId) }
                     withContext(mainDispatcher) {
-                        if (dmId == 0L) {
-                            MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.ERROR, getString(R.string.contact_shared_error))
+                        val dmId = (result as? DmOpenResult.Opened)?.channelId
+                        if (dmId == null) {
+                            MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.ERROR, getString(dmOpenErrorRes(result)))
                             return@withContext
                         }
                         callController.startCall(
@@ -7637,6 +7538,12 @@ open class ChatFragment : BaseFragment() {
         sheet.show()
     }
 
+    private fun copyMediaLink(ctx: android.content.Context, link: String, messageRes: Int) {
+        val clipboard = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("media_url", link))
+        if (isAdded) MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(messageRes))
+    }
+
     private fun handleMessageAction(action: MessageActionBottomSheet.ActionType, msg: MessageEntity) {
         when (action) {
             MessageActionBottomSheet.ActionType.ResendMessage -> {
@@ -7730,12 +7637,12 @@ open class ChatFragment : BaseFragment() {
                 }
 
                 appScope.launch(ioDispatcher) {
-                    val success = com.mezon.mobile.util.FileUtils.downloadMediaToGallery(ctx, url)
+                    val failureMessage = com.mezon.mobile.util.FileUtils.saveMediaToGallery(ctx, url)
                     withContext(Dispatchers.Main) {
-                        if (success) {
+                        if (failureMessage == null) {
                             MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.SUCCESS, getString(R.string.message_toast_save_success))
                         } else {
-                            MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.ERROR, getString(R.string.message_toast_save_failed))
+                            MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.ERROR, getString(failureMessage))
                         }
                     }
                 }
@@ -7744,14 +7651,16 @@ open class ChatFragment : BaseFragment() {
                 val url = msg.attachmentUrl
                 if (url.isNotEmpty()) {
                     val ctx = getContext() ?: return
-                    val clipboard = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("media_url", url))
-                    val messageRes = if (isVideoAttachmentType(msg.attachmentFiletype)) {
-                        R.string.action_copy_video_link
+                    if (isVideoAttachmentType(msg.attachmentFiletype)) {
+                        appScope.launch(ioDispatcher) {
+                            val link = com.mezon.mobile.util.FileIngestPlaylist.linkForCopy(url)
+                            withContext(Dispatchers.Main) {
+                                copyMediaLink(ctx, link, R.string.action_copy_video_link)
+                            }
+                        }
                     } else {
-                        R.string.action_copy_image_link
+                        copyMediaLink(ctx, url, R.string.action_copy_image_link)
                     }
-                    MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(messageRes))
                 }
             }
             MessageActionBottomSheet.ActionType.CopyImage -> {

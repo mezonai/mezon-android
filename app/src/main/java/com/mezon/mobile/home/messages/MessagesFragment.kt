@@ -1,5 +1,7 @@
 package com.mezon.mobile.home.messages
 
+import com.mezon.mobile.core.theme.applyThemeSurface
+import com.mezon.mobile.core.theme.MobileThemeColors
 import android.content.Context
 import android.graphics.Color
 import android.graphics.PorterDuff
@@ -15,6 +17,7 @@ import android.widget.TextView
 import androidx.recyclerview.widget.ConcatAdapter
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.mezon.mezon.api.User
 import com.mezon.mobile.R
 import com.mezon.mobile.core.AlertDialog
 import com.mezon.mobile.core.AndroidUtilities
@@ -32,6 +35,7 @@ import com.mezon.mobile.home.friends.FRIEND_STATE_INVITE_RECEIVED
 import com.mezon.mobile.home.friends.FRIEND_STATE_INVITE_SENT
 import com.mezon.mobile.home.friends.FriendController
 import com.mezon.mobile.home.friends.createFriendRequestBadgeView
+import com.mezon.mobile.home.friends.showUserBlockProgress
 import com.mezon.mobile.home.friends.updateFriendRequestBadge
 import com.mezon.mobile.home.profile.UserController
 import com.mezon.mobile.home.voice.VoiceActivityBadge
@@ -95,16 +99,15 @@ class MessagesFragment : BaseFragment() {
 
         observe(NotificationCenter.themeChanged) { _, _, _ ->
             if (fragmentView == null) return@observe
-            fragmentView?.setBackgroundColor(themeColors.background)
+            fragmentView?.applyThemeSurface(themeColors.background, themeColors.desktop.conversationGradient, anchorToWindow = true)
             headerTitle.setTextColor(themeColors.onSurface)
-            (headerTitle.parent as? View)?.setBackgroundColor(themeColors.surface)
             emptyView.setTextColor(themeColors.onSurfaceVariant)
             adapter.notifyDataSetChanged()
             if (::headerStripAdapter.isInitialized) headerStripAdapter.notifyDataSetChanged()
             if (::addMessageFab.isInitialized) {
                 addMessageFab.background = android.graphics.drawable.GradientDrawable().apply {
                     shape = android.graphics.drawable.GradientDrawable.OVAL
-                    setColor(themeColors.blurple)
+                    setColor(MobileThemeColors.newConversation)
                 }
                 addMessageIcon.setImageDrawable(MezonIcon.messagePlusIcon.getDrawable(fragmentView!!.context).apply {
                     colorFilter = PorterDuffColorFilter(Color.WHITE, PorterDuff.Mode.SRC_IN)
@@ -154,7 +157,7 @@ class MessagesFragment : BaseFragment() {
     override fun createView(context: Context): View {
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(themeColors.background)
+            applyThemeSurface(themeColors.background, themeColors.desktop.conversationGradient, anchorToWindow = true)
         }
 
         root.addView(buildHeader(context), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
@@ -265,7 +268,7 @@ class MessagesFragment : BaseFragment() {
         addMessageFab = FrameLayout(context).apply {
             background = android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.OVAL
-                setColor(themeColors.blurple)
+                setColor(MobileThemeColors.newConversation)
             }
             isClickable = true
             isFocusable = true
@@ -302,7 +305,6 @@ class MessagesFragment : BaseFragment() {
     private fun buildHeader(context: Context): View {
         val header = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(themeColors.surface)
             setPadding(0, LayoutHelper.dp(8), 0, LayoutHelper.dp(4))
         }
 
@@ -427,7 +429,7 @@ class MessagesFragment : BaseFragment() {
         val iconWrap = FrameLayout(context)
         iconWrap.addView(icon, LayoutHelper.createFrame(14, 14, Gravity.CENTER))
 
-        addFriendBadgeText = createFriendRequestBadgeView(context, themeColors)
+        addFriendBadgeText = createFriendRequestBadgeView(context)
         buttonContent.addView(iconWrap, LinearLayout.LayoutParams(
             LayoutHelper.dp(18), LayoutHelper.dp(18)
         ).apply {
@@ -458,9 +460,9 @@ class MessagesFragment : BaseFragment() {
         if (!::addFriendBadgeText.isInitialized) return
         val pending = friendController.pendingReceivedCount.value
         if (pending > 0) {
-            addFriendBadgeText.updateFriendRequestBadge(pending, themeColors)
+            addFriendBadgeText.updateFriendRequestBadge(pending)
         } else {
-            addFriendBadgeText.updateFriendRequestBadge(0, themeColors)
+            addFriendBadgeText.updateFriendRequestBadge(0)
         }
     }
 
@@ -635,7 +637,8 @@ class MessagesFragment : BaseFragment() {
             null
         }
         val friendState = friend?.state
-        val didIBlockUser = !isGroup && friendController.isUserBlockedByMe(dm.otherUserId)
+        val canBlock = dm.type == CHANNEL_TYPE_DM && friendController.canBlockUser(dm.otherUserId)
+        val didIBlockUser = canBlock && friendController.isUserBlockedByMe(dm.otherUserId)
         val showFriendActions = !isGroup && !isChatWithMyself &&
             friendState != FRIEND_STATE_BLOCKED &&
             friendState != FRIEND_STATE_INVITE_SENT &&
@@ -646,9 +649,8 @@ class MessagesFragment : BaseFragment() {
             showCloseDm = !isGroup,
             showAddFriend = showFriendActions && friendState != FRIEND_STATE_FRIEND,
             showRemoveFriend = showFriendActions && friendState == FRIEND_STATE_FRIEND,
-            showBlockUser = !isGroup && !isChatWithMyself &&
-                (friendState == FRIEND_STATE_FRIEND || didIBlockUser) && !didIBlockUser,
-            showUnblockUser = !isGroup && didIBlockUser,
+            showBlockUser = canBlock && !didIBlockUser,
+            showUnblockUser = didIBlockUser,
             showMarkAsRead = !isChatWithMyself,
             showPin = true,
             isPinned = dmPinStorage.isPinned(dm.channelId),
@@ -745,7 +747,20 @@ class MessagesFragment : BaseFragment() {
     }
 
     private fun performBlockUser(dm: DirectMessage, block: Boolean) {
-        val onResult: (Boolean) -> Unit = { success ->
+        if (dm.type != CHANNEL_TYPE_DM || !friendController.canBlockUser(dm.otherUserId)) return
+        val activity = getParentActivity() ?: return
+        val user = User.newBuilder()
+            .setId(dm.otherUserId)
+            .setUsername(dm.username)
+            .setDisplayName(dm.displayName.ifBlank { dm.label })
+            .setAvatarUrl(dm.avatarUrl)
+            .build()
+        val progress = showUserBlockProgress(activity) {
+            showDialog(it, allowInTransition = true, onDismissListener = null)
+        }
+        friendController.setUserBlocked(user, blocked = block) { success ->
+            progress.dismiss()
+            if (isFinished) return@setUserBlocked
             val msg = when {
                 block && success -> getString(R.string.dm_block_user_success)
                 block && !success -> getString(R.string.dm_block_user_failed)
@@ -757,11 +772,6 @@ class MessagesFragment : BaseFragment() {
                 if (success) ToastOverlay.ToastType.SUCCESS else ToastOverlay.ToastType.ERROR,
                 msg,
             )
-        }
-        if (block) {
-            friendController.blockUser(dm.otherUserId, dm.username, onResult)
-        } else {
-            friendController.unblockUser(dm.otherUserId, dm.username, onResult)
         }
     }
 

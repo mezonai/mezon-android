@@ -173,6 +173,7 @@ open class BottomSheet(
 
     // Background / shadow
     protected var shadowDrawable: Drawable? = null
+    private var sheetBackgroundColorOverride: Int? = null
     protected var backgroundPaddingTop = 0
     protected var backgroundPaddingLeft = 0
     private var useBackgroundTopPadding = true
@@ -263,8 +264,18 @@ open class BottomSheet(
         }
     }
 
+    /** Background for the entire panel, including the area around the drag handle. */
+    protected open val sheetBackgroundColor: Int
+        get() = theme.getColor(ThemeColors.key_sheetBackground)
+
+    private val resolvedSheetBackgroundColor: Int
+        get() = sheetBackgroundColorOverride ?: sheetBackgroundColor
+
+    protected open val sheetHandleColor: Int
+        get() = theme.getColor(ThemeColors.key_sheetHandle)
+
     fun fixNavigationBar() {
-        fixNavigationBar(theme.getColor(ThemeColors.key_sheetBackground))
+        fixNavigationBar(resolvedSheetBackgroundColor)
     }
 
     fun fixNavigationBar(bgColor: Int) {
@@ -277,6 +288,7 @@ open class BottomSheet(
     }
 
     open fun setBackgroundColor(color: Int) {
+        sheetBackgroundColorOverride = color
         (shadowDrawable as? GradientDrawable)?.setColor(color)
     }
 
@@ -343,7 +355,7 @@ open class BottomSheet(
         }
     }
 
-    private fun snapTranslationY(index: Int): Float {
+    protected fun snapTranslationY(index: Int): Float {
         if (snapPoints.isEmpty() || availableSheetHeight <= 0) return 0f
         val maxSnap = snapPoints.last()
         val f = snapPoints[index.coerceIn(0, snapPoints.size - 1)]
@@ -374,7 +386,7 @@ open class BottomSheet(
         backgroundPaddingLeft = 0
         backgroundPaddingTop = 0
         shadowDrawable = GradientDrawable().apply {
-            setColor(theme.getColor(ThemeColors.key_sheetBackground))
+            setColor(resolvedSheetBackgroundColor)
             cornerRadii = floatArrayOf(
                 LayoutHelper.dp(14).toFloat(), LayoutHelper.dp(14).toFloat(),
                 LayoutHelper.dp(14).toFloat(), LayoutHelper.dp(14).toFloat(),
@@ -432,7 +444,7 @@ open class BottomSheet(
         // Handle bar
         val handleView = View(context).apply {
             background = GradientDrawable().apply {
-                setColor(theme.getColor(ThemeColors.key_sheetHandle))
+                setColor(sheetHandleColor)
                 cornerRadius = LayoutHelper.dp(2).toFloat()
             }
         }
@@ -916,7 +928,7 @@ open class BottomSheet(
             return (nestedScrollChild == null || child == nestedScrollChild) &&
                     !dismissed && allowNestedScroll &&
                     (axes and ViewCompat.SCROLL_AXIS_VERTICAL) != 0 &&
-                    (snapPoints.isNotEmpty() || !canDismissWithSwipe())
+                    (if (snapPoints.isNotEmpty()) type == ViewCompat.TYPE_TOUCH else !canDismissWithSwipe())
         }
 
         override fun onNestedScrollAccepted(child: View, target: View, axes: Int, type: Int) {
@@ -1061,6 +1073,8 @@ open class BottomSheet(
                 currentSnapIndex = bestIdx
                 val targetTy = snapTranslationY(bestIdx)
                 maybeStartTracking = false
+                if (translationY == targetTy) return
+
                 beginHeavyOperationsAnimation()
                 currentAnimation = AnimatorSet().apply {
                     val invalidator = ValueAnimator.ofFloat(0f, 1f).apply {
@@ -1341,9 +1355,15 @@ open class BottomSheet(
             }
 
             containerView?.let { cv ->
+                val heightChanged = cv.height != cv.measuredHeight
                 val t = (layoutBottom - top) - cv.measuredHeight
                 val l = ((right - left) - cv.measuredWidth) / 2 + this@BottomSheet.leftInset
                 cv.layout(l, t, l + cv.measuredWidth, t + cv.measuredHeight)
+                if (heightChanged && openAnimationCompleted && !dismissed && snapPoints.isNotEmpty()) {
+                    currentAnimation?.cancel()
+                    snapTo(currentSnapIndex, animated = false)
+                    swipeY = cv.translationY
+                }
             }
 
             val count = childCount
@@ -1381,7 +1401,11 @@ open class BottomSheet(
             if (drawNavigationBar && bottomInset != 0) {
                 val navBarHeight = if (drawNavigationBar) this@BottomSheet.bottomInset else 0
                 if (navBarColorKey >= 0) {
-                    backgroundPaint.color = theme.getColor(navBarColorKey)
+                    backgroundPaint.color = if (navBarColorKey == ThemeColors.key_sheetBackground) {
+                        resolvedSheetBackgroundColor
+                    } else {
+                        theme.getColor(navBarColorKey)
+                    }
                 } else if (navBarColor != 0) {
                     backgroundPaint.color = navBarColor
                 } else {

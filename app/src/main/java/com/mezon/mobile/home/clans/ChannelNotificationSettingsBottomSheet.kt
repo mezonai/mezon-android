@@ -91,11 +91,11 @@ class ChannelNotificationSettingsBottomSheet(
 
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(theme.background)
+            setBackgroundColor(sheetBackgroundColor)
             setPadding(LayoutHelper.dp(20), 0, LayoutHelper.dp(20), LayoutHelper.dp(20))
             addView(title, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
             addView(
-                ClanSettingsUiHelpers.buildMezonSection(context, theme, null, optionRows),
+                ClanSettingsUiHelpers.buildMezonSection(context, theme, null, optionRows, cardColor = theme.background, separatorColor = theme.border),
                 LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT),
             )
         }
@@ -196,7 +196,7 @@ class ChannelNotificationSettingsBottomSheet(
             gravity = Gravity.CENTER_VERTICAL
             minimumHeight = LayoutHelper.dp(58)
             setPadding(LayoutHelper.dp(16), LayoutHelper.dp(10), LayoutHelper.dp(16), LayoutHelper.dp(10))
-            setBackgroundColor(theme.border)
+            setBackgroundColor(theme.background)
             isClickable = true
             isFocusable = true
             contentDescription = title

@@ -31,6 +31,8 @@ data class TransferPayload(
 
 object QrPayloadParser {
 
+    private const val MIN_BARE_LOGIN_ID_DIGITS = 15
+
     fun parse(value: String): QrAction {
         val trimmed = value.trim()
         if (trimmed.isEmpty()) return QrAction.Invalid
@@ -66,8 +68,9 @@ object QrPayloadParser {
             if (json.has("receiver_id") || json.has("wallet_address")) return QrAction.Transfer(trimmed)
         }
 
-        val loginId = parseLoginId(trimmed)
-        if (loginId != null) return QrAction.Login(loginId)
+        if (trimmed.length >= MIN_BARE_LOGIN_ID_DIGITS) {
+            parseLoginId(trimmed)?.let { return QrAction.Login(it) }
+        }
 
         return QrAction.Invalid
     }
@@ -104,7 +107,11 @@ object QrPayloadParser {
             val urlDecoded = URLDecoder.decode(String(decodedBase64), "UTF-8")
             val obj = JSONObject(urlDecoded)
             ProfilePayload(
-                id = obj.optLong("id"),
+                id = when (val rawId = obj.opt("id")) {
+                    is Number -> rawId.toLong()
+                    is String -> rawId.trim().toLongOrNull() ?: 0L
+                    else -> 0L
+                },
                 avatar = obj.optString("avatar"),
                 name = obj.optString("name")
             )

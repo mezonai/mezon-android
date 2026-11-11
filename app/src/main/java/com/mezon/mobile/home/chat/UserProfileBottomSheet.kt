@@ -8,12 +8,14 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import com.mezon.mezon.api.User
 import com.mezon.mobile.R
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.AvatarDrawable
@@ -22,12 +24,16 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.clans.CHANNEL_TYPE_VOICE
 import com.mezon.mobile.home.clans.ChannelItemCell
+import com.mezon.mobile.home.friends.showUserBlockProgress
 import com.mezon.mobile.ui.cells.MezonIcon
-import com.mezon.mobile.ui.theme.ThemeMode
 import com.mezon.mobile.util.ColorUtilities
 import com.mezon.mobile.util.avatarImgproxyUrl
 import com.mezon.mobile.di.FragmentEntryPoint
 import dagger.hilt.android.EntryPointAccessors
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 
 
 class UserProfileBottomSheet(
@@ -83,10 +89,7 @@ class UserProfileBottomSheet(
     private val theme: ThemeColors = ThemeColors.instance
 
     private val rnProfileSectionTitleColor: Int
-        get() = when (theme.resolvedMode) {
-            ThemeMode.LIGHT -> 0xFF000000.toInt()
-            else -> 0xFFFFFFFF.toInt()
-        }
+        get() = theme.textStrong
 
     init {
         if (voiceParticipantExtras != null) {
@@ -96,31 +99,37 @@ class UserProfileBottomSheet(
 
     // RN color mappings
     private val primaryColor: Int
-        get() = when (theme.resolvedMode) {
-            ThemeMode.LIGHT -> 0xFFF4F4F8.toInt()
-            ThemeMode.DARK -> 0xFF121218.toInt()
-            ThemeMode.ABYSS -> 0xFF110B33.toInt()
-            else -> 0xFF121218.toInt()
-        }
+        get() = theme.surface
     private val textStrongColor: Int
-        get() = when (theme.resolvedMode) {
-            ThemeMode.LIGHT -> 0xFF070709.toInt()
-            ThemeMode.DARK -> 0xFFDFE0E4.toInt()
-            ThemeMode.ABYSS -> 0xFFDFE0E4.toInt()
-            else -> 0xFFDFE0E4.toInt()
-        }
+        get() = theme.textStrong
     private val textColor: Int
-        get() = when (theme.resolvedMode) {
-            ThemeMode.LIGHT -> 0xFF29292B.toInt()
-            ThemeMode.DARK -> 0xFFCCCCCC.toInt()
-            ThemeMode.ABYSS -> 0xFFCCCCCC.toInt()
-            else -> 0xFFCCCCCC.toInt()
-        }
+        get() = theme.onSurface
 
     private var backdropColorView: View? = null
     private var profileAvatarView: ImageView? = null
     private val profileAvatarDrawable = AvatarDrawable()
     private var avatarLoadDisposable: MezonImageLoader.Cancellable? = null
+    private val friendController by lazy {
+        EntryPointAccessors.fromApplication(context.applicationContext, FragmentEntryPoint::class.java)
+            .friendController()
+    }
+    private var refreshRelationshipActions: (() -> Unit)? = null
+    private var relationshipJob: Job? = null
+
+    override fun onStart() {
+        super.onStart()
+        val refresh = refreshRelationshipActions ?: return
+        relationshipJob = CoroutineScope(Dispatchers.Main.immediate).launch {
+            friendController.allFriendRelations.collect { refresh() }
+        }
+        friendController.loadFriendRelations()
+    }
+
+    override fun onStop() {
+        relationshipJob?.cancel()
+        relationshipJob = null
+        super.onStop()
+    }
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         val scrollView = ScrollView(context).apply {
@@ -424,6 +433,9 @@ class UserProfileBottomSheet(
             ))
         }
 
+        var callAction: View? = null
+        var addFriendAction: View? = null
+        var requestedFriend = false
         val isActualWebhook = isWebhook || username.isEmpty()
         if (voiceParticipantExtras == null && userId != 0L && !isActualWebhook) {
             val actionsRow = LinearLayout(context).apply {
@@ -445,7 +457,7 @@ class UserProfileBottomSheet(
             ).apply { rightMargin = LayoutHelper.dp(14) })
 
             if (!isOwnProfile) {
-                actionsRow.addView(buildActionButton(
+                val callButton = buildActionButton(
                     context.getString(R.string.user_profile_voice_call),
                     R.drawable.ic_phone_call_icon,
                     textColor
@@ -454,28 +466,26 @@ class UserProfileBottomSheet(
                     val l = listener
                     if (l != null) l.onVoiceCall(userId)
                     else Toast.makeText(context, R.string.feature_coming_soon, Toast.LENGTH_SHORT).show()
-                }, LinearLayout.LayoutParams(
+                }
+                callAction = callButton
+                actionsRow.addView(callButton, LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
                 ).apply { rightMargin = LayoutHelper.dp(14) })
 
-                val entryPoint = EntryPointAccessors.fromApplication(context.applicationContext, FragmentEntryPoint::class.java)
-                val friendController = entryPoint.friendController()
-                
-                if (friendController.findFriendByUserId(userId) == null) {
-                    var addFriendBtn: LinearLayout? = null
-                    addFriendBtn = buildActionButton(
-                        context.getString(R.string.user_profile_add_friend),
-                        R.drawable.ic_user_plus_icon,
-                        0xFF42A869.toInt()  // baseColor.green
-                    ) {
-                        addFriendBtn?.visibility = View.GONE
-                        val l = listener
-                        if (l != null) l.onAddFriend(userId)
-                        else Toast.makeText(context, R.string.feature_coming_soon, Toast.LENGTH_SHORT).show()
-                    }
-                    actionsRow.addView(addFriendBtn)
+                val addFriendButton = buildActionButton(
+                    context.getString(R.string.user_profile_add_friend),
+                    R.drawable.ic_user_plus_icon,
+                    0xFF42A869.toInt()  // baseColor.green
+                ) {
+                    requestedFriend = true
+                    addFriendAction?.visibility = View.GONE
+                    val l = listener
+                    if (l != null) l.onAddFriend(userId)
+                    else Toast.makeText(context, R.string.feature_coming_soon, Toast.LENGTH_SHORT).show()
                 }
+                addFriendAction = addFriendButton
+                actionsRow.addView(addFriendButton)
             }
 
             card.addView(actionsRow, LinearLayout.LayoutParams(
@@ -484,6 +494,53 @@ class UserProfileBottomSheet(
             ).apply { topMargin = LayoutHelper.dp(20) })
         }
 
+        val blockButton = if (!isOwnProfile && !isWebhook && friendController.canBlockUser(userId)) {
+            Button(context).apply {
+                isAllCaps = false
+                minHeight = LayoutHelper.dp(48)
+                background = GradientDrawable().apply {
+                    cornerRadius = LayoutHelper.dp(8).toFloat()
+                    setColor(primaryColor)
+                }
+                setOnClickListener {
+                    val block = !friendController.isUserBlockedByMe(userId)
+                    val target = User.newBuilder().setId(userId).setUsername(username)
+                        .setDisplayName(displayName).setAvatarUrl(avatarUrl.orEmpty()).build()
+                    isEnabled = false
+                    val progress = showUserBlockProgress(context)
+                    friendController.setUserBlocked(target, blocked = block) { success ->
+                        progress.dismiss()
+                        isEnabled = true
+                        val message = when {
+                            block && success -> R.string.dm_block_user_success
+                            block -> R.string.dm_block_user_failed
+                            success -> R.string.dm_unblock_user_success
+                            else -> R.string.dm_unblock_user_failed
+                        }
+                        Toast.makeText(context.applicationContext, message, Toast.LENGTH_SHORT).show()
+                    }
+                }
+                card.addView(this, LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = LayoutHelper.dp(12) })
+            }
+        } else {
+            null
+        }
+        if (blockButton != null || callAction != null || addFriendAction != null) {
+            val refresh: () -> Unit = {
+                val blocked = friendController.isUserBlocked(userId)
+                val blockedByMe = friendController.isUserBlockedByMe(userId)
+                callAction?.visibility = if (blocked) View.GONE else View.VISIBLE
+                addFriendAction?.visibility =
+                    if (!requestedFriend && friendController.findFriendByUserId(userId) == null) View.VISIBLE else View.GONE
+                blockButton?.setText(if (blockedByMe) R.string.dm_menu_unblock_user else R.string.dm_menu_block_user)
+                blockButton?.setTextColor(if (blockedByMe) textStrongColor else rnRedStrong)
+            }
+            refreshRelationshipActions = refresh
+            refresh()
+        }
         return card
     }
 

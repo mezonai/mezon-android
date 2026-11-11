@@ -5,12 +5,13 @@ import com.mezon.mobile.BuildConfig
 data class MediaViewerSender(val name: String, val avatarUrl: String?)
 
 internal val MEDIA_ANONYMOUS_USER_ID = BuildConfig.MEZON_ANONYMOUS_USER_ID.toLongOrNull() ?: -1L
+internal const val DEFAULT_ANONYMOUS_SENDER_NAME = "Anonymous"
 
 fun resolveMediaViewerSender(
     uploaderId: Long,
     name: String?,
     avatarUrl: String?,
-    anonymousLabel: String = "Anonymous"
+    anonymousLabel: String = DEFAULT_ANONYMOUS_SENDER_NAME
 ): MediaViewerSender {
     val trimmedName = name?.trim().orEmpty()
     val anonymous = uploaderId == MEDIA_ANONYMOUS_USER_ID

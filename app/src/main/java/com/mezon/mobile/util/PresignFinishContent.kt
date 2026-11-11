@@ -6,8 +6,10 @@ import org.json.JSONObject
 
 object PresignFinishContent {
     const val FIELD_KEY = "presign_finish"
+    const val INGEST_FIELD_KEY = "presign_ingest"
     const val CREATE_TIME_KEY = "create_time_seconds"
     const val FOR_10_MINUTES_SEC = 10 * 60
+    const val FOR_24_HOURS_SEC = 24 * 60 * 60
     const val PRESIGN_PENDING_TICK_MS = 30_000L
 
     private val attachmentCdnBases = listOf(BuildConfig.CLOUDFLARE_CDN_URL, BuildConfig.MEZON_CDN_URL)
@@ -19,6 +21,7 @@ object PresignFinishContent {
         private val finishedKeys: List<String>?,
         private val messageTimestampSeconds: Long,
         val nowSeconds: Long,
+        private val ingestKeys: List<String> = emptyList(),
     ) {
         companion object {
             fun from(
@@ -35,9 +38,19 @@ object PresignFinishContent {
                     finishedKeys = keys,
                     messageTimestampSeconds = messageTimestampSeconds,
                     nowSeconds = nowSeconds,
+                    ingestKeys = parseIngestKeys(content),
                 )
             }
         }
+
+        private fun pendingAgeSeconds(): Long = nowSeconds - messageTimestampSeconds
+
+        private fun pendingWindowSeconds(url: String): Int =
+            if (isIngestAttachment(url, ingestKeys)) FOR_24_HOURS_SEC else FOR_10_MINUTES_SEC
+
+        fun isIngestLive(url: String): Boolean =
+            isIngestAttachment(url, ingestKeys) && isUnfinished(url) &&
+                (messageTimestampSeconds <= 0L || pendingAgeSeconds() < FOR_24_HOURS_SEC)
 
         fun contentFingerprint(): Int = finishedKeys?.joinToString(",")?.hashCode() ?: 0
 
@@ -56,7 +69,7 @@ object PresignFinishContent {
 
         fun isExpired(url: String): Boolean {
             if (!expirePending) return false
-            return isUnfinished(url)
+            return isUnfinished(url) && pendingAgeSeconds() >= pendingWindowSeconds(url)
         }
 
         fun <T> filterDisplayable(attachments: List<T>, urlSelector: (T) -> String): List<T> {
@@ -92,6 +105,33 @@ object PresignFinishContent {
                 if (isUnfinished(url) && !isExpired(url)) return true
             }
             return false
+        }
+    }
+
+    fun parseIngestKeys(content: String): List<String> {
+        if (content.isBlank() || !content.contains("\"$INGEST_FIELD_KEY\"")) return emptyList()
+        return try {
+            val arr = JSONObject(content).optJSONArray(INGEST_FIELD_KEY) ?: return emptyList()
+            (0 until arr.length()).mapNotNull { i -> arr.optString(i).takeIf { it.isNotEmpty() } }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    fun isIngestAttachment(url: String, ingestKeys: List<String>): Boolean {
+        if (ingestKeys.isEmpty()) return false
+        val key = presignKey(url)
+        return key.isNotEmpty() && ingestKeys.any { presignKeysMatch(it, key) }
+    }
+
+    fun injectIngestKeys(content: String, keys: List<String>): String {
+        if (keys.isEmpty()) return content
+        return try {
+            val json = if (content.isNotBlank()) JSONObject(content) else JSONObject()
+            json.put(INGEST_FIELD_KEY, JSONArray().apply { keys.forEach { put(it) } })
+            json.toString()
+        } catch (_: Exception) {
+            content
         }
     }
 
@@ -222,19 +262,28 @@ object PresignFinishContent {
     }
 
     fun mergePresignFinishContent(local: String, server: String): String {
+        val merged = mergePresignFinishKeys(local, server)
+        val localIngestKeys = parseIngestKeys(local)
+        if (localIngestKeys.isEmpty()) return merged
+        val mergedIngestKeys = parseIngestKeys(merged)
+        val missing = localIngestKeys.filter { it !in mergedIngestKeys }
+        if (missing.isEmpty()) return merged
+        return injectIngestKeys(merged, mergedIngestKeys + missing)
+    }
+
+    private fun mergePresignFinishKeys(local: String, server: String): String {
         val localKeys = parseKeys(local) ?: emptyList()
         val serverKeys = parseKeys(server) ?: emptyList()
         if (localKeys.isEmpty() && serverKeys.isEmpty()) {
-            return server.ifBlank { local }
+            val base = server.ifBlank { local }
+            return if (hasPresignFinishField(local) && !hasPresignFinishField(base)) {
+                injectEmptyPresignFinish(base)
+            } else base
         }
-        val mergedKeys = if (serverKeys.size >= localKeys.size) {
-            serverKeys
-        } else {
-            val keys = localKeys.toMutableList()
+        val mergedKeys = localKeys.toMutableList().apply {
             serverKeys.forEach { key ->
-                if (!keys.contains(key)) keys.add(key)
+                if (none { presignKeysMatch(it, key) }) add(key)
             }
-            keys
         }
         val base = if (server.isNotBlank()) {
             contentBaseWithoutPresign(server)

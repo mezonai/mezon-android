@@ -22,6 +22,7 @@ import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.friends.FriendController
+import com.mezon.mobile.home.friends.showUserBlockProgress
 
 class BlockedUsersFragment : BaseFragment() {
 
@@ -52,8 +53,8 @@ class BlockedUsersFragment : BaseFragment() {
         }
         observe(NotificationCenter.themeChanged) { _, _, _ ->
             if (fragmentView == null) return@observe
-            fragmentView?.setBackgroundColor(themeColors.background)
-            emptyView.setTextColor(themeColors.onSurfaceVariant)
+            fragmentView?.setBackgroundColor(themeColors.surface)
+            emptyView.setTextColor(themeColors.textDisabled)
             listAdapter.notifyDataSetChanged()
         }
 
@@ -63,7 +64,7 @@ class BlockedUsersFragment : BaseFragment() {
 
     override fun createView(context: Context): View {
         val contentFrame = FrameLayout(context).apply {
-            setBackgroundColor(themeColors.background)
+            setBackgroundColor(themeColors.surface)
         }
 
         listAdapter = BlockedAdapter()
@@ -82,7 +83,7 @@ class BlockedUsersFragment : BaseFragment() {
         emptyView = TextView(context).apply {
             text = getString(R.string.blocked_users_empty)
             textSize = 15f
-            setTextColor(themeColors.onSurfaceVariant)
+            setTextColor(themeColors.textDisabled)
             gravity = Gravity.CENTER
             visibility = View.GONE
         }
@@ -104,14 +105,20 @@ class BlockedUsersFragment : BaseFragment() {
         AlertsCreator.createConfirmDialog(
             requireContext(),
             getString(R.string.blocked_unblock_title),
-            getString(R.string.blocked_unblock_description, friend.user.displayName.ifEmpty { friend.user.username }),
+            getString(R.string.blocked_unblock_description, blockedUserLabel(friend)),
             confirmText = getString(R.string.blocked_unblock_confirm),
             cancelText = getString(R.string.common_cancel)
         ) {
-            friendController.unblockUser(friend.user.id, friend.user.username) { success ->
-                if (!success) {
+            val activity = getParentActivity() ?: return@createConfirmDialog
+            val progress = showUserBlockProgress(activity) {
+                showDialog(it, allowInTransition = true, onDismissListener = null)
+            }
+            friendController.setUserBlocked(friend.user, blocked = false) { success ->
+                progress.dismiss()
+                val context = getContext() ?: return@setUserBlocked
+                if (!success && !isFinished) {
                     AlertsCreator.showSimpleAlert(
-                        requireContext(),
+                        context,
                         getString(R.string.common_error),
                         getString(R.string.blocked_unblock_error)
                     )
@@ -119,6 +126,9 @@ class BlockedUsersFragment : BaseFragment() {
             }
         }.show()
     }
+
+    private fun blockedUserLabel(friend: Friend): String =
+        friend.user.displayName.ifBlank { friend.user.username.ifBlank { friend.user.id.toString() } }
 
     private inner class BlockedAdapter : RecyclerListView.SelectionAdapter() {
         private val items = mutableListOf<Friend>()
@@ -196,7 +206,7 @@ class BlockedUsersFragment : BaseFragment() {
 
         fun bind(friend: Friend, divider: Boolean) {
             val user = friend.user
-            nameText.text = user.displayName.ifEmpty { user.username }
+            nameText.text = blockedUserLabel(friend)
             nameText.setTextColor(themeColors.onSurface)
             unblockBtn.setTextColor(themeColors.primary)
 

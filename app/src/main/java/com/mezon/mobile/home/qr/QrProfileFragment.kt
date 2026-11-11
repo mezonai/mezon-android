@@ -1,225 +1,290 @@
 package com.mezon.mobile.home.qr
 
-import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
-import android.util.TypedValue
-import android.view.Gravity
+import android.Manifest
+import android.app.Dialog
+import android.content.pm.PackageManager
 import android.view.View
 import android.widget.FrameLayout
-import android.widget.LinearLayout
-import android.widget.TextView
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import com.mezon.mobile.MainActivity
 import com.mezon.mobile.R
+import com.mezon.mobile.core.AlertDialog
 import com.mezon.mobile.core.BaseFragment
-import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.di.FragmentEntryPoint
-import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.ChatController
+import com.mezon.mobile.home.DialogsController
+import com.mezon.mobile.home.DmOpenResult
+import com.mezon.mobile.home.call.CallController
+import com.mezon.mobile.home.call.CallFragment
+import com.mezon.mobile.home.call.CallManager
+import com.mezon.mobile.home.call.CallPermissionUi
+import com.mezon.mobile.home.friends.FRIEND_STATE_FRIEND
 import com.mezon.mobile.home.friends.FriendController
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
-import com.mezon.mobile.ui.cells.AvatarView
 import com.mezon.mobile.ui.cells.ToastOverlay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class QrProfileFragment : BaseFragment() {
 
     companion object {
         private const val ARG_DISPLAY_NAME = "displayName"
-        private const val ARG_USERNAME     = "username"
-        private const val ARG_AVATAR_URL   = "avatarUrl"
-        private const val ARG_USER_ID      = "userId"
+        private const val ARG_USERNAME = "username"
+        private const val ARG_AVATAR_URL = "avatarUrl"
+        private const val ARG_USER_ID = "userId"
+        private const val REQUEST_CALL_AUDIO = 9032
 
         fun newInstance(
             username: String,
             displayName: String,
             avatarUrl: String?,
-            userId: Long = 0L
-        ): QrProfileFragment {
-            return QrProfileFragment().apply {
-                arguments = android.os.Bundle().apply {
-                    putString(ARG_USERNAME,     username)
-                    putString(ARG_DISPLAY_NAME, displayName)
-                    putString(ARG_AVATAR_URL,   avatarUrl)
-                    putLong(ARG_USER_ID,        userId)
-                }
+            userId: Long = 0L,
+        ) = QrProfileFragment().apply {
+            arguments = android.os.Bundle().apply {
+                putString(ARG_USERNAME, username)
+                putString(ARG_DISPLAY_NAME, displayName)
+                putString(ARG_AVATAR_URL, avatarUrl)
+                putLong(ARG_USER_ID, userId)
             }
         }
     }
 
-    private var displayName: String = ""
-    private var username: String    = ""
-    private var avatarUrl: String?  = null
-    private var userId: Long        = 0L
+    private var displayName = ""
+    private var username = ""
+    private var avatarUrl: String? = null
+    private var userId = 0L
+    private val profileName get() = displayName.ifBlank { username }
 
-    private lateinit var friendController:  FriendController
+    private lateinit var friendController: FriendController
     private lateinit var dialogsController: DialogsController
-    private lateinit var chatController:    ChatController
+    private lateinit var chatController: ChatController
+    private lateinit var callController: CallController
+    private lateinit var callManager: CallManager
+
+    private var profileDialog: QrProfileDialog? = null
+    private var callSettingsDialog: Dialog? = null
+    private var pendingCallPermission = false
+    private var openingDestination = false
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
-        friendController  = entryPoint.friendController()
+        friendController = entryPoint.friendController()
         dialogsController = entryPoint.dialogsController()
-        chatController    = entryPoint.chatController()
+        chatController = entryPoint.chatController()
+        callController = entryPoint.callController()
+        callManager = entryPoint.callManager()
     }
 
     override fun onFragmentCreate(): Boolean {
         super.onFragmentCreate()
-        val args = arguments
-        displayName = args?.getString(ARG_DISPLAY_NAME).orEmpty()
-        username    = args?.getString(ARG_USERNAME).orEmpty()
-        avatarUrl   = args?.getString(ARG_AVATAR_URL)
-        userId      = args?.getLong(ARG_USER_ID, 0L) ?: 0L
+        displayName = arguments?.getString(ARG_DISPLAY_NAME).orEmpty()
+        username = arguments?.getString(ARG_USERNAME).orEmpty()
+        avatarUrl = arguments?.getString(ARG_AVATAR_URL)
+        userId = arguments?.getLong(ARG_USER_ID, 0L) ?: 0L
         return true
     }
 
-    override fun createView(context: android.content.Context): View {
-        val pageBg = themeColors.background
-        val root = FrameLayout(context).apply {
-            setBackgroundColor(pageBg)
-        }
-
-        val card = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            background = GradientDrawable().apply {
-                cornerRadius = LayoutHelper.dp(16f).toFloat()
-                setColor(themeColors.surface)
-            }
-            setPadding(
-                LayoutHelper.dp(20),
-                LayoutHelper.dp(16),
-                LayoutHelper.dp(20),
-                LayoutHelper.dp(16)
-            )
-        }
-        root.addView(card, FrameLayout.LayoutParams(
-            LayoutHelper.dp(300),
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            Gravity.CENTER
-        ))
-
-        val title = TextView(context).apply {
-            text = getString(R.string.qr_profile_sheet_title)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-            setTextColor(themeColors.onSurfaceVariant)
-            letterSpacing = 0.05f
-        }
-        card.addView(title)
-
-        val avatar = AvatarView(context).apply {
-            setSizeDp(64)
-            setRoundRadius(32f)
-            if (!avatarUrl.isNullOrBlank()) setImageUrl(avatarUrl)
-        }
-        card.addView(avatar, LinearLayout.LayoutParams(
-            LayoutHelper.dp(64), LayoutHelper.dp(64)
-        ).apply { topMargin = LayoutHelper.dp(12) })
-
-        val nameView = TextView(context).apply {
-            text = username.ifEmpty { displayName }
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
-            setTextColor(themeColors.onSurface)
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        }
-        card.addView(nameView, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT,
-            LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { topMargin = LayoutHelper.dp(8) })
-
-        // Add friend
-        card.addView(buildPrimaryButton(getString(R.string.qr_profile_add_friend)) {
-            friendController.sendFriendRequest(username = username) { success ->
-                val res = if (success) R.string.friends_toast_send_success else R.string.friends_toast_send_fail
-                showToast(getString(res))
-            }
-        }, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LayoutHelper.dp(44)
-        ).apply { topMargin = LayoutHelper.dp(16) })
-
-        // Message — open DM if userId is known, otherwise toast
-        card.addView(buildPrimaryButton(getString(R.string.qr_profile_message), secondary = true) {
-            openDm()
-        }, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LayoutHelper.dp(44)
-        ).apply { topMargin = LayoutHelper.dp(8) })
-
-        // Dismiss
-        card.addView(buildGhostButton(getString(R.string.qr_profile_decline)) {
-            finishFragment()
-        }, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LayoutHelper.dp(44)
-        ).apply { topMargin = LayoutHelper.dp(8) })
-
-        return root
+    override fun createView(context: android.content.Context): View = FrameLayout(context).apply {
+        setBackgroundColor(themeColors.serverRailBg)
     }
 
-    // ── DM navigation ────────────────────────────────────────────────────────
+    override fun getStatusBarColor(): Int = themeColors.serverRailBg
+
+    override fun getNavigationBarColor(): Int = themeColors.serverRailBg
+
+    override fun onBecomeFullyVisible() {
+        super.onBecomeFullyVisible()
+        if (profileDialog != null || openingDestination || isFinished) return
+        val activity = getParentActivity() ?: return
+        val isSelf = userId != 0L && userId == chatController.getCurrentUserId()
+        val dialog = QrProfileDialog(
+            context = activity,
+            themeColors = themeColors,
+            userId = userId,
+            name = profileName,
+            username = username,
+            avatarUrl = avatarUrl,
+            showAddFriend = !isSelf && friendController.findFriendByUserId(userId)?.state != FRIEND_STATE_FRIEND,
+            onAddFriend = { addFriend() },
+            onMessage = { openDm() },
+            onCall = { beginVoiceCall() },
+        )
+        profileDialog = dialog
+        if (showDialog(dialog, false, null) == null) profileDialog = null
+    }
+
+    override fun dismissDialogOnPause(dialog: Dialog): Boolean = dialog !== profileDialog || !isLastFragment()
+
+    override fun onDialogDismiss(dialog: Dialog) {
+        if (dialog !== profileDialog) return
+        profileDialog = null
+        if (!openingDestination && !isFinished && !isFinishing() && isLastFragment()) finishFragment(false)
+    }
+
+    private fun addFriend() {
+        profileDialog?.setActionsEnabled(false)
+        friendController.sendFriendRequest(userId = userId, username = if (userId != 0L) "" else username) { success ->
+            if (isFinished) return@sendFriendRequest
+            fragmentScope.launch(Dispatchers.Main.immediate) {
+                if (isFinished) return@launch
+                profileDialog?.setActionsEnabled(true)
+                if (success) {
+                    showToast(getString(R.string.friends_toast_send_success), ToastOverlay.ToastType.SUCCESS)
+                } else {
+                    showToast(getString(R.string.friends_toast_send_fail), ToastOverlay.ToastType.ERROR)
+                }
+            }
+        }
+    }
 
     private fun openDm() {
-        if (userId == 0L) {
-            showToast(getString(R.string.feature_coming_soon))
+        if (!hasUserId()) return
+        profileDialog?.setActionsEnabled(false)
+        fragmentScope.launch(Dispatchers.Main.immediate) {
+            try {
+                val result = withContext(Dispatchers.IO) { dialogsController.openOrCreateDm(userId) }
+                val dmChannelId = (result as? DmOpenResult.Opened)?.channelId
+                if (dmChannelId == null) {
+                    showToast(getString(dmOpenErrorRes(result)), ToastOverlay.ToastType.ERROR)
+                    return@launch
+                }
+                val activity = getParentActivity() as? MainActivity ?: return@launch
+                chatController.openChannel(dmChannelId, 0L, CHANNEL_TYPE_DM)
+                dismissForNavigation()
+                activity.openChat(dmChannelId, profileName, 0L, CHANNEL_TYPE_DM, replaceLastFragment = true)
+            } finally {
+                profileDialog?.setActionsEnabled(true)
+            }
+        }
+    }
+
+    private fun dmOpenErrorRes(result: DmOpenResult): Int =
+        if (result == DmOpenResult.OnlyFriends) R.string.dm_only_friends_denied else R.string.qr_dm_open_failed
+
+    private fun hasUserId(): Boolean {
+        if (userId != 0L) return true
+        showToast(getString(R.string.qr_dm_open_failed), ToastOverlay.ToastType.ERROR)
+        return false
+    }
+
+    private fun canCallUser(): Boolean {
+        if (isFinished || isFinishing() || !isLastFragment()) return false
+        if (!hasUserId()) return false
+        if (userId == chatController.getCurrentUserId()) {
+            showToast(getString(R.string.cannot_call_yourself), ToastOverlay.ToastType.ERROR)
+            return false
+        }
+        if (friendController.isUserBlocked(userId)) {
+            showToast(getString(R.string.no_permission_call_blocked), ToastOverlay.ToastType.ERROR)
+            return false
+        }
+        if (callController.isCallSessionActive()) {
+            showToast(getString(R.string.call_ongoing_banner_title), ToastOverlay.ToastType.ERROR)
+            return false
+        }
+        return true
+    }
+
+    private fun beginVoiceCall() {
+        if (!canCallUser()) return
+        val activity = getParentActivity() ?: return
+        profileDialog?.setActionsEnabled(false)
+        if (ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            pendingCallPermission = true
+            ActivityCompat.requestPermissions(activity, arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_CALL_AUDIO)
+        } else {
+            runCallAfterSettingsPrompt()
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        if (requestCode != REQUEST_CALL_AUDIO || !pendingCallPermission) return
+        pendingCallPermission = false
+        if (CallPermissionUi.permissionGrantedInResult(permissions, grantResults, Manifest.permission.RECORD_AUDIO)) {
+            runCallAfterSettingsPrompt()
+        } else {
+            profileDialog?.setActionsEnabled(true)
+            showToast(getString(R.string.permission_no_audio), ToastOverlay.ToastType.ERROR)
+            getParentActivity()?.let {
+                CallPermissionUi.showMicOrCameraDeniedFeedback(it, Manifest.permission.RECORD_AUDIO, R.string.permission_no_audio)
+            }
+        }
+    }
+
+    private fun runCallAfterSettingsPrompt() {
+        val activity = getParentActivity() ?: return
+        if (!callManager.needsFullScreenIntentSettings()) {
+            startVoiceCall()
             return
         }
-        fragmentScope.launch {
-            val dmChannelId = dialogsController.getOrCreateDm(userId)
-            if (dmChannelId == 0L) {
-                launch(Dispatchers.Main) {
-                    showToast(getString(R.string.qr_dm_open_failed))
+        var callRequested = false
+        callSettingsDialog = AlertDialog.Builder(activity)
+            .setTitle(getString(R.string.call_full_screen_intent_title))
+            .setMessage(getString(R.string.call_full_screen_intent_message))
+            .setPositiveButton(getString(R.string.call_full_screen_intent_open_settings)) { dialog, _ ->
+                callManager.launchFullScreenIntentSettings(activity)
+                dialog.dismiss()
+            }
+            .setNegativeButton(getString(R.string.call_full_screen_intent_start_call_anyway)) { dialog, _ ->
+                callRequested = true
+                dialog.dismiss()
+                startVoiceCall()
+            }
+            .create().apply {
+                setOnDismissListener {
+                    callSettingsDialog = null
+                    if (!callRequested) profileDialog?.setActionsEnabled(true)
                 }
-                return@launch
+                show()
             }
-            chatController.openChannel(dmChannelId, 0L, CHANNEL_TYPE_DM)
-            launch(Dispatchers.Main.immediate) {
-                val chatName = displayName.ifBlank { username }
-                (getParentActivity() as? MainActivity)?.openChat(
-                    dmChannelId, chatName, 0L, CHANNEL_TYPE_DM
+    }
+
+    private fun startVoiceCall() {
+        profileDialog?.setActionsEnabled(false)
+        fragmentScope.launch(Dispatchers.Main.immediate) {
+            try {
+                val result = withContext(Dispatchers.IO) { dialogsController.openOrCreateDm(userId) }
+                val dmChannelId = (result as? DmOpenResult.Opened)?.channelId
+                if (dmChannelId == null) {
+                    showToast(getString(dmOpenErrorRes(result)), ToastOverlay.ToastType.ERROR)
+                    return@launch
+                }
+                if (!canCallUser()) return@launch
+                callController.startCall(
+                    peerId = userId,
+                    peerName = profileName,
+                    peerAvatar = avatarUrl?.takeIf { it.isNotBlank() },
+                    channelId = dmChannelId,
+                    clanId = 0L,
+                    channelType = CHANNEL_TYPE_DM,
+                    isChannelPrivate = false,
+                    isVideo = false,
+                    preferSpeaker = true,
                 )
-                // Do NOT call finishFragment() here: openChat() pushes ChatFragment on top of the
-                // actionBarLayout stack, so finishFragment() would close ChatFragment (the new top)
-                // rather than QrProfileFragment. Let ChatFragment sit on top naturally.
+                dismissForNavigation()
+                presentFragment(CallFragment(), removeLast = true)
+            } finally {
+                profileDialog?.setActionsEnabled(true)
             }
         }
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
-
-    private fun buildPrimaryButton(text: String, secondary: Boolean = false, onClick: () -> Unit): View {
-        val color     = if (secondary) themeColors.primaryContainer else themeColors.primary
-        val textColor = if (secondary) themeColors.onPrimaryContainer else themeColors.onPrimary
-        return TextView(requireContext()).apply {
-            this.text = text
-            gravity = Gravity.CENTER
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-            setTextColor(textColor)
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            background = GradientDrawable().apply {
-                cornerRadius = LayoutHelper.dp(12f).toFloat()
-                setColor(color)
-            }
-            isClickable = true
-            isFocusable = true
-            setOnClickListener { onClick() }
-        }
+    private fun dismissForNavigation() {
+        openingDestination = true
+        profileDialog?.dismiss()
     }
 
-    private fun buildGhostButton(text: String, onClick: () -> Unit): View {
-        return TextView(requireContext()).apply {
-            this.text = text
-            gravity = Gravity.CENTER
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-            setTextColor(themeColors.onSurfaceVariant)
-            background = GradientDrawable().apply {
-                cornerRadius = LayoutHelper.dp(12f).toFloat()
-                setColor(themeColors.surfaceVariant)
-            }
-            isClickable = true
-            isFocusable = true
-            setOnClickListener { onClick() }
-        }
+    override fun onFragmentDestroy() {
+        openingDestination = true
+        pendingCallPermission = false
+        callSettingsDialog?.dismiss()
+        profileDialog?.dismiss()
+        super.onFragmentDestroy()
     }
 
-    private fun showToast(msg: String) {
-        val parent = getLayoutContainer() ?: (fragmentView as? android.view.ViewGroup) ?: return
-        ToastOverlay(requireContext(), themeColors).show(parent, ToastOverlay.ToastType.INFO, msg)
+    private fun showToast(message: String, type: ToastOverlay.ToastType) {
+        val parent = getLayoutContainer() ?: return
+        ToastOverlay(requireContext(), themeColors).show(parent, type, message)
     }
 }

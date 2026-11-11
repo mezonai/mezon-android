@@ -86,20 +86,8 @@ class MessageActionBottomSheet(
         }
     }
 
-    private val secondaryColor: Int
-        get() = when (theme.resolvedMode) {
-            com.mezon.mobile.ui.theme.ThemeMode.LIGHT -> 0xFFFFFFFF.toInt()   // RN light: #ffffff
-            com.mezon.mobile.ui.theme.ThemeMode.DARK -> 0xFF1C1D23.toInt()    // RN dark:  #1c1d23
-            com.mezon.mobile.ui.theme.ThemeMode.ABYSS -> 0xFF19153C.toInt()   // RN abyss: #19153C
-            else -> 0xFF1C1D23.toInt()
-        }
-    private val tertiaryColor: Int
-        get() = when (theme.resolvedMode) {
-            com.mezon.mobile.ui.theme.ThemeMode.LIGHT -> 0xFFF2F3F6.toInt()   // RN light: #f2f3f6
-            com.mezon.mobile.ui.theme.ThemeMode.DARK -> 0xFF383A43.toInt()    // RN dark:  #383a43
-            com.mezon.mobile.ui.theme.ThemeMode.ABYSS -> 0xFF141319.toInt()   // RN abyss: #141319
-            else -> 0xFF383A43.toInt()
-        }
+    private val menuBackgroundColor: Int get() = theme.background
+    private val warningIconBackgroundColor: Int get() = theme.surface
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         setSnapPoints(0.5f, 1f, initialIndex = 0)
@@ -231,7 +219,7 @@ class MessageActionBottomSheet(
         for (qe in fallbacks) {
             val btn = FrameLayout(context).apply {
                 val bg = GradientDrawable().apply {
-                    setColor(secondaryColor)
+                    setColor(menuBackgroundColor)
                     cornerRadius = LayoutHelper.dp(50).toFloat()
                 }
                 background = bg
@@ -272,7 +260,7 @@ class MessageActionBottomSheet(
 
         val plusBtn = FrameLayout(context).apply {
             val bg = GradientDrawable().apply {
-                setColor(secondaryColor)
+                setColor(menuBackgroundColor)
                 cornerRadius = LayoutHelper.dp(50).toFloat()
             }
             background = bg
@@ -281,7 +269,7 @@ class MessageActionBottomSheet(
         val plusIv = ImageView(context).apply {
             scaleType = ImageView.ScaleType.FIT_CENTER
             val d = com.mezon.mobile.ui.cells.MezonIcon.reactionIcon.getDrawable(context)
-            d.colorFilter = android.graphics.PorterDuffColorFilter(theme.onSurface, android.graphics.PorterDuff.Mode.SRC_IN)
+            d.colorFilter = android.graphics.PorterDuffColorFilter(theme.textStrong, android.graphics.PorterDuff.Mode.SRC_IN)
             setImageDrawable(d)
         }
         plusBtn.addView(plusIv, FrameLayout.LayoutParams(emojiSize, emojiSize, Gravity.CENTER))
@@ -500,7 +488,7 @@ class MessageActionBottomSheet(
         val group = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             background = GradientDrawable().apply {
-                setColor(secondaryColor)
+                setColor(menuBackgroundColor)
                 cornerRadius = LayoutHelper.dp(10).toFloat()
             }
             clipToOutline = true
@@ -519,7 +507,7 @@ class MessageActionBottomSheet(
   
     private fun buildActionRow(item: ActionItem): FrameLayout {
         val row = FrameLayout(context).apply {
-            setBackgroundColor(secondaryColor)
+            setBackgroundColor(menuBackgroundColor)
             val outValue = TypedValue()
             context.theme.resolveAttribute(android.R.attr.selectableItemBackground, outValue, true)
             foreground = context.getDrawable(outValue.resourceId)
@@ -527,15 +515,8 @@ class MessageActionBottomSheet(
             isFocusable = true
         }
 
-        val textColor = if (item.isWarning)
-            theme.getColor(ThemeColors.key_dialogTextRed)
-        else
-            theme.getColor(ThemeColors.key_dialogTextBlack)
-
-        val iconColor = if (item.isWarning)
-            theme.getColor(ThemeColors.key_dialogTextRed)
-        else
-            theme.getColor(ThemeColors.key_dialogIcon)
+        val textColor = if (item.isWarning) theme.error else theme.textStrong
+        val iconColor = if (item.isWarning) theme.error else theme.textStrong
 
         // RN: MezonIconCDN renders at 20×20 (or 18×18 for warning/delete)
         val icon = ImageView(context).apply {
@@ -558,10 +539,10 @@ class MessageActionBottomSheet(
         }
 
         if (item.isWarning) {
-            // RN: warningIcon { 32×32, bg tertiary, borderRadius 50, marginRight 10 }
+            // Warning icon uses the sheet surface inside the menu card.
             val iconBg = FrameLayout(context).apply {
                 background = GradientDrawable().apply {
-                    setColor(tertiaryColor)
+                    setColor(warningIconBackgroundColor)
                     cornerRadius = LayoutHelper.dp(16).toFloat()
                 }
             }
@@ -599,7 +580,7 @@ class MessageActionBottomSheet(
      */
     private fun buildDivider(): View {
         return View(context).apply {
-            setBackgroundColor(theme.getColor(ThemeColors.key_divider))
+            setBackgroundColor(theme.border)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 1
             )

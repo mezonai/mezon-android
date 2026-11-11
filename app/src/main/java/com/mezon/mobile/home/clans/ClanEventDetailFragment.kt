@@ -1019,7 +1019,7 @@ class ClanEventDetailFragment : BaseFragment() {
             setPadding(padH, padV, padH, padV)
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(10f).toFloat()
-                setColor(theme.border)
+                setColor(theme.background)
             }
             isClickable = true
             isFocusable = true

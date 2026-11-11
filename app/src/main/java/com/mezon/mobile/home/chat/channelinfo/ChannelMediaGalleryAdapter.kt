@@ -19,6 +19,7 @@ import android.widget.TextView
 import androidx.core.graphics.drawable.DrawableCompat
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
+import com.mezon.mobile.R
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.ChannelGalleryController
@@ -29,6 +30,8 @@ import com.mezon.mobile.home.chat.VideoPlayerDialog
 import com.mezon.mobile.ui.cells.AvatarView
 import com.mezon.mobile.ui.cells.BackupImageView
 import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.util.HlsVideoCopy
+import com.mezon.mobile.util.VideoFrameStore
 import com.mezon.mobile.util.channelMediaThumbnailImgproxyUrl
 import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
@@ -263,8 +266,13 @@ internal class ChannelMediaGalleryAdapter(
 
         val anonymousAv = ImageView(ctx).apply {
             visibility = View.GONE
-            val drawable = com.mezon.mobile.ui.cells.MezonIcon.anonymousAvatar.getDrawable(ctx)
-            setImageDrawable(drawable)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(theme.colorAvatarDefault)
+            }
+            val iconPadding = LayoutHelper.dp(6f)
+            setPadding(iconPadding, iconPadding, iconPadding, iconPadding)
+            setImageDrawable(MezonIcon.loadDrawable(ctx, R.drawable.ic_anonymous_icon, Color.WHITE))
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
         avRing.addView(anonymousAv, LayoutHelper.createFrame(24, 24, Gravity.CENTER))
@@ -358,11 +366,15 @@ internal class ChannelMediaGalleryAdapter(
             } else {
                 slot.thumb.setImageDrawable(null)
                 slot.thumbJob = scope.launch {
-                    val frame = withContext(Dispatchers.IO) { extractRemoteVideoFrame(item.url) }
-                    if (frame != null &&
-                        (slot.root.tag as? ChannelGalleryMediaItem)?.url == item.url
-                    ) {
+                    val hasPoster = item.thumbnail.isNotBlank()
+                    val frame = withContext(Dispatchers.IO) {
+                        extractRemoteVideoFrame(slot.thumb.context, item.url, allowHlsFrame = !hasPoster)
+                    }
+                    if ((slot.root.tag as? ChannelGalleryMediaItem)?.url != item.url) return@launch
+                    if (frame != null) {
                         slot.thumb.setImageDrawable(BitmapDrawable(slot.thumb.resources, frame))
+                    } else if (hasPoster) {
+                        slot.thumb.setImage(channelMediaThumbnailImgproxyUrl(item.thumbnail))
                     }
                 }
             }
@@ -371,21 +383,32 @@ internal class ChannelMediaGalleryAdapter(
         }
     }
 
-    private fun extractRemoteVideoFrame(url: String): Bitmap? {
+    private suspend fun extractRemoteVideoFrame(context: Context, url: String, allowHlsFrame: Boolean): Bitmap? {
         if (url.isBlank()) return null
         videoThumbCache.get(videoThumbCacheKey(url))?.let { return it }
+        val isLocal = url.startsWith("content://") || url.startsWith("file://")
+        if (!isLocal) {
+            VideoFrameStore.load(context, videoThumbCacheKey(url))?.let { stored ->
+                videoThumbCache.put(videoThumbCacheKey(url), stored)
+                return stored
+            }
+        }
         val retriever = MediaMetadataRetriever()
         return try {
-            if (url.startsWith("content://") || url.startsWith("file://")) {
-                val ctx = hostContext() ?: return null
-                retriever.setDataSource(ctx, android.net.Uri.parse(url))
-            } else {
-                retriever.setDataSource(CdnSigner.requestUrlBlocking(url).url, HashMap())
-            }
-            val frame = retriever.getFrameAtTime(
-                1_000_000L,
-                MediaMetadataRetriever.OPTION_CLOSEST_SYNC
-            ) ?: return null
+            val frame = runCatching {
+                if (isLocal) {
+                    val ctx = hostContext() ?: return null
+                    retriever.setDataSource(ctx, android.net.Uri.parse(url))
+                } else {
+                    retriever.setDataSource(CdnSigner.requestUrlBlocking(url).url, HashMap())
+                }
+                retriever.getFrameAtTime(
+                    1_000_000L,
+                    MediaMetadataRetriever.OPTION_CLOSEST_SYNC
+                )
+            }.getOrNull()
+                ?: (if (!isLocal && allowHlsFrame) HlsVideoCopy.firstFrame(context, url, 1_000_000L) else null)
+                ?: return null
             val maxEdge = MEDIA_THUMBNAIL_SIZE_PX
             val scaled =
                 if (frame.width <= maxEdge && frame.height <= maxEdge) {
@@ -398,6 +421,7 @@ internal class ChannelMediaGalleryAdapter(
                     if (out !== frame) frame.recycle()
                     out
                 }
+            if (!isLocal) VideoFrameStore.save(context, videoThumbCacheKey(url), scaled)
             videoThumbCache.put(videoThumbCacheKey(url), scaled)
             scaled
         } catch (_: Exception) {

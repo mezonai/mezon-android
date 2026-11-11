@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.RectF
 import android.text.StaticLayout
+import android.text.TextPaint
 import android.text.TextUtils
 import com.mezon.mezon.api.SearchMessageDocument
 import com.mezon.mobile.R
@@ -25,6 +26,9 @@ class MessageSearchCell(context: Context, private val theme: ThemeColors) : Base
     private var avatarDisposable: MezonImageLoader.Cancellable? = null
     private val tmpRect = RectF()
 
+    private val senderPaint = TextPaint()
+    private val contentPaint = TextPaint()
+    private val channelPaint = TextPaint()
     private var senderLayout: StaticLayout? = null
     private var contentLayout: StaticLayout? = null
     private var channelLayout: StaticLayout? = null
@@ -62,6 +66,7 @@ class MessageSearchCell(context: Context, private val theme: ThemeColors) : Base
     ) {
         val doc = newDoc ?: document ?: return
         if (newDoc != null) document = newDoc
+        setBackgroundColor(theme.background)
         resolvedSenderName = senderName
         avatarDrawable.setUserId(doc.senderId.hashCode().toLong())
         loadAvatar(doc.avatarUrl)
@@ -79,9 +84,15 @@ class MessageSearchCell(context: Context, private val theme: ThemeColors) : Base
         val textWidth = w - textLeft - PAD_RIGHT
         if (textWidth <= 0) return
 
+        senderPaint.set(theme.dialogNamePaint)
+        senderPaint.color = theme.onSurface
+        contentPaint.set(theme.dialogMessagePaint)
+        contentPaint.color = theme.onSurface
+        channelPaint.set(theme.dialogMessagePaint)
+        channelPaint.color = theme.textDisabled
         val sender = resolvedSenderName?.takeIf { it.isNotBlank() }
             ?: doc.displayName.ifEmpty { doc.username }
-        senderLayout = StaticLayout.Builder.obtain(sender, 0, sender.length, theme.dialogNamePaint, textWidth)
+        senderLayout = StaticLayout.Builder.obtain(sender, 0, sender.length, senderPaint, textWidth)
             .setMaxLines(1)
             .setEllipsize(TextUtils.TruncateAt.END)
             .build()
@@ -94,7 +105,7 @@ class MessageSearchCell(context: Context, private val theme: ThemeColors) : Base
             else -> ""
         }
         if (preview.isNotEmpty()) {
-            contentLayout = StaticLayout.Builder.obtain(preview, 0, preview.length, theme.dialogMessagePaint, textWidth)
+            contentLayout = StaticLayout.Builder.obtain(preview, 0, preview.length, contentPaint, textWidth)
                 .setMaxLines(2)
                 .setEllipsize(TextUtils.TruncateAt.END)
                 .build()
@@ -113,7 +124,7 @@ class MessageSearchCell(context: Context, private val theme: ThemeColors) : Base
             }
         }
         if (channelInfo.isNotEmpty()) {
-            channelLayout = StaticLayout.Builder.obtain(channelInfo, 0, channelInfo.length, theme.dialogMessagePaint, textWidth)
+            channelLayout = StaticLayout.Builder.obtain(channelInfo, 0, channelInfo.length, channelPaint, textWidth)
                 .setMaxLines(1)
                 .setEllipsize(TextUtils.TruncateAt.END)
                 .build()

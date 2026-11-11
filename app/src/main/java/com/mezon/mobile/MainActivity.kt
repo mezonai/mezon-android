@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.util.Rational
+import androidx.annotation.RequiresApi
 import android.view.Gravity
 import android.view.View
 import android.view.ActionMode
@@ -94,6 +95,7 @@ import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.EntryPointAccessors
 import javax.inject.Inject
 import kotlin.math.max
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
@@ -114,6 +116,9 @@ class MainActivity : BasePermissionsActivity(),
     companion object {
         private const val TAG = "MainActivity"
         private const val REQUEST_INCOMING_CALL_PERMISSIONS = 9041
+        private const val PIP_MIN_ASPECT = 0.42f
+        private const val PIP_MAX_ASPECT = 2.35f
+        private const val PIP_ASPECT_PRECISION = 1000
 
         var instance: MainActivity? = null
             private set
@@ -161,6 +166,7 @@ class MainActivity : BasePermissionsActivity(),
     var voiceOverlayManager: VoiceOverlayManager? = null
         private set
     private var voiceRoomFragment: VoiceRoomFragment? = null
+    private var appliedPipAspect: Rational? = null
 
     var streamingOverlayManager: VoiceOverlayManager? = null
         private set
@@ -200,7 +206,7 @@ class MainActivity : BasePermissionsActivity(),
 
         applyLocaleToActivity()
         lastLocaleTag = resources.configuration.locales[0]?.toLanguageTag()
-        themeColors.setTheme(themeMode, isSystemDarkMode())
+        setThemeColors(themeMode)
 
         if (hasSession) {
             splashScreen.setKeepOnScreenCondition { !isContentReady }
@@ -436,13 +442,34 @@ class MainActivity : BasePermissionsActivity(),
             manager.expand()
         }
         try {
-            val params = PictureInPictureParams.Builder()
-                .setAspectRatio(Rational(9, 16))
-                .build()
-            return enterPictureInPictureMode(params)
+            val rational = pipAspectRational()
+            val entered = enterPictureInPictureMode(pipParams(rational))
+            if (entered) appliedPipAspect = rational
+            return entered
         } catch (_: Exception) {
             return false
         }
+    }
+
+    fun updatePipAspectRatio() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !isInPictureInPictureMode) return
+        val rational = pipAspectRational()
+        if (rational == appliedPipAspect) return
+        runCatching { setPictureInPictureParams(pipParams(rational)) }
+            .onSuccess { appliedPipAspect = rational }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.O)
+    private fun pipParams(rational: Rational): PictureInPictureParams =
+        PictureInPictureParams.Builder()
+            .setAspectRatio(rational)
+            .build()
+
+    private fun pipAspectRational(): Rational {
+        val aspect = voiceRoomFragment?.pipAspectRatio()?.takeIf { it.isFinite() && it > 0f }
+            ?: return Rational(9, 16)
+        val clamped = aspect.coerceIn(PIP_MIN_ASPECT, PIP_MAX_ASPECT)
+        return Rational((clamped * PIP_ASPECT_PRECISION).roundToInt(), PIP_ASPECT_PRECISION)
     }
 
     override fun onPictureInPictureModeChanged(
@@ -535,7 +562,7 @@ class MainActivity : BasePermissionsActivity(),
             NotificationCenter.themeChanged -> {
                 val mode = args.firstOrNull() as? ThemeMode
                     ?: StartupCache.themeMode
-                themeColors.setTheme(mode, isSystemDarkMode())
+                setThemeColors(mode)
                 applyMediaRoomTheme()
                 drawerLayoutContainer.setBehindKeyboardColor(themeColors.surface)
                 applySystemBarColors(mode)
@@ -549,7 +576,7 @@ class MainActivity : BasePermissionsActivity(),
             NotificationCenter.autoNightModeChanged -> {
                 val userMode = themeColors.currentMode
                 if (userMode == ThemeMode.SYSTEM) {
-                    themeColors.setTheme(userMode, isSystemDarkMode())
+                    setThemeColors(userMode)
                     applyMediaRoomTheme()
                     drawerLayoutContainer.setBehindKeyboardColor(themeColors.surface)
                     applySystemBarColors(userMode)
@@ -1045,6 +1072,7 @@ class MainActivity : BasePermissionsActivity(),
             it.clearMemoryCache()
             it.clearDiskCache()
         }
+        com.mezon.mobile.util.VideoCache.clear(this)
         actionBarLayout.removeAllFragments()
         actionBarLayout.containerView.removeAllViews()
         actionBarLayout.containerViewBack.removeAllViews()
@@ -1085,6 +1113,7 @@ class MainActivity : BasePermissionsActivity(),
             it.clearMemoryCache()
             it.clearDiskCache()
         }
+        com.mezon.mobile.util.VideoCache.clear(this)
         if (removeAll) {
             actionBarLayout.removeAllFragments()
         }
@@ -1781,9 +1810,8 @@ class MainActivity : BasePermissionsActivity(),
 
         if (themeColors.currentMode == ThemeMode.SYSTEM) {
             val dark = isSystemDarkMode()
-            if ((dark && themeColors.resolvedMode != ThemeMode.DARK) ||
-                (!dark && themeColors.resolvedMode != ThemeMode.LIGHT)) {
-                themeColors.setTheme(ThemeMode.SYSTEM, dark)
+            if (themeColors.resolvedMode != themeManager.resolveEffectiveMode(ThemeMode.SYSTEM, dark)) {
+                setThemeColors(ThemeMode.SYSTEM)
                 applyMediaRoomTheme()
                 drawerLayoutContainer.setBehindKeyboardColor(themeColors.surface)
                 applySystemBarColors(ThemeMode.SYSTEM)
@@ -1798,6 +1826,11 @@ class MainActivity : BasePermissionsActivity(),
         val config = android.content.res.Configuration(resources.configuration)
         config.setLocale(locale)
         resources.updateConfiguration(config, resources.displayMetrics)
+    }
+
+    private fun setThemeColors(mode: ThemeMode) {
+        val systemIsDark = isSystemDarkMode()
+        themeColors.setTheme(mode, systemIsDark, themeManager.resolveEffectiveMode(mode, systemIsDark))
     }
 
     private fun isSystemDarkMode(): Boolean =
@@ -1822,7 +1855,7 @@ class MainActivity : BasePermissionsActivity(),
 
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
                 val isLight = lastFragment?.isLightStatusBar()
-                    ?: (themeColors.resolvedMode == ThemeMode.LIGHT)
+                    ?: (themeColors.resolvedMode.isLight)
                 val flags = window.decorView.systemUiVisibility
                 window.decorView.systemUiVisibility = if (isLight) {
                     flags or android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR

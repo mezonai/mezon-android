@@ -2,6 +2,7 @@ package com.mezon.mobile.home.chat.poll
 
 import android.content.Context
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
@@ -12,6 +13,7 @@ import android.view.View
 import com.mezon.mobile.R
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.core.theme.DesktopThemeToken as Token
 import kotlin.math.min
 
 private const val MAX_OPTIONS_COLLAPSED = 5
@@ -38,7 +40,15 @@ private data class OptionLabelCacheEntry(
 class PollMessageLayout(private val context: Context) {
 
     private val cardPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val cardBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = LayoutHelper.dpf(1f)
+    }
     private val optionBgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val optionBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = LayoutHelper.dpf(1f)
+    }
     private val barFillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val buttonPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val checkPaint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -47,10 +57,6 @@ class PollMessageLayout(private val context: Context) {
         strokeWidth = LayoutHelper.dp(2f).toFloat()
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
-    }
-    private val optionSelectionFillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val optionSelectionStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
     }
 
     private val titlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -93,6 +99,9 @@ class PollMessageLayout(private val context: Context) {
     private var questionLayout: StaticLayout? = null
     private var subtitleLayout: StaticLayout? = null
     private var actionLabel: String = ""
+    private var isPrimaryAction = false
+    private var secondaryTextColor = 0
+    private var themeTextColor = 0
     private var footerLeftLabel: String = ""
     private var footerRightTime: String = ""
     private var expandLinkText: String = ""
@@ -117,21 +126,16 @@ class PollMessageLayout(private val context: Context) {
         val expired = parsed.expireAtSeconds > 0 && parsed.expireAtSeconds < nowSec
         val showResults = parsed.isClosed || expired || hasVoted || state.showResultsPreview
 
-        titlePaint.color = theme.onSurface
-        subtitlePaint.color = theme.onSurfaceVariant
-        optionLabelPaint.color = theme.onSurface
-        metaPaint.color = theme.onSurfaceVariant
-        linkPaint.color = theme.blurple
-        buttonTextPaint.color = 0xFFFFFFFF.toInt()
-        cardPaint.color = theme.surfaceVariant
-        optionBgPaint.color = (theme.onSurface and 0x00FFFFFF) or 0x18000000
-        barFillPaint.color = theme.primary
-        buttonPaint.color = theme.primary
-        checkPaint.color = theme.primary
-        checkStroke.color = 0xFFFFFFFF.toInt()
-        optionSelectionFillPaint.color = (theme.primary and 0x00FFFFFF) or 0x28000000
-        optionSelectionStrokePaint.color = theme.primary
-        optionSelectionStrokePaint.strokeWidth = LayoutHelper.dpf(2f)
+        secondaryTextColor = theme.desktop[Token.TEXT_SECONDARY]
+        themeTextColor = theme.textThemePrimary
+        titlePaint.color = secondaryTextColor
+        subtitlePaint.color = themeTextColor
+        optionLabelPaint.color = secondaryTextColor
+        linkPaint.color = themeTextColor
+        cardPaint.color = theme.desktop[Token.BG_ACTIVE_MEMBER_CHANNEL]
+        cardBorderPaint.color = theme.outline
+        optionBgPaint.color = theme.desktop[Token.BG_ITEM_HOVER]
+        barFillPaint.color = POLL_RESULT_COLOR
 
         val qText = pollAnswerPlainText(parsed.question)
         questionLayout = StaticLayout.Builder.obtain(qText, 0, qText.length, titlePaint, innerW)
@@ -147,6 +151,13 @@ class PollMessageLayout(private val context: Context) {
             .build()
 
         actionLabel = computeActionLabel(parsed, state, hasVoted, showResults, expired)
+        isPrimaryAction = !showResults && state.selection.isNotEmpty()
+        buttonPaint.color = when {
+            isPrimaryAction -> theme.desktop[Token.BG_BUTTON_PRIMARY]
+            hasVoted -> theme.desktop[Token.BG_BUTTON_SECONDARY]
+            else -> Color.TRANSPARENT
+        }
+        buttonTextPaint.color = if (isPrimaryAction) secondaryTextColor else themeTextColor
 
         val total = parsed.totalVotes.coerceAtLeast(0)
         footerLeftLabel = context.resources.getQuantityString(R.plurals.poll_total_votes, total, total)
@@ -187,10 +198,12 @@ class PollMessageLayout(private val context: Context) {
                 count
             )
             val mw = metaPaint.measureText(meta)
-            var labelMaxW = labelBaseW.toFloat()
-            if (showResults) {
-                labelMaxW = (labelBaseW - mw - CHECK_SIDE - CHECK_EDGE_PAD - META_CHECK_GAP).coerceAtLeast(LayoutHelper.dp(40).toFloat())
+            val rightReserve = when {
+                showResults -> mw + CHECK_SIDE + CHECK_EDGE_PAD + META_CHECK_GAP
+                ans.index in state.selection -> CHECK_SIDE + META_CHECK_GAP
+                else -> 0f
             }
+            val labelMaxW = (labelBaseW - rightReserve).coerceAtLeast(LayoutHelper.dp(40).toFloat())
             val labelLayout = obtainOptionLabelLayout(
                 answerIndex = ans.index,
                 rawLabel = ans.label,
@@ -369,6 +382,7 @@ class PollMessageLayout(private val context: Context) {
         canvas.translate(left, top)
         tmpRect.set(cardRect)
         canvas.drawRoundRect(tmpRect, CARD_RADIUS, CARD_RADIUS, cardPaint)
+        canvas.drawRoundRect(tmpRect, CARD_RADIUS, CARD_RADIUS, cardBorderPaint)
 
         val pad = CARD_PAD
         var y = pad
@@ -393,13 +407,11 @@ class PollMessageLayout(private val context: Context) {
         val expired = parsed.expireAtSeconds > 0 && parsed.expireAtSeconds < nowSec
         val showResults = parsed.isClosed || expired || hasVoted || state.showResultsPreview
         val innerW = cardWidth - pad * 2
-        val canPick = !state.isVoting && !parsed.isClosed && !expired && !hasVoted && !state.showResultsPreview
-
         for (line in optionLines) {
-            val highlight = canPick && state.selection.contains(line.answerIndex)
             drawOptionLine(
-                canvas, pad, line, innerW.toFloat(), showResults,
-                voted.contains(line.answerIndex), highlight
+                canvas, pad, line, innerW, showResults,
+                isChosen = line.answerIndex in voted,
+                isPending = !showResults && line.answerIndex in state.selection
             )
         }
 
@@ -407,12 +419,20 @@ class PollMessageLayout(private val context: Context) {
             canvas.drawText(expandLinkText, expandLinkRect.left, expandLinkRect.bottom - EXPAND_LINK_BASELINE_PAD, linkPaint)
         }
 
-        canvas.drawText(
-            footerStatsDrawText,
-            footerStatsRect.left,
-            footerStatsRect.top + footerStatsRect.height() / 2f - (metaPaint.descent() + metaPaint.ascent()) / 2f,
-            metaPaint
-        )
+        metaPaint.color = themeTextColor
+        val statsX = footerStatsRect.left
+        val statsY = footerStatsRect.centerY() - (metaPaint.descent() + metaPaint.ascent()) / 2f
+        val statusStart = footerLeftLabel.length
+        if ((parsed.isClosed || expired) && footerStatsDrawText.startsWith(footerLeftLabel) &&
+            footerStatsDrawText.length > statusStart
+        ) {
+            canvas.drawText(footerStatsDrawText, 0, statusStart, statsX, statsY, metaPaint)
+            val statusX = statsX + metaPaint.measureText(footerLeftLabel)
+            metaPaint.color = CLOSED_POLL_COLOR
+            canvas.drawText(footerStatsDrawText, statusStart, footerStatsDrawText.length, statusX, statsY, metaPaint)
+        } else {
+            canvas.drawText(footerStatsDrawText, statsX, statsY, metaPaint)
+        }
         if (detailLinkText.isNotEmpty()) {
             canvas.drawText(
                 detailLinkText,
@@ -423,12 +443,19 @@ class PollMessageLayout(private val context: Context) {
         }
 
         if (actionLabel.isNotEmpty() && !actionButtonRect.isEmpty) {
-            buttonPaint.alpha = if (state.isVoting) 128 else 255
+            if (state.isVoting) {
+                tmpRect.set(actionButtonRect)
+                tmpRect.inset(-cardBorderPaint.strokeWidth, -cardBorderPaint.strokeWidth)
+                canvas.saveLayerAlpha(tmpRect, 128)
+            }
             canvas.drawRoundRect(actionButtonRect, BUTTON_RADIUS, BUTTON_RADIUS, buttonPaint)
-            buttonPaint.alpha = 255
+            if (!isPrimaryAction) {
+                canvas.drawRoundRect(actionButtonRect, BUTTON_RADIUS, BUTTON_RADIUS, cardBorderPaint)
+            }
             val fx = actionButtonRect.left + (actionButtonRect.width() - buttonTextPaint.measureText(actionLabel)) / 2f
             val fy = actionButtonRect.centerY() - (buttonTextPaint.ascent() + buttonTextPaint.descent()) / 2f
             canvas.drawText(actionLabel, fx, fy, buttonTextPaint)
+            if (state.isVoting) canvas.restore()
         }
 
         canvas.restore()
@@ -436,58 +463,67 @@ class PollMessageLayout(private val context: Context) {
 
     private fun drawOptionLine(
         canvas: Canvas,
-        pad: Float,
+        left: Float,
         line: OptionLine,
         innerW: Float,
         showResults: Boolean,
         isChosen: Boolean,
-        highlightSelection: Boolean
+        isPending: Boolean
     ) {
         val top = line.top
-        val h = line.height
-        val left = pad
-        val right = pad + innerW
-        tmpRect.set(left, top, right, top + h)
+        val height = line.height
+        val right = left + innerW
+        tmpRect.set(left, top, right, top + height)
         canvas.drawRoundRect(tmpRect, OPTION_RADIUS, OPTION_RADIUS, optionBgPaint)
 
-        if (highlightSelection) {
-            canvas.drawRoundRect(tmpRect, OPTION_RADIUS, OPTION_RADIUS, optionSelectionFillPaint)
-            canvas.drawRoundRect(tmpRect, OPTION_RADIUS, OPTION_RADIUS, optionSelectionStrokePaint)
+        val fillWidth = if (showResults) {
+            min(innerW * line.percentage / 100f, innerW - BAR_INSET_RIGHT)
+        } else {
+            0f
+        }
+        val fillRight = left + BAR_INSET + fillWidth
+        if (fillWidth > 0f) {
+            tmpRect.set(left + BAR_INSET, top + BAR_INSET, fillRight, top + height - BAR_INSET)
+            canvas.drawRoundRect(tmpRect, BAR_RADIUS, BAR_RADIUS, barFillPaint)
         }
 
-        if (showResults) {
-            val fillW = innerW * (line.percentage / 100f)
-            barFillPaint.alpha = if (isChosen) 210 else 110
-            tmpRect.set(
-                left + BAR_INSET,
-                top + BAR_INSET,
-                left + BAR_INSET + min(fillW, innerW - BAR_INSET_RIGHT),
-                top + h - BAR_INSET
-            )
-            canvas.drawRoundRect(tmpRect, BAR_RADIUS, BAR_RADIUS, barFillPaint)
-            barFillPaint.alpha = 255
+        if (showResults || isPending) {
+            optionBorderPaint.color = if (showResults) cardBorderPaint.color else themeTextColor
+            tmpRect.set(left, top, right, top + height)
+            canvas.drawRoundRect(tmpRect, OPTION_RADIUS, OPTION_RADIUS, optionBorderPaint)
         }
 
         val labelX = left + OPTION_LABEL_PAD
-        val lay = line.labelLayout
-        val labelTop = top + (h - lay.height) / 2f
+        val layout = line.labelLayout
+        val labelTop = top + (height - layout.height) / 2f
         canvas.save()
         canvas.translate(labelX, labelTop)
-        lay.draw(canvas)
+        layout.draw(canvas)
         canvas.restore()
 
+        val side = CHECK_SIDE
+        val cx = right - CHECK_EDGE_PAD - side / 2f
         if (showResults) {
-            val labelY = top + h / 2f - (optionLabelPaint.descent() + optionLabelPaint.ascent()) / 2f
-            val side = CHECK_SIDE
-            val cx = right - CHECK_EDGE_PAD - side / 2f
+            val labelY = top + height / 2f - (optionLabelPaint.descent() + optionLabelPaint.ascent()) / 2f
             val metaRight = if (isChosen) cx - side / 2f - META_CHECK_GAP else right - OPTION_LABEL_PAD
+            metaPaint.color = secondaryTextColor
             canvas.drawText(line.metaText, metaRight - line.metaWidth, labelY, metaPaint)
+        }
+
+        if (isChosen || isPending) {
+            val cy = top + height / 2f
+            tmpRect.set(cx - side / 2f, cy - side / 2f, cx + side / 2f, cy + side / 2f)
             if (isChosen) {
-                val cy = top + h / 2f
-                tmpRect.set(cx - side / 2f, cy - side / 2f, cx + side / 2f, cy + side / 2f)
+                checkPaint.color = themeTextColor
+                checkStroke.color = secondaryTextColor
                 canvas.drawRoundRect(tmpRect, CHECK_RADIUS, CHECK_RADIUS, checkPaint)
                 canvas.drawLine(cx - side * 0.12f, cy, cx - side * 0.02f, cy + side * 0.14f, checkStroke)
                 canvas.drawLine(cx - side * 0.02f, cy + side * 0.14f, cx + side * 0.18f, cy - side * 0.12f, checkStroke)
+            } else {
+                optionBorderPaint.color = themeTextColor
+                canvas.drawRoundRect(tmpRect, CHECK_RADIUS, CHECK_RADIUS, optionBorderPaint)
+                checkPaint.color = POLL_SELECTION_COLOR
+                canvas.drawCircle(cx, cy, side / 4f, checkPaint)
             }
         }
     }
@@ -529,6 +565,9 @@ class PollMessageLayout(private val context: Context) {
     }
 
     companion object {
+        private val POLL_RESULT_COLOR = 0xFF2563EB.toInt()
+        private val POLL_SELECTION_COLOR = 0xFF3B82F6.toInt()
+        private val CLOSED_POLL_COLOR = 0xFFEF4444.toInt()
         private val CARD_RADIUS = LayoutHelper.dpf(12f)
         private val CARD_PAD = LayoutHelper.dp(12).toFloat()
         private val QUESTION_GAP = LayoutHelper.dp(6)

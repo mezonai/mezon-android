@@ -242,7 +242,10 @@ class ClanSettingFragment : BaseFragment() {
                 ctx,
                 themeColors,
                 getString(R.string.clan_settings_section_settings),
-                buildSettingsRows(ctx, perm)
+                buildSettingsRows(ctx, perm),
+                cardColor = themeColors.surface,
+                separatorColor = themeColors.border,
+                titleColor = themeColors.textStrong
             ),
             LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, android.view.Gravity.NO_GRAVITY, 0f, 18f, 0f, 0f)
         )
@@ -252,7 +255,10 @@ class ClanSettingFragment : BaseFragment() {
                 ctx,
                 themeColors,
                 getString(R.string.clan_settings_section_user_management),
-                buildUserRows(ctx, perm)
+                buildUserRows(ctx, perm),
+                cardColor = themeColors.surface,
+                separatorColor = themeColors.border,
+                titleColor = themeColors.textStrong
             ),
             LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, android.view.Gravity.NO_GRAVITY, 0f, 18f, 0f, 0f)
         )

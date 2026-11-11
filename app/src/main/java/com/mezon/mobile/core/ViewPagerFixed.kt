@@ -709,6 +709,7 @@ class ViewPagerFixed(context: Context) : FrameLayout(context) {
         private var currentTabCount = 0
         private val tabViews = ArrayList<TextView>()
         private val indicatorPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+        private var textColors: Pair<Int, Int>? = null
         private var indicatorX = 0f
         private var indicatorWidth = 0f
         private var animatingIndicator = false
@@ -721,6 +722,11 @@ class ViewPagerFixed(context: Context) : FrameLayout(context) {
             ))
             setWillNotDraw(false)
             indicatorPaint.color = ThemeColors.instance.primary
+        }
+
+        fun setTextColors(active: Int, inactive: Int) {
+            textColors = active to inactive
+            updateColors()
         }
 
         fun setIndicatorColor(color: Int) {
@@ -815,8 +821,8 @@ class ViewPagerFixed(context: Context) : FrameLayout(context) {
         fun isAnimatingIndicator(): Boolean = animatingIndicator
 
         private fun updateColors() {
-            val activeColor = ThemeColors.instance.primary
-            val inactiveColor = ThemeColors.instance.getColor(ThemeColors.key_text_secondary)
+            val activeColor = textColors?.first ?: ThemeColors.instance.primary
+            val inactiveColor = textColors?.second ?: ThemeColors.instance.getColor(ThemeColors.key_text_secondary)
             for (i in tabViews.indices) {
                 val tab = tabViews[i]
                 val isSelected = tab.tag == selectedTabId

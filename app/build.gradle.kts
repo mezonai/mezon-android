@@ -59,8 +59,8 @@ android {
                 arguments += "-DONNXRUNTIME_ROOT=${layout.buildDirectory.get().asFile}/onnxruntime-native"
             }
         }
-        versionCode = 1234
-        versionName = "1.2.26"
+        versionCode = 1251
+        versionName = "2.1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -147,6 +147,7 @@ android {
         buildStr("MEZON_WEBRTC_ICESERVERS_CREDENTIAL")
         buildStr("CLOUDFLARE_CDN_URL")
         buildStr("MEZON_CDN_URL")
+        buildStrOpt("MEZON_FILE_INGEST", "")
         buildStr("PROFILE_CDN_URL")
         buildStr("MEZON_LOGO_URL")
         buildStr("MEZON_IMGPROXY_BASE_URL")
@@ -300,9 +301,9 @@ dependencies {
 
 
     // Media playback
-    implementation("androidx.media3:media3-exoplayer:1.3.1")
-    implementation("androidx.media3:media3-exoplayer-hls:1.3.1")
-    implementation("androidx.media3:media3-ui:1.3.1")
+    implementation("androidx.media3:media3-exoplayer:1.11.1")
+    implementation("androidx.media3:media3-exoplayer-hls:1.11.1")
+    implementation("androidx.media3:media3-ui:1.11.1")
 
     // CameraX + ZXing (QR)
     implementation(libs.androidx.camera.core)
@@ -310,6 +311,7 @@ dependencies {
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
     implementation(libs.zxing.core)
+    implementation(libs.mlkit.barcode.scanning)
 
     // Lottie for animated stickers (TGS)
     implementation("com.airbnb.android:lottie:6.4.0")

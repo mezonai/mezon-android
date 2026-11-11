@@ -10,7 +10,8 @@ data class ChannelDocumentItem(
     val url: String,
     val uploader: Long,
     val createTimeSeconds: Int,
-    val messageId: Long
+    val messageId: Long,
+    val anonymousSharerName: String? = null
 )
 
 private val GROUPING_CAL_TL = ThreadLocal.withInitial { Calendar.getInstance() }

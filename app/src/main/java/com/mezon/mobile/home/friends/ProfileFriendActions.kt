@@ -1,12 +1,27 @@
 package com.mezon.mobile.home.friends
 
+import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
 import com.mezon.mobile.MainActivity
 import com.mezon.mobile.R
+import com.mezon.mobile.core.AlertDialog
 import com.mezon.mobile.core.AndroidUtilities
+import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.ui.cells.ToastOverlay
+
+internal fun showUserBlockProgress(
+    context: Context,
+    present: (AlertDialog) -> Unit = { it.show() },
+): AlertDialog {
+    return AlertDialog(context, AlertDialog.ALERT_TYPE_LOADING).apply {
+        setCustomWidth(LayoutHelper.dp(120))
+        present(this)
+        setCanceledOnTouchOutside(false)
+        setCancelable(false)
+    }
+}
 
 fun sendProfileFriendRequest(
     friendController: FriendController,

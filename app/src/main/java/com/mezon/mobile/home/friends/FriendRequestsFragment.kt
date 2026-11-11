@@ -20,6 +20,8 @@ import com.mezon.mobile.home.chat.UserProfileBottomSheet
 
 class FriendRequestsFragment : BaseFragment() {
 
+    private lateinit var contentLayout: LinearLayout
+
     private lateinit var friendController: FriendController
 
     private lateinit var receivedTab: TextView
@@ -56,15 +58,16 @@ class FriendRequestsFragment : BaseFragment() {
     override fun createView(context: Context): View {
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(themeColors.background)
+            background = friendListBackground(themeColors)
             setPadding(LayoutHelper.dp(16), LayoutHelper.dp(16), LayoutHelper.dp(16), LayoutHelper.dp(12))
         }
 
+        contentLayout = content
         val tabContainer = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(12f).toFloat()
-                setColor(themeColors.surfaceVariant)
+                setColor(themeColors.background)
             }
             setPadding(LayoutHelper.dp(4), LayoutHelper.dp(4), LayoutHelper.dp(4), LayoutHelper.dp(4))
         }
@@ -97,8 +100,13 @@ class FriendRequestsFragment : BaseFragment() {
             overScrollMode = View.OVER_SCROLL_NEVER
             isVerticalScrollBarEnabled = false
             adapter = this@FriendRequestsFragment.adapter
+            background = GradientDrawable().apply {
+                cornerRadius = LayoutHelper.dp(12f).toFloat()
+                setColor(themeColors.background)
+            }
+            clipToOutline = true
         }
-        listContainer.addView(recyclerView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
+        listContainer.addView(recyclerView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
         val emptyContainer = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -117,7 +125,7 @@ class FriendRequestsFragment : BaseFragment() {
 
         emptyDescription = TextView(context).apply {
             setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
-            setTextColor(themeColors.onSurfaceVariant)
+            setTextColor(themeColors.textDisabled)
             gravity = Gravity.CENTER
             setPadding(0, LayoutHelper.dp(8), 0, 0)
         }
@@ -126,7 +134,9 @@ class FriendRequestsFragment : BaseFragment() {
         recyclerView.setEmptyView(emptyContainer)
         updateTheme()
         reloadList()
-        return wrapWithActionBar(getString(R.string.friends_request_title), content)
+        return wrapWithActionBar(getString(R.string.friends_request_title), content).apply {
+            setBackgroundColor(themeColors.surface)
+        }
     }
 
     private fun createTabButton(context: Context, text: String, onClick: () -> Unit): TextView {
@@ -139,6 +149,9 @@ class FriendRequestsFragment : BaseFragment() {
     }
 
     private fun updateTheme() {
+        contentLayout.background = friendListBackground(themeColors)
+        fragmentView?.setBackgroundColor(themeColors.surface)
+        (recyclerView.background as? GradientDrawable)?.setColor(themeColors.background)
         val selectedText = themeColors.onPrimary
         val unselectedText = themeColors.onSurface
         val selectedBg = themeColors.primary

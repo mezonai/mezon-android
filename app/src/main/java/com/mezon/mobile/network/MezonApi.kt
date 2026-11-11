@@ -387,6 +387,7 @@ class MezonApi @Inject constructor(
         private val SERVER_KEY = BuildConfig.MEZON_API_KEY
         private const val DISCOVER_ITEMS_PER_PAGE = 6
         private const val SOCKET_WAIT_MS = 5_000L
+        private const val SOCKET_MESSAGE_FETCH_WAIT_MS = 300L
         private const val SOCKET_API_TIMEOUT_MS = 4_000L
         private const val SOCKET_MESSAGE_FETCH_TIMEOUT_MS = 1_500L
         private val MESSAGE_FETCH_API_NAMES = setOf("ListChannelMessages")
@@ -638,6 +639,9 @@ class MezonApi @Inject constructor(
         retryableRead: Boolean,
         httpOnly: Boolean
     ): ByteArray {
+        // Stream grants require the realtime connection used by StreamingWatch.
+        if (method == "GetStreamPlayback") return rpcOverSocket(method, body, token)
+
         if (httpOnly || method in HTTP_ONLY_API_NAMES || isSocketDegraded()) {
             return rpcOverHttpWithRetry(apiUrl, token, method, body, retryableRead)
         }
@@ -706,8 +710,14 @@ class MezonApi @Inject constructor(
 
     private suspend fun rpcOverSocket(method: String, body: ByteArray, token: String): ByteArray {
         val socket = mezonSocketLazy.get()
-        if (!socket.awaitConnected(SOCKET_WAIT_MS)) {
-            markSocketDegraded()
+        val isMessageFetch = method in MESSAGE_FETCH_API_NAMES
+        val connected = if (isMessageFetch) {
+            socket.awaitConnected(SOCKET_MESSAGE_FETCH_WAIT_MS, reportTimeout = false)
+        } else {
+            socket.awaitConnected(SOCKET_WAIT_MS)
+        }
+        if (!connected) {
+            if (!isMessageFetch) markSocketDegraded()
             throw SocketRpcTransportException(
                 "WebSocket unavailable for '$method'",
                 retryOverHttp = true
@@ -1034,6 +1044,19 @@ class MezonApi @Inject constructor(
         }
         val bytes = rpc(apiUrl, token, "CreateChannelDesc", request.toByteArray())
         return ChannelDescription.parseFrom(bytes)
+    }
+
+    suspend fun getDmSetting(apiUrl: String, token: String): com.mezon.mezon.api.DMSetting {
+        val bytes = rpc(apiUrl, token, "GetDMSetting", ByteArray(0))
+        return com.mezon.mezon.api.DMSetting.parseFrom(bytes)
+    }
+
+    suspend fun updateDmSetting(apiUrl: String, token: String, onlyFriendsDm: Boolean): com.mezon.mezon.api.DMSetting {
+        val request = com.mezon.mezon.api.UpdateDMSettingRequest.newBuilder()
+            .setOnlyFriendsDm(onlyFriendsDm)
+            .build()
+        val bytes = rpc(apiUrl, token, "UpdateDMSetting", request.toByteArray())
+        return com.mezon.mezon.api.DMSetting.parseFrom(bytes)
     }
 
     suspend fun updateChannelDesc(
@@ -1827,7 +1850,11 @@ class MezonApi @Inject constructor(
     }
 
     suspend fun unblockFriends(apiUrl: String, token: String, ids: List<Long>, usernames: List<String>): ByteArray {
-        return deleteFriends(apiUrl, token, ids, usernames)
+        val request = blockFriendsRequest {
+            this.ids.addAll(ids)
+            this.usernames.addAll(usernames)
+        }
+        return rpc(apiUrl, token, "UnblockFriends", request.toByteArray())
     }
 
     suspend fun sendChannelMessage(

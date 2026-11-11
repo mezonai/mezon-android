@@ -654,7 +654,7 @@ class StickerSettingsFragment : BaseFragment() {
                 background = android.graphics.drawable.GradientDrawable().apply {
                     shape = android.graphics.drawable.GradientDrawable.RECTANGLE
                     cornerRadius = LayoutHelper.dpf(12f)
-                    setColor(themeColors.border)
+                    setColor(themeColors.background)
                     setStroke(LayoutHelper.dp(1f), themeColors.borderDim)
                 }
             }

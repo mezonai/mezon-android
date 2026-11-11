@@ -8,6 +8,7 @@ import com.mezon.mobile.R
 import com.mezon.mobile.core.AlertDialog
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.di.FragmentEntryPoint
+import com.mezon.mobile.home.DmOpenResult
 import com.mezon.mobile.home.call.CallFragment
 import com.mezon.mobile.home.call.CallPermissionUi
 import com.mezon.mobile.home.friends.sendProfileFriendRequest
@@ -84,14 +85,14 @@ class UserShortProfileActions(
         resolvingDm = true
         fragment.fragmentScope.launch(Dispatchers.Main.immediate) {
             try {
-                val dmId = withContext(entryPoint.ioDispatcher()) {
-                    entryPoint.dialogsController().getOrCreateDm(userId)
+                val result = withContext(entryPoint.ioDispatcher()) {
+                    entryPoint.dialogsController().openOrCreateDm(userId)
                 }
                 if (fragment.isFinished) return@launch
-                if (dmId == 0L) {
-                    showError(R.string.contact_shared_error)
-                } else {
-                    onResolved(dmId)
+                when (result) {
+                    is DmOpenResult.Opened -> onResolved(result.channelId)
+                    DmOpenResult.OnlyFriends -> showError(R.string.dm_only_friends_denied)
+                    DmOpenResult.Failed -> showError(R.string.contact_shared_error)
                 }
             } finally {
                 resolvingDm = false

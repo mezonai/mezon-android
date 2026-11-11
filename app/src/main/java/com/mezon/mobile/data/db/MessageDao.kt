@@ -7,6 +7,7 @@ import androidx.room.Transaction
 import androidx.room.Upsert
 import com.mezon.mezon.api.MessageReaction
 import com.mezon.mobile.home.chat.applyReactionEvent
+import com.mezon.mobile.util.PresignFinishContent
 
 @Dao
 interface MessageDao {
@@ -37,6 +38,18 @@ interface MessageDao {
 
     @Upsert
     suspend fun upsert(message: MessageEntity)
+
+    @Transaction
+    suspend fun cacheFetchedMessages(messages: List<MessageEntity>) {
+        if (messages.isEmpty()) return
+        val existing = getByIds(messages.first().channelId, messages.map { it.id }).associateBy { it.id }
+        upsertAll(messages.map { message ->
+            val cached = existing[message.id]
+            if (cached == null) message else message.copy(
+                content = PresignFinishContent.mergePresignFinishContent(cached.content, message.content)
+            )
+        })
+    }
 
     @Transaction
     suspend fun cacheAcknowledgedMessage(message: MessageEntity): MessageEntity {

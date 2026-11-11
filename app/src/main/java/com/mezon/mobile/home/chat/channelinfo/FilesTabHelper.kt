@@ -23,7 +23,6 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.recyclerview.widget.LinearLayoutManager
-import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.R
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
@@ -32,7 +31,10 @@ import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.ChannelFilesController
 import com.mezon.mobile.home.ChannelFilesType
+import com.mezon.mobile.home.ChannelGalleryController
 import com.mezon.mobile.home.MemberResolver
+import com.mezon.mobile.home.chat.DEFAULT_ANONYMOUS_SENDER_NAME
+import com.mezon.mobile.home.chat.MEDIA_ANONYMOUS_USER_ID
 import com.mezon.mobile.ui.MezonToast
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.ToastOverlay
@@ -46,6 +48,7 @@ class FilesTabHelper(
     private val channelType: Int,
     private val themeColors: ThemeColors,
     private val channelFilesController: ChannelFilesController,
+    private val channelGalleryController: ChannelGalleryController,
     private val memberResolver: MemberResolver,
     private val hostActivity: Activity,
     private val hostFragment: BaseFragment,
@@ -64,15 +67,20 @@ class FilesTabHelper(
     private var searchText: String = ""
     private val debounce = Handler(Looper.getMainLooper())
     private var debounceRun: Runnable? = null
-    private val anonymousUserId: Long = BuildConfig.MEZON_ANONYMOUS_USER_ID.toLongOrNull() ?: 0L
     private val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
 
     private val rowResolver = object : FilesTabRowResolver {
         override fun resolveSharerName(item: ChannelDocumentItem): String {
-            if (item.uploader == anonymousUserId) return "Anonymous"
+            if (item.uploader == MEDIA_ANONYMOUS_USER_ID) {
+                return item.anonymousSharerName ?: getString(R.string.advanced_anonymous)
+            }
             val m = memberResolver.resolveMember(item.uploader, clanId, channelId, channelType)
             return m?.username.orEmpty()
         }
+
+        override suspend fun loadAnonymousSharerName(item: ChannelDocumentItem): String? =
+            channelGalleryController.loadAnonymousSenderInfo(channelId, clanId, item.messageId)?.name
+                ?.takeUnless { it == DEFAULT_ANONYMOUS_SENDER_NAME }
 
         override fun formatTime(createTimeSeconds: Int): String {
             if (createTimeSeconds <= 0) return ""
@@ -122,7 +130,7 @@ class FilesTabHelper(
             minimumHeight = LayoutHelper.dp(40f)
             setPadding(pad, 0, pad, 0)
             background = GradientDrawable().apply {
-                setColor(themeColors.surfaceVariant)
+                setColor(themeColors.background)
                 cornerRadius = LayoutHelper.dpf(10f)
             }
         }
@@ -180,7 +188,7 @@ class FilesTabHelper(
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
             setPadding(LayoutHelper.dp(4f), LayoutHelper.dp(4f), LayoutHelper.dp(4f), LayoutHelper.dp(4f))
-            background = roundedBackground(themeColors.surfaceVariant, 12f)
+            background = roundedBackground(themeColors.background, 12f)
         }
         docsTab = buildFilesTypeTab(context, getString(R.string.channel_files_docs), ChannelFilesType.DOC)
         audiosTab = buildFilesTypeTab(context, getString(R.string.channel_files_audios), ChannelFilesType.AUDIO)
@@ -217,9 +225,9 @@ class FilesTabHelper(
             audiosTab to ChannelFilesType.AUDIO
         ).forEach { (tab, filesType) ->
             val selected = selectedFilesType == filesType
-            tab?.setTextColor(if (selected) Color.WHITE else themeColors.onSurfaceVariant)
+            tab?.setTextColor(if (selected) Color.WHITE else themeColors.onSurface)
             tab?.background = roundedBackground(
-                if (selected) themeColors.blurple else Color.TRANSPARENT,
+                if (selected) com.mezon.mobile.core.theme.MobileThemeColors.accent else Color.TRANSPARENT,
                 9f
             )
         }

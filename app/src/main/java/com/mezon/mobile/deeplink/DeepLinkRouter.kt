@@ -14,6 +14,7 @@ import com.mezon.mobile.R
 import com.mezon.mobile.auth.AuthRepository
 import com.mezon.mobile.core.AlertsCreator
 import com.mezon.mobile.core.AndroidUtilities
+import com.mezon.mobile.core.INavigationLayout
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.StartupCache
@@ -83,7 +84,12 @@ class DeepLinkRouter @Inject constructor(
         dispatchRoute(activity, route, sourceUrl)
     }
 
-    fun dispatchRoute(activity: MainActivity, route: DeepLinkRoute, sourceUrl: String? = null) {
+    fun dispatchRoute(
+        activity: MainActivity,
+        route: DeepLinkRoute,
+        sourceUrl: String? = null,
+        onUnavailable: (() -> Unit)? = null,
+    ) {
         if (route !is DeepLinkRoute.Login && (!StartupCache.hasSession || StartupCache.needsUsernameSetup)) {
             pendingRoute = route
             pendingSourceUrl = sourceUrl
@@ -92,8 +98,8 @@ class DeepLinkRouter @Inject constructor(
         AndroidUtilities.runOnUIThread {
             cancelChannelLookup()
             when (route) {
-                is DeepLinkRoute.Channel -> dispatchChannel(activity, route)
-                is DeepLinkRoute.ChannelApp -> dispatchChannelApp(activity, route)
+                is DeepLinkRoute.Channel -> dispatchChannel(activity, route, onUnavailable)
+                is DeepLinkRoute.ChannelApp -> dispatchChannelApp(activity, route, onUnavailable)
                 is DeepLinkRoute.Invite -> presentFragment(activity, InviteClanFragment.newInstance(route.inviteId))
                 is DeepLinkRoute.Profile -> dispatchProfile(activity, route)
                 is DeepLinkRoute.BotInstall -> presentFragment(
@@ -109,7 +115,7 @@ class DeepLinkRouter @Inject constructor(
         }
     }
 
-    private fun dispatchChannel(activity: MainActivity, route: DeepLinkRoute.Channel) {
+    private fun dispatchChannel(activity: MainActivity, route: DeepLinkRoute.Channel, onUnavailable: (() -> Unit)?) {
         val requestId = ++channelRequestId
         val loadingView = ChannelDeepLinkLoadingView(activity, activity.themeColors)
         channelLoadingView = loadingView
@@ -142,7 +148,9 @@ class DeepLinkRouter @Inject constructor(
 
             if (requestId != channelRequestId || activity.isFinishing || activity.isDestroyed) return@launch
             if (channel == null) {
-                ChannelUnavailableBottomSheet(activity, activity.themeColors).show()
+                ChannelUnavailableBottomSheet(activity, activity.themeColors).apply {
+                    setOnDismissListener { onUnavailable?.invoke() }
+                }.show()
                 return@launch
             }
             channelController.upsertChannel(channel)
@@ -246,19 +254,20 @@ class DeepLinkRouter @Inject constructor(
 
     private fun dispatchProfile(activity: MainActivity, route: DeepLinkRoute.Profile) {
         val payload = QrPayloadParser.decodeProfilePayload(route.data)
-        presentFragment(
-            activity,
-            QrProfileFragment.newInstance(
-                username = route.username,
-                displayName = payload?.name.orEmpty(),
-                avatarUrl = payload?.avatar,
-                userId = payload?.id ?: 0L
-            )
+        val fragment = QrProfileFragment.newInstance(
+            username = route.username,
+            displayName = payload?.name.orEmpty(),
+            avatarUrl = payload?.avatar,
+            userId = payload?.id ?: 0L
         )
+        activity.actionBarLayout.presentFragment(INavigationLayout.NavigationParams(fragment).setNoAnimation(true))
     }
 
-    private fun dispatchChannelApp(activity: MainActivity, route: DeepLinkRoute.ChannelApp) {
-        if (route.channelId == 0L || route.clanId == 0L) return
+    private fun dispatchChannelApp(activity: MainActivity, route: DeepLinkRoute.ChannelApp, onUnavailable: (() -> Unit)?) {
+        if (route.channelId == 0L || route.clanId == 0L) {
+            onUnavailable?.invoke()
+            return
+        }
         clansController.selectClan(route.clanId, force = true)
         notificationCenter.postNotificationOnMainThread(NotificationCenter.navigateToClansTab)
         activity.lifecycleScope.launch {
@@ -272,6 +281,7 @@ class DeepLinkRouter @Inject constructor(
                     activity.getString(R.string.channel_app_launch_unavailable),
                     null
                 )
+                onUnavailable?.invoke()
                 return@launch
             }
             presentFragment(

@@ -140,6 +140,7 @@ class FriendRowCell(
     private val messageButton: ImageView
     private val deleteButton: ImageView
     private val approveButton: ImageView
+    private val rowBackground = android.graphics.drawable.ColorDrawable()
     private val dividerPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var drawDivider = false
     private var currentFriend: Friend? = null
@@ -159,7 +160,7 @@ class FriendRowCell(
             isBaselineAligned = false
             gravity = Gravity.CENTER_VERTICAL
             setPadding(LayoutHelper.dp(10), LayoutHelper.dp(8), LayoutHelper.dp(10), LayoutHelper.dp(8))
-            setBackgroundColor(themeColors.surfaceVariant)
+            background = rowBackground.apply { color = themeColors.background }
         }
         addView(row, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
 
@@ -238,9 +239,9 @@ class FriendRowCell(
         )
         actionContainer.addView(
             deleteButton,
-            LinearLayout.LayoutParams(LayoutHelper.dp(18), LayoutHelper.dp(18)).apply {
+            LinearLayout.LayoutParams(LayoutHelper.dp(34), LayoutHelper.dp(34)).apply {
                 gravity = Gravity.CENTER_VERTICAL
-                rightMargin = LayoutHelper.dp(20)
+                rightMargin = LayoutHelper.dp(12)
             }
         )
         actionContainer.addView(
@@ -264,6 +265,10 @@ class FriendRowCell(
 
     fun bind(friend: Friend, divider: Boolean) {
         currentFriend = friend
+        rowBackground.color = themeColors.background
+        displayNameText.setTextColor(themeColors.onSurface)
+        callButton.setColorFilter(themeColors.onSurface)
+        messageButton.setColorFilter(themeColors.onSurface)
         drawDivider = divider
         val user = friend.user
         val state = friend.state
@@ -272,9 +277,11 @@ class FriendRowCell(
         avatarView.setImageUrl(user.avatarUrl)
 
         val showPendingName = state == FRIEND_STATE_INVITE_SENT || state == FRIEND_STATE_INVITE_RECEIVED
-        displayNameText.visibility = if (showPendingName && user.displayName.isNotBlank()) View.VISIBLE else View.GONE
+        val showsUsernameAsSubtitle = showPendingName && user.displayName.isNotBlank()
+        displayNameText.visibility = if (showsUsernameAsSubtitle) View.VISIBLE else View.GONE
         displayNameText.text = user.displayName
-        usernameText.text = if (showPendingName && user.displayName.isNotBlank()) user.username else displayName
+        usernameText.text = if (showsUsernameAsSubtitle) user.username else displayName
+        usernameText.setTextColor(if (showsUsernameAsSubtitle) themeColors.textDisabled else themeColors.onSurface)
 
         val isOnline = user.online
         statusDot.visibility = if (state == FRIEND_STATE_FRIEND && isOnline) View.VISIBLE else View.GONE
@@ -299,7 +306,7 @@ class FriendRowCell(
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             val touchBg = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(if (withPrimaryBackground) themeColors.primary else themeColors.tertiary)
+                setColor(if (withPrimaryBackground) themeColors.primary else themeColors.background)
             }
             background = touchBg
             val pad = LayoutHelper.dp(6)
@@ -313,7 +320,8 @@ class FriendRowCell(
             colorFilter = PorterDuffColorFilter(0xFFC7C7C7.toInt(), PorterDuff.Mode.SRC_IN)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             background = null
-            setPadding(0, 0, 0, 0)
+            val pad = LayoutHelper.dp(8)
+            setPadding(pad, pad, pad, pad)
         }
     }
 

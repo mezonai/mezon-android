@@ -213,6 +213,12 @@ class TextSettingsCell(context: Context, private val theme: ThemeColors) : Frame
         pendingMarginUpdate = false
     }
 
+    fun setDetailColor(color: Int) {
+        valueTextView.setTextColor(color)
+        warnImageView.setColorFilter(color)
+        chevronImageView.setColorFilter(color)
+    }
+
     fun setTitleBold(bold: Boolean) {
         textView.typeface = if (bold) android.graphics.Typeface.DEFAULT_BOLD else android.graphics.Typeface.SANS_SERIF
     }

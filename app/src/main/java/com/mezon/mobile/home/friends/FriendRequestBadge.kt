@@ -9,9 +9,9 @@ import android.view.Gravity
 import android.view.View
 import android.widget.TextView
 import com.mezon.mobile.core.LayoutHelper
-import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.core.theme.MobileThemeColors
 
-internal fun createFriendRequestBadgeView(context: Context, themeColors: ThemeColors): TextView {
+internal fun createFriendRequestBadgeView(context: Context): TextView {
     return TextView(context).apply {
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
         setTypeface(typeface, Typeface.BOLD)
@@ -20,18 +20,18 @@ internal fun createFriendRequestBadgeView(context: Context, themeColors: ThemeCo
         includeFontPadding = false
         minWidth = LayoutHelper.dp(18)
         setPadding(LayoutHelper.dp(5), 0, LayoutHelper.dp(5), 0)
-        updateFriendRequestBadge(0, themeColors)
+        updateFriendRequestBadge(0)
     }
 }
 
-internal fun TextView.updateFriendRequestBadge(count: Int, themeColors: ThemeColors) {
+internal fun TextView.updateFriendRequestBadge(count: Int) {
     val safeCount = count.coerceAtLeast(0)
     if (safeCount > 0) {
         text = if (safeCount > 99) "99+" else safeCount.toString()
         background = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = LayoutHelper.dp(9f).toFloat()
-            setColor(themeColors.badgeRed)
+            setColor(MobileThemeColors.unreadBadge)
         }
         visibility = View.VISIBLE
     } else {

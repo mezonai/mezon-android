@@ -21,7 +21,11 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.SharedConfig
 import com.mezon.mobile.core.ThemeColors
 
-class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLayout(context) {
+class ActionBarView(
+    context: Context,
+    private val theme: ThemeColors,
+    private val transparentBackground: Boolean = false,
+) : FrameLayout(context) {
 
     open class ActionBarMenuOnItemClick {
         open fun onItemClick(id: Int) {}
@@ -99,7 +103,7 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
         }
 
     init {
-        setBackgroundColor(theme.surface)
+        setBackgroundColor(if (transparentBackground) android.graphics.Color.TRANSPARENT else theme.surface)
         setWillNotDraw(false)
     }
 
@@ -537,7 +541,7 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
     fun updateColors() { applyTheme() }
 
     fun applyTheme() {
-        setBackgroundColor(theme.surface)
+        setBackgroundColor(if (transparentBackground) android.graphics.Color.TRANSPARENT else theme.surface)
         titleTextView?.setTextColor(theme.onSurface)
         subtitleTextView?.setTextColor(theme.onSurface)
         val color = itemsColor.takeIf { it != 0 } ?: theme.onSurface

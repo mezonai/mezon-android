@@ -25,6 +25,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import com.mezon.mobile.R
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
+import com.mezon.mobile.core.theme.MobileThemeColors
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.core.ViewPagerFixed
@@ -132,6 +133,7 @@ class ChannelInfoFragment : BaseFragment() {
     private lateinit var channelPermissionController: ChannelPermissionController
     private lateinit var clansController: ClansController
     private lateinit var voiceController: VoiceController
+    private lateinit var roleController: com.mezon.mobile.home.clans.RoleController
     private lateinit var permissionPolicy: PermissionPolicy
     private lateinit var shortProfileActions: UserShortProfileActions
     private var settingsActionGap: View? = null
@@ -153,10 +155,15 @@ class ChannelInfoFragment : BaseFragment() {
     private var canvasTab: CanvasTabHelper? = null
 
     private val isDm get() = channelType == CHANNEL_TYPE_DM || channelType == CHANNEL_TYPE_GROUP
+    private val hasMembersTab by lazy { !isSelfDm }
     private val isSelfDm: Boolean
-        get() = channelType == CHANNEL_TYPE_DM && run {
+        get() {
+            if (channelType != CHANNEL_TYPE_DM) return false
+            val myId = userController.userId
             val participants = dialogsController.getParticipants(channelId)
-            participants.size <= 1 || participants.all { it.userId == userController.userId }
+            if (participants.isNotEmpty()) return participants.all { it.userId == myId }
+            val otherUserId = dialogsController.getDialog(channelId)?.otherUserId ?: 0L
+            return otherUserId != 0L && otherUserId == myId
         }
 
     override fun onFragmentCreate(): Boolean {
@@ -175,13 +182,18 @@ class ChannelInfoFragment : BaseFragment() {
         }
 
         observe(NotificationCenter.clanMembersDidLoad) { _, _, args ->
-            if (isPaused) return@observe
+            if (isPaused || isDm || args.firstOrNull() != clanId) return@observe
             reloadMembers()
+            roleController.refreshDisplayRolesIfNeeded(clanId)
         }
 
         observe(NotificationCenter.channelMembersDidLoad) { _, _, args ->
             if (isPaused) return@observe
-            reloadMembers()
+            val changedChannelId = args.firstOrNull() as? Long ?: return@observe
+            val parentId = if (isDm) 0L else channelController.findChannelById(channelId)?.parentId ?: 0L
+            if (changedChannelId == channelId || (parentId != 0L && changedChannelId == parentId)) {
+                reloadMembers()
+            }
         }
 
         observe(NotificationCenter.voiceChannelMembersChanged) { _, _, _ ->
@@ -244,7 +256,13 @@ class ChannelInfoFragment : BaseFragment() {
         observe(NotificationCenter.clanRolesDidLoad) { _, _, args ->
             if (isPaused) return@observe
             val changedClanId = args.firstOrNull() as? Long ?: return@observe
-            if (changedClanId == clanId) updateSettingsActionVisibility()
+            if (changedClanId == clanId) {
+                updateSettingsActionVisibility()
+                if (!isDm) roleController.refreshDisplayRolesIfNeeded(clanId)
+            }
+        }
+        observe(NotificationCenter.clanDisplayRolesDidChange) { _, _, args ->
+            if (!isDm && args.firstOrNull() == clanId) memberListAdapter?.refreshNameColors()
         }
 
         observe(NotificationCenter.channelGalleryDidLoad) { _, _, args ->
@@ -312,6 +330,7 @@ class ChannelInfoFragment : BaseFragment() {
         channelController = entryPoint.channelController()
         channelPermissionController = entryPoint.channelPermissionController()
         clansController = entryPoint.clansController()
+        roleController = entryPoint.roleController()
         voiceController = entryPoint.voiceController()
         permissionPolicy = entryPoint.permissionPolicy()
         channelFilesController = entryPoint.channelFilesController()
@@ -355,7 +374,7 @@ class ChannelInfoFragment : BaseFragment() {
         actionBar = chatActionBar
         root.addView(chatActionBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 56))
 
-        if (isDm) {
+        if (channelType == CHANNEL_TYPE_GROUP) {
             root.addView(buildDmHeader(context), LayoutHelper.createLinear(
                 LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT
             ))
@@ -368,7 +387,10 @@ class ChannelInfoFragment : BaseFragment() {
         val tabTitles = buildTabTitles()
         if (tabTitles.size > 1) {
             val viewPager = ViewPagerFixed(context)
-            val tabsView = ViewPagerFixed.TabsView(context, viewPager)
+            val tabsView = ViewPagerFixed.TabsView(context, viewPager).apply {
+                setIndicatorColor(MobileThemeColors.accent)
+                setTextColors(MobileThemeColors.accent, themeColors.onSurface)
+            }
 
             viewPager.setAdapter(object : ViewPagerFixed.Adapter() {
                 override fun getItemCount() = tabTitles.size
@@ -642,7 +664,7 @@ class ChannelInfoFragment : BaseFragment() {
         val circle = FrameLayout(context).apply {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(themeColors.surfaceVariant)
+                setColor(themeColors.background)
             }
         }
         val iconView = ImageView(context).apply {
@@ -672,7 +694,7 @@ class ChannelInfoFragment : BaseFragment() {
 
     private fun buildTabTitles(): List<String> {
         return when {
-            isSelfDm -> listOf("Media", "Files", "Pins")
+            !hasMembersTab -> listOf("Media", "Files", "Pins")
             isDm -> listOf("Members", "Media", "Files", "Pins")
             else -> listOf("Members", "Media", "Files", "Pins", "Canvas")
         }
@@ -680,14 +702,14 @@ class ChannelInfoFragment : BaseFragment() {
 
     private fun resolveTabIndex(tabPosition: Int): Int {
         return when {
-            isSelfDm -> tabPosition + 1
+            !hasMembersTab -> tabPosition + 1
             else -> tabPosition
         }
     }
 
     private fun viewPagerPositionForTab(actualIndex: Int): Int {
         if (actualIndex != TAB_INDEX_PINS) return -1
-        return if (isSelfDm) 2 else 3
+        return if (hasMembersTab) 3 else 2
     }
 
     private fun buildTabContent(context: Context, actualIndex: Int): View {
@@ -723,13 +745,15 @@ class ChannelInfoFragment : BaseFragment() {
             orientation = LinearLayout.VERTICAL
         }
 
-        if (channelType != CHANNEL_TYPE_DM) {
-            container.addView(buildInviteRow(context), LayoutHelper.createLinear(
-                LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT
-            ))
-        }
+        container.addView(buildInviteRow(context), LayoutHelper.createLinear(
+            LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT
+        ))
 
-        memberListAdapter = MemberListAdapter(themeColors, isDm, resolveMemberListOwnerId()) { userId ->
+        memberListAdapter = MemberListAdapter(themeColors, isDm, resolveMemberListOwnerId(), nameColor = { member ->
+            val roleColor = if (isDm) null else roleController.resolveHighestDisplayRole(clanId, member.userId)
+                ?.color?.takeIf { it != 0 }
+            roleColor ?: themeColors.onSurface
+        }) { userId ->
             !isDm && voiceController.isUserInVoice(userId)
         }
 
@@ -744,6 +768,7 @@ class ChannelInfoFragment : BaseFragment() {
         container.addView(membersRecyclerView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
 
         reloadMembers()
+        if (!isDm) roleController.refreshDisplayRolesIfNeeded(clanId)
         return container
     }
 
@@ -754,7 +779,7 @@ class ChannelInfoFragment : BaseFragment() {
             val pad = LayoutHelper.dp(12)
             setPadding(pad, pad, pad, pad)
             background = GradientDrawable().apply {
-                setColor(themeColors.surfaceVariant)
+                setColor(themeColors.background)
                 cornerRadius = LayoutHelper.dpf(12f)
             }
         }
@@ -763,7 +788,7 @@ class ChannelInfoFragment : BaseFragment() {
             val size = LayoutHelper.dp(32)
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(themeColors.blurple)
+                setColor(MobileThemeColors.accent)
             }
             layoutParams = LinearLayout.LayoutParams(size, size)
         }
@@ -793,9 +818,8 @@ class ChannelInfoFragment : BaseFragment() {
 
         val wrapper = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            val marginH = LayoutHelper.dp(12)
-            val marginV = LayoutHelper.dp(6)
-            setPadding(marginH, marginV, marginH, marginV)
+            val marginH = LayoutHelper.dp(16)
+            setPadding(marginH, LayoutHelper.dp(16), marginH, 0)
         }
         wrapper.addView(row, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
         wrapper.setOnClickListener {
@@ -804,6 +828,8 @@ class ChannelInfoFragment : BaseFragment() {
                 showDialog(sheet)
             } else if (channelType == CHANNEL_TYPE_GROUP) {
                 presentFragment(NewGroupFragment.newAddMembers(channelId, channelName))
+            } else if (channelType == CHANNEL_TYPE_DM) {
+                presentFragment(NewGroupFragment.newFromDirectMessage(channelId, channelName))
             } else {
                 Toast.makeText(context, "Coming soon", Toast.LENGTH_SHORT).show()
             }
@@ -820,6 +846,7 @@ class ChannelInfoFragment : BaseFragment() {
             channelType = channelType,
             themeColors = themeColors,
             channelFilesController = channelFilesController,
+            channelGalleryController = channelGalleryController,
             memberResolver = memberResolver,
             hostActivity = act,
             hostFragment = this,
@@ -1037,12 +1064,13 @@ class ChannelInfoFragment : BaseFragment() {
         if (isDm) {
             refreshDmHeader()
             reloadMembers()
-            if (channelType == CHANNEL_TYPE_GROUP) {
+            if (hasMembersTab) {
                 dialogsController.loadDmParticipants(channelId, force = true)
             }
         } else {
             refreshClanHeader()
             reloadMembers()
+            roleController.refreshDisplayRolesIfNeeded(clanId)
             fragmentScope.launch(Dispatchers.Main.immediate) {
                 channelController.refreshChannelNotificationState(clanId, channelId)
                 if (!isPaused) {
@@ -1133,7 +1161,7 @@ class ChannelInfoFragment : BaseFragment() {
     private fun triggerMemberLoad() {
         if (clanId != 0L) {
             userClanController.loadClanMembers(clanId)
-        } else if (channelType == CHANNEL_TYPE_GROUP) {
+        } else if (isDm) {
             dialogsController.loadDmParticipants(channelId)
         }
     }

@@ -39,8 +39,10 @@ import com.mezon.mobile.home.clans.isDmMutedFromNotificationSetting
 import com.mezon.mobile.home.clans.isMutedFromNotificationUserChannel
 import com.mezon.mobile.home.clans.isMutedFromSetMuteRequest
 import com.mezon.mobile.home.clans.normalizeDmMuteExpirySeconds
+import com.mezon.mobile.network.HttpRpcStatusException
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.network.NetworkMonitor
+import com.mezon.mobile.network.SocketRpcServerException
 import com.mezon.mobile.network.STREAM_MODE_DM
 import com.mezon.mobile.network.STREAM_MODE_GROUP
 import com.mezon.mobile.network.SocketEventDispatcher
@@ -80,12 +82,36 @@ private const val MAX_TRANSCODE_SOURCE_BYTES = 32 * 1024 * 1024
 private const val DM_BADGES_SYNC_THROTTLE_MS = 10_000L
 private const val MAX_COUNTED_DM_MESSAGE_IDS = 512
 private const val UNKNOWN_DM_PUSH_REFRESH_MS = 5_000L
+private const val GRPC_PERMISSION_DENIED = 7
+private const val HTTP_FORBIDDEN = 403
+private const val GRPC_ALREADY_EXISTS = 6
+private const val HTTP_CONFLICT = 409
 
 sealed class DmGroupAvatarUploadResult {
     data class Success(val url: String) : DmGroupAvatarUploadResult()
     data object TooLarge : DmGroupAvatarUploadResult()
     data object Failed : DmGroupAvatarUploadResult()
 }
+
+sealed class CreateGroupResult {
+    data class Ready(val group: DirectMessage) : CreateGroupResult()
+    data object AlreadyExists : CreateGroupResult()
+    data object Failed : CreateGroupResult()
+}
+
+sealed class DmOpenResult {
+    data class Opened(val channelId: Long) : DmOpenResult()
+    data object OnlyFriends : DmOpenResult()
+    data object Failed : DmOpenResult()
+}
+
+private fun Throwable.isNewDmDenied(): Boolean =
+    (this is SocketRpcServerException && code == GRPC_PERMISSION_DENIED) ||
+        (this is HttpRpcStatusException && code == HTTP_FORBIDDEN)
+
+private fun Throwable.isGroupAlreadyExists(): Boolean =
+    (this is SocketRpcServerException && code == GRPC_ALREADY_EXISTS) ||
+        (this is HttpRpcStatusException && (code == HTTP_CONFLICT || code == GRPC_ALREADY_EXISTS))
 
 @Singleton
 class DialogsController @Inject constructor(
@@ -376,24 +402,35 @@ class DialogsController @Inject constructor(
         }
     }
 
-    suspend fun createGroup(userIds: List<Long>, participantHints: List<DmParticipant>): DirectMessage? {
+    suspend fun createGroup(userIds: List<Long>, participantHints: List<DmParticipant>): CreateGroupResult {
         val ids = userIds.filter { it != 0L }.distinct()
-        if (ids.size < 2) return null
+        if (ids.size < 2) return CreateGroupResult.Failed
         return try {
-            sessionManager.withAutoRefresh { session ->
+            val group = sessionManager.withAutoRefresh { session ->
                 val currentUserId = session.userId.toLongOrNull() ?: 0L
-                val response = api.createChannelDesc(
-                    apiUrl = session.apiUrl,
-                    token = session.token,
-                    type = CHANNEL_TYPE_GROUP,
-                    userIds = ids
-                )
+                val response = try {
+                    api.createChannelDesc(
+                        apiUrl = session.apiUrl,
+                        token = session.token,
+                        type = CHANNEL_TYPE_GROUP,
+                        userIds = ids
+                    )
+                } catch (e: Exception) {
+                    if (!e.isGroupAlreadyExists()) throw e
+                    val expectedIds = ids.toSet() - currentUserId
+                    runCatching { api.listChannelDescs(session.apiUrl, session.token, CHANNEL_TYPE_GROUP) }
+                        .getOrNull()
+                        ?.channeldescList
+                        ?.firstOrNull { it.userIdsList.toSet() - currentUserId == expectedIds }
+                        ?: throw e
+                }
                 cacheTracker.invalidateByPrefix("listChannelDescs_")
                 ingestChannelDescForCreatedGroup(response, currentUserId, participantHints)
             }
+            CreateGroupResult.Ready(group)
         } catch (e: Exception) {
             Log.e(TAG, "createGroup failed userIds=${ids.joinToString(",")}", e)
-            null
+            if (e.isGroupAlreadyExists()) CreateGroupResult.AlreadyExists else CreateGroupResult.Failed
         }
     }
 
@@ -428,12 +465,15 @@ class DialogsController @Inject constructor(
         }
     }
 
-    suspend fun getOrCreateDm(userId: Long): Long {
+    suspend fun getOrCreateDm(userId: Long): Long =
+        (openOrCreateDm(userId) as? DmOpenResult.Opened)?.channelId ?: 0L
+
+    suspend fun openOrCreateDm(userId: Long): DmOpenResult {
         synchronized(this) {
             for (i in 0 until dialogsDict.size()) {
                 val dm = dialogsDict.valueAt(i)
                 if (dm.type == CHANNEL_TYPE_DM && dm.otherUserId == userId) {
-                    return dm.channelId
+                    return DmOpenResult.Opened(dm.channelId)
                 }
             }
         }
@@ -447,11 +487,11 @@ class DialogsController @Inject constructor(
                     userIds = listOf(userId)
                 )
                 ingestChannelDescForCreatedDm(response, currentUserId)
-                response.channelId
+                if (response.channelId == 0L) DmOpenResult.Failed else DmOpenResult.Opened(response.channelId)
             }
         } catch (e: Exception) {
             Log.e(TAG, "getOrCreateDm failed for userId=$userId", e)
-            0L
+            if (e.isNewDmDenied()) DmOpenResult.OnlyFriends else DmOpenResult.Failed
         }
     }
 

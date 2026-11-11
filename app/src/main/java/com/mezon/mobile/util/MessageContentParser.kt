@@ -18,6 +18,7 @@ import android.text.style.UnderlineSpan
 import android.view.View
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.core.theme.DesktopThemeToken
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.chat.CodeFenceSpan
 import com.mezon.mobile.home.chat.EmojiSpan
@@ -36,8 +37,12 @@ import dagger.hilt.android.EntryPointAccessors
 import org.json.JSONArray
 import org.json.JSONObject
 
-private val BASE_IMG: String
+private val BASE_IMG_CLOUDFLARE_CDN: String
     get() = com.mezon.mobile.BuildConfig.CLOUDFLARE_CDN_URL
+
+private val BASE_IMG_MEZON_CDN: String
+    get() = com.mezon.mobile.BuildConfig.MEZON_CDN_URL
+
 private const val EMOJI_SIZE_DP = 20
 
 private val VALID_LINK_INVITE_REGEX =
@@ -283,7 +288,7 @@ fun formatEmbedRichText(raw: String, theme: ThemeColors): CharSequence {
     if (raw.isEmpty()) return ""
     val sb = SpannableStringBuilder()
     appendRichMarkdownWithFences(sb, raw, theme)
-    applyAutoDetectedHttpLinks(sb, theme.blurple)
+    applyAutoDetectedHttpLinks(sb, theme.desktop[DesktopThemeToken.MENTION_COLOR])
     trimTrailingNewlines(sb)
     return sb
 }
@@ -927,7 +932,7 @@ private fun parseArray(obj: JSONObject, key: String, map: (JSONObject) -> Conten
 
 internal fun resolveEmojiSourceUrl(emojiId: String, src: String): String? {
     if (emojiId.isBlank()) return null
-    return if (src.isNotBlank()) absoluteResourceUrl(src) else "$BASE_IMG/emojis/$emojiId.webp"
+    return if (src.isNotBlank()) absoluteResourceUrl(src) else "$BASE_IMG_MEZON_CDN/emojis/$emojiId.webp"
 }
 
 private fun emojiSource(emojiId: String, context: Context, src: String?): String =
@@ -949,7 +954,7 @@ fun getEmojiDirectUrl(emojiId: String, context: Context, src: String? = null): S
 
 fun resolveStickerSourceUrl(stickerId: String, src: String): String {
     return if (src.isNotBlank()) src
-    else if (stickerId.isNotBlank()) "$BASE_IMG/stickers/$stickerId.webp"
+    else if (stickerId.isNotBlank()) "$BASE_IMG_CLOUDFLARE_CDN/stickers/$stickerId.webp"
     else ""
 }
 

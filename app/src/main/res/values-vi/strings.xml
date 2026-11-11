@@ -142,7 +142,7 @@
     <string name="qr_dismiss_btn">Không, cảm ơn</string>
 
     <!-- qr profile sheet -->
-    <string name="qr_profile_sheet_title">HỒ SƠ NGƯỜI DÙNG</string>
+    <string name="qr_profile_sheet_title">Hồ sơ người dùng</string>
     <string name="qr_profile_add_friend">Thêm bạn</string>
     <string name="qr_profile_message">Tin nhắn</string>
     <string name="qr_profile_decline">Không, cảm ơn</string>
@@ -288,6 +288,7 @@
     <string name="dm_group_members">%1$d trên %2$d thành viên</string>
     <string name="dm_new_dm_failed">Không thể tạo cuộc trò chuyện. Vui lòng thử lại.</string>
     <string name="dm_create_group_failed">Không thể tạo nhóm. Vui lòng thử lại.</string>
+    <string name="dm_group_already_exists">Đã có nhóm gồm đúng những thành viên này.</string>
     <string name="dm_add_members_failed">Không thể thêm thành viên. Vui lòng thử lại.</string>
     <string name="dm_group_customize">Tùy chỉnh nhóm</string>
     <string name="dm_group_name">Tên nhóm</string>
@@ -861,6 +862,11 @@
     <string name="setting_app_language">Ngôn ngữ</string>
     <string name="setting_app_appearance">Giao diện</string>
     <string name="setting_app_notifications">Thông báo</string>
+    <string name="setting_app_chat">Trò chuyện</string>
+    <string name="setting_chat_only_friends_title">Không nhận tin nhắn từ người lạ</string>
+    <string name="setting_chat_only_friends_description">Khi bật, chỉ những người đã là bạn bè của bạn mới có thể bắt đầu cuộc trò chuyện với bạn.</string>
+    <string name="setting_chat_only_friends_update_failed">Không thể cập nhật cài đặt này. Vui lòng thử lại.</string>
+    <string name="dm_only_friends_denied">Chỉ bạn bè mới có thể gửi tin nhắn cho người dùng này.</string>
     <string name="setting_language_title">Ngôn ngữ</string>
     <string name="setting_language_description">Chọn ngôn ngữ.</string>
     <string name="setting_language_english">English</string>
@@ -905,6 +911,12 @@
     <string name="setting_theme_light">Sáng</string>
     <string name="setting_theme_dark">Tối</string>
     <string name="setting_theme_abyss">Vực thẳm</string>
+    <string name="setting_theme_sunrise">Bình minh</string>
+    <string name="setting_theme_red_dark">Đỏ trầm</string>
+    <string name="setting_theme_purple_haze">Tím mộng mơ</string>
+    <string name="setting_theme_sunset">Hoàng hôn</string>
+    <string name="setting_theme_cisher">Cisher</string>
+    <string name="setting_theme_berrynade">Berrynade</string>
     <string name="setting_theme_system">Theo hệ thống</string>
     <string name="setting_theme_system_short">Hệ thống</string>
     <string name="theme_screen_title">Chủ đề ứng dụng</string>
@@ -928,6 +940,7 @@
     <string name="notification_channel_system">Hệ thống</string>
     <string name="notification_channel_system_desc">Thông báo hệ thống</string>
     <string name="notification_action_mute_15m">Tắt 15 phút</string>
+    <string name="notification_missed_call">Cuộc gọi nhỡ</string>
     <string name="notification_mute_failed">Không thể tắt thông báo. Vui lòng thử lại.</string>
     <string name="notification_action_reply">Trả lời</string>
     <string name="notification_action_like">Thích</string>
@@ -1607,6 +1620,8 @@
     <string name="bot_command_the_bot">bot</string>
     <!-- Create poll -->
     <string name="file_selection_upload">Tải tệp lên</string>
+    <string name="attachment_preview_remove">Bỏ %1$s</string>
+    <string name="file_selection_recent_photos">Ảnh gần đây</string>
     <string name="file_selection_create_poll">Tạo bình chọn</string>
     <string name="poll_create_title">Tạo bình chọn</string>
     <string name="poll_question">Câu hỏi</string>
@@ -1792,9 +1807,14 @@
     <string name="video_share_preparing">Đang chuẩn bị video…</string>
     <string name="video_share_preparing_progress">Đang chuẩn bị video… %1$d%%</string>
     <string name="video_save_downloading">Đang tải video…</string>
+    <string name="attachment_upload_finishing">Đang hoàn tất…</string>
     <string name="video_save_downloading_progress">Đang tải video… %1$d%%</string>
     <string name="message_toast_save_success">Lưu thành công</string>
     <string name="message_toast_save_failed">Lưu thất bại</string>
+    <string name="video_playback_failed">Không thể phát video này</string>
+    <string name="video_save_still_uploading">Video đang được tải lên. Hãy thử lại sau ít phút</string>
+    <string name="video_save_network_failed">Không tải được video. Kiểm tra kết nối mạng rồi thử lại</string>
+    <string name="video_save_no_space">Không đủ dung lượng để lưu video</string>
     <string name="message_toast_share_failed">Chia sẻ thất bại</string>
     <string name="voice_channel_ongoing_channel_name">Kênh thoại đang hoạt động</string>
     <string name="voice_channel_ongoing_channel_desc">Chỉ báo kênh thoại đang hoạt động</string>

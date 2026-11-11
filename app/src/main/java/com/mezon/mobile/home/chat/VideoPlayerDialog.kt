@@ -30,9 +30,12 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.mezon.mobile.network.CdnRequestUrl
 import com.mezon.mobile.network.CdnSigner
@@ -52,6 +55,10 @@ import com.mezon.mobile.ui.cells.BackupImageView
 import com.mezon.mobile.ui.cells.PopupMenu
 import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.util.avatarImgproxyUrl
+import com.mezon.mobile.util.FileIngestPlaylist
+import com.mezon.mobile.util.HlsVideoCopy
+import com.mezon.mobile.util.VideoCache
+import com.mezon.mobile.util.VideoPrefetcher
 import dagger.hilt.android.EntryPointAccessors
 import java.util.Locale
 import kotlinx.coroutines.Job
@@ -107,7 +114,8 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
         val channelId: Long = 0L,
         val clanId: Long = 0L,
         val messageId: Long = 0L,
-        val senderInfoResolved: Boolean = false
+        val senderInfoResolved: Boolean = false,
+        val isIngest: Boolean = false,
     )
 
     private val backgroundDrawable = ColorDrawable(Color.BLACK)
@@ -122,12 +130,17 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
 
     private var player: ExoPlayer? = null
     private var durationProbeJob: Job? = null
+    private var ingestResolveJob: Job? = null
+    private var ingestPlaylistUrl: String? = null
+    private var ingestFallbackDone = false
+    private var hlsFallbackTried = false
     private lateinit var currentItem: VideoItem
     private var senderInfoJob: Job? = null
     private var resolvedSender: MediaViewerSender? = null
     private var optionsMenu: PopupMenu? = null
     private var lastMenuDismissTime = 0L
     private var saveProgressJob: Job? = null
+    private var hlsCopyJob: Job? = null
     private var pendingDownloadId = NO_PENDING_DOWNLOAD_ID
     private var pendingDownloadSourceUrl = ""
     private var pendingDownloadRequest: CdnRequestUrl? = null
@@ -224,7 +237,7 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
             setBackgroundColor(Color.BLACK)
             useController = true
             controllerAutoShow = true
-            controllerHideOnTouch = false
+            controllerHideOnTouch = true
             controllerShowTimeoutMs = VIDEO_CONTROLLER_TIMEOUT_MS
             setShowPreviousButton(false)
             setShowNextButton(false)
@@ -419,17 +432,35 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
         setOnDismissListener {
             optionsMenu?.dismiss()
             cancelPendingDownload()
+            hlsCopyJob?.cancel()
+            hlsCopyJob = null
             releasePlayer()
         }
     }
 
     fun play(item: VideoItem) {
+        VideoPrefetcher.onPlaybackStarted(item.url)
         currentItem = item
         updateHeader()
         playbackPositionMs = 0L
         resumePlaybackOnForeground = false
         stoppedForLifecycle = false
-        initializePlayer(startPositionMs = 0L, playWhenReady = true)
+        ingestResolveJob?.cancel()
+        ingestResolveJob = null
+        ingestPlaylistUrl = null
+        ingestFallbackDone = false
+        hlsFallbackTried = false
+        if (item.isIngest) {
+            ingestResolveJob = entryPoint.applicationScope().launch(entryPoint.mainDispatcher()) {
+                val playlist = FileIngestPlaylist.resolve(item.url)
+                ingestResolveJob = null
+                if (currentItem !== item || !isShowing) return@launch
+                ingestPlaylistUrl = playlist
+                initializePlayer(startPositionMs = 0L, playWhenReady = true)
+            }
+        } else {
+            initializePlayer(startPositionMs = 0L, playWhenReady = true)
+        }
 
         playerView.alpha = 1f
         topBar.alpha = 0f
@@ -446,6 +477,9 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
     override fun dismiss() {
         senderInfoJob?.cancel()
         senderInfoJob = null
+        ingestResolveJob?.cancel()
+        ingestResolveJob = null
+        VideoPrefetcher.onPlaybackStopped()
         InAppOverlayHost.unregister(this)
         resumePlaybackOnForeground = false
         stoppedForLifecycle = false
@@ -458,7 +492,12 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
 
     private fun initializePlayer(startPositionMs: Long, playWhenReady: Boolean) {
         releasePlayer()
-        val dataSourceFactory = CdnSigningDataSource.Factory(DefaultDataSource.Factory(context))
+        val ingestPlaylist = ingestPlaylistUrl
+        val dataSourceFactory = if (ingestPlaylist != null) {
+            CdnSigningDataSource.Factory(DefaultDataSource.Factory(context))
+        } else {
+            VideoCache.dataSourceFactory(context)
+        }
         player = ExoPlayer.Builder(context)
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
             .setSeekBackIncrementMs(VIDEO_SEEK_INCREMENT_MS)
@@ -480,7 +519,9 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
 
                     override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
                         logPlayerState(exoPlayer, "timeline=$reason")
-                        if (!durationProbeStarted && exoPlayer.isCurrentMediaItemSeekable && exoPlayer.duration <= 0L) {
+                        if (ingestPlaylist == null && !durationProbeStarted &&
+                            exoPlayer.isCurrentMediaItemSeekable && exoPlayer.duration <= 0L
+                        ) {
                             durationProbeStarted = true
                             val url = currentItem.url
                             durationProbeJob = entryPoint.applicationScope().launch(entryPoint.mainDispatcher()) {
@@ -518,13 +559,82 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
                     ) {
                         logPlayerState(exoPlayer, "discontinuity=$reason")
                     }
+
+                    override fun onPlayerError(error: PlaybackException) {
+                        if (player !== exoPlayer || !isShowing) return
+                        if (ingestPlaylist == null) {
+                            if (!hlsFallbackTried && isOriginalMissing(error)) {
+                                hlsFallbackTried = true
+                                ingestFallbackDone = true
+                                playFinishedHlsInstead(exoPlayer)
+                                return
+                            }
+                            showToast(ToastOverlay.ToastType.ERROR, R.string.video_playback_failed)
+                            return
+                        }
+                        if (ingestFallbackDone) {
+                            showToast(ToastOverlay.ToastType.ERROR, R.string.video_playback_failed)
+                            return
+                        }
+                        ingestFallbackDone = true
+                        val position = exoPlayer.currentPosition
+                        playerView.post {
+                            if (player !== exoPlayer || !isShowing) return@post
+                            ingestPlaylistUrl = null
+                            initializePlayer(startPositionMs = position, playWhenReady = true)
+                        }
+                    }
                 })
-                exoPlayer.setMediaItem(MediaItem.fromUri(currentItem.url))
+                if (ingestPlaylist != null) {
+                    exoPlayer.setMediaItem(
+                        MediaItem.Builder()
+                            .setUri(ingestPlaylist)
+                            .setMimeType(MimeTypes.APPLICATION_M3U8)
+                            .setLiveConfiguration(
+                                MediaItem.LiveConfiguration.Builder()
+                                    .setMinPlaybackSpeed(1f)
+                                    .setMaxPlaybackSpeed(1f)
+                                    .build()
+                            )
+                            .build(),
+                        startPositionMs,
+                    )
+                } else {
+                    exoPlayer.setMediaItem(MediaItem.fromUri(currentItem.url))
+                }
                 exoPlayer.repeatMode = Player.REPEAT_MODE_OFF
-                if (startPositionMs > 0L) exoPlayer.seekTo(startPositionMs)
+                if (ingestPlaylist == null && startPositionMs > 0L) exoPlayer.seekTo(startPositionMs)
                 exoPlayer.prepare()
                 exoPlayer.playWhenReady = playWhenReady
             }
+    }
+
+    private fun isOriginalMissing(error: PlaybackException): Boolean {
+        var cause: Throwable? = error.cause
+        while (cause != null) {
+            if (cause is HttpDataSource.InvalidResponseCodeException) {
+                return cause.responseCode == 403 || cause.responseCode == 404
+            }
+            cause = cause.cause
+        }
+        return false
+    }
+
+    private fun playFinishedHlsInstead(failedPlayer: ExoPlayer) {
+        val item = currentItem
+        val position = failedPlayer.currentPosition
+        ingestResolveJob?.cancel()
+        ingestResolveJob = entryPoint.applicationScope().launch(entryPoint.mainDispatcher()) {
+            val playlist = FileIngestPlaylist.resolve(item.url)
+            ingestResolveJob = null
+            if (currentItem !== item || !isShowing || player !== failedPlayer) return@launch
+            if (playlist == null) {
+                showToast(ToastOverlay.ToastType.ERROR, R.string.video_playback_failed)
+                return@launch
+            }
+            ingestPlaylistUrl = playlist
+            initializePlayer(startPositionMs = position, playWhenReady = true)
+        }
     }
 
     private fun logPlayerState(exoPlayer: ExoPlayer, event: String) {
@@ -649,7 +759,7 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
 
     private fun saveVideo() {
         val url = currentItem.url
-        if (url.isEmpty() || pendingDownloadId != NO_PENDING_DOWNLOAD_ID) return
+        if (url.isEmpty() || pendingDownloadId != NO_PENDING_DOWNLOAD_ID || hlsCopyJob != null) return
         CdnSigner.requestUrlOnMain(url) { signed ->
             if (isShowing && pendingDownloadId == NO_PENDING_DOWNLOAD_ID) {
                 enqueueVideoDownload(url, signed, retried = false)
@@ -747,14 +857,53 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
     private fun handleDownloadTerminalStatus(downloadId: Long, status: Int?, reason: Int): Boolean {
         if (downloadId != pendingDownloadId) return false
         if (status == DownloadManager.STATUS_FAILED && retryDownloadWithFreshSignature(reason)) return true
+        if (status == DownloadManager.STATUS_FAILED && (reason == 403 || reason == 404) && saveFinishedHlsCopy()) return true
         val toast = when (status) {
             DownloadManager.STATUS_SUCCESSFUL -> ToastOverlay.ToastType.SUCCESS to R.string.message_toast_save_success
-            DownloadManager.STATUS_FAILED -> ToastOverlay.ToastType.ERROR to R.string.message_toast_save_failed
+            DownloadManager.STATUS_FAILED -> ToastOverlay.ToastType.ERROR to downloadFailureMessage(reason)
             else -> return false
         }
         clearPendingDownloadObserver()
         if (isShowing) showToast(toast.first, toast.second)
         return true
+    }
+
+    private fun saveFinishedHlsCopy(): Boolean {
+        val url = pendingDownloadSourceUrl
+        if (url.isEmpty()) return false
+        cancelPendingDownload()
+        showHlsCopyProgress(0)
+        hlsCopyJob = entryPoint.applicationScope().launch(entryPoint.mainDispatcher()) {
+            val outcome = HlsVideoCopy.saveToDownloads(context.applicationContext, url) { percent ->
+                saveProgressOverlay.post {
+                    if (hlsCopyJob != null) showHlsCopyProgress(percent)
+                }
+            }
+            hlsCopyJob = null
+            stopSaveProgress()
+            if (isShowing) {
+                if (outcome == HlsVideoCopy.Outcome.SAVED) {
+                    showToast(ToastOverlay.ToastType.SUCCESS, R.string.message_toast_save_success)
+                } else {
+                    showToast(ToastOverlay.ToastType.ERROR, HlsVideoCopy.failureMessage(outcome))
+                }
+            }
+        }
+        return true
+    }
+
+    private fun downloadFailureMessage(reason: Int): Int = when (reason) {
+        DownloadManager.ERROR_INSUFFICIENT_SPACE -> R.string.video_save_no_space
+        DownloadManager.ERROR_HTTP_DATA_ERROR,
+        DownloadManager.ERROR_CANNOT_RESUME -> R.string.video_save_network_failed
+        else -> R.string.message_toast_save_failed
+    }
+
+    private fun showHlsCopyProgress(percent: Int) {
+        saveProgressLabel.text = context.getString(R.string.video_save_downloading_progress, percent)
+        saveProgressBar.isIndeterminate = false
+        saveProgressBar.progress = percent
+        saveProgressOverlay.visibility = View.VISIBLE
     }
 
     private fun updateSaveProgress(snapshot: DownloadProgressSnapshot) {

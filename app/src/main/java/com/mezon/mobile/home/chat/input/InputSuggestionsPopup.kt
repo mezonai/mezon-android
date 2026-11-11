@@ -26,7 +26,7 @@ class InputSuggestionsPopup(
     private var showAnimator: ValueAnimator? = null
 
     init {
-        bgPaint.color = theme.surface
+        bgPaint.color = theme.background
         bgPaint.style = Paint.Style.FILL
         elevation = LayoutHelper.dp(4f).toFloat()
         visibility = GONE
@@ -93,7 +93,7 @@ class InputSuggestionsPopup(
     }
 
     fun applyColors() {
-        bgPaint.color = theme.surface
+        bgPaint.color = theme.background
         invalidate()
     }
 }

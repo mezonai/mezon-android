@@ -102,7 +102,7 @@ class MyQrFragment : BaseFragment() {
     }
 
     override fun createView(context: Context): View {
-        val pageBg = themeColors.background
+        val pageBg = themeColors.surface
         invalidatePendingCenterImageRequest()
         releaseCenterImage()
 
@@ -202,7 +202,7 @@ class MyQrFragment : BaseFragment() {
             gravity = Gravity.CENTER
             val bg = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(24f).toFloat()
-                setColor(themeColors.surfaceVariant)
+                setColor(themeColors.background)
             }
             background = bg
             setPadding(LayoutHelper.dp(4), LayoutHelper.dp(4), LayoutHelper.dp(4), LayoutHelper.dp(4))
@@ -501,7 +501,7 @@ class MyQrFragment : BaseFragment() {
             tab.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         } else {
             tab.background = null
-            tab.setTextColor(themeColors.onSurfaceVariant)
+            tab.setTextColor(themeColors.textDisabled)
             tab.typeface = Typeface.DEFAULT
         }
     }
@@ -516,7 +516,7 @@ class MyQrFragment : BaseFragment() {
     ): Bitmap {
         profileQr?.let { return it }
         val json = JSONObject()
-            .put("id", userId)
+            .put("id", userId.toString())
             .put("avatar", avatar)
             .put("name", name)
             .toString()

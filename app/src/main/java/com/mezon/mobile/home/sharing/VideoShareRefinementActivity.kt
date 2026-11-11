@@ -23,8 +23,11 @@ import com.mezon.mobile.MainActivity
 import com.mezon.mobile.R
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.home.chat.AttachmentInfo
+import com.mezon.mobile.util.HlsVideoCopy
 import java.io.File
+import java.io.FileNotFoundException
 import java.io.FileOutputStream
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
@@ -172,9 +175,14 @@ class VideoShareRefinementActivity : ComponentActivity() {
         const val SHARE_CACHE_MAX_BYTES = 512L * 1024L * 1024L
     }
 
+    private class HlsCopyFailure(val outcome: HlsVideoCopy.Outcome) : Exception()
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     @Volatile
     private var activeConnection: HttpURLConnection? = null
+
+    @Volatile
+    private var isPreparedFromHls = false
 
     @Volatile
     private var partialFile: File? = null
@@ -210,7 +218,7 @@ class VideoShareRefinementActivity : ComponentActivity() {
                     downloaded
                 )
                 val targetIntent = Intent(Intent.ACTION_SEND).apply {
-                    type = attachment.filetype
+                    type = if (isPreparedFromHls) "video/mp4" else attachment.filetype
                     putExtra(Intent.EXTRA_STREAM, uri)
                     clipData = ClipData.newRawUri("video", uri)
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -226,11 +234,23 @@ class VideoShareRefinementActivity : ComponentActivity() {
                 openChooserIfReady()
             } catch (e: CancellationException) {
                 throw e
-            } catch (_: Exception) {
-                Toast.makeText(this@VideoShareRefinementActivity, R.string.message_toast_share_failed, Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(this@VideoShareRefinementActivity, shareFailureMessage(e), Toast.LENGTH_SHORT).show()
                 cancelPreparationAndFinish()
             }
         }
+    }
+
+    private fun shareFailureMessage(error: Exception): Int = when {
+        error is HlsCopyFailure -> when (error.outcome) {
+            HlsVideoCopy.Outcome.STILL_UPLOADING,
+            HlsVideoCopy.Outcome.NETWORK,
+            HlsVideoCopy.Outcome.NO_SPACE -> HlsVideoCopy.failureMessage(error.outcome)
+            else -> R.string.message_toast_share_failed
+        }
+        HlsVideoCopy.isOutOfSpace(error) -> R.string.video_save_no_space
+        error is IOException && error !is FileNotFoundException -> R.string.video_save_network_failed
+        else -> R.string.message_toast_share_failed
     }
 
     private fun showProgressOverlay() {
@@ -293,7 +313,12 @@ class VideoShareRefinementActivity : ComponentActivity() {
         activeConnection = connection
         try {
             connection.connect()
-            if (connection.responseCode !in 200..299) error("HTTP ${connection.responseCode}")
+            val statusCode = connection.responseCode
+            if (statusCode == 403 || statusCode == 404) {
+                connection.disconnect()
+                return copyFinishedHls(attachment, directory)
+            }
+            if (statusCode !in 200..299) error("HTTP $statusCode")
 
             val totalBytes = connection.contentLengthLong.takeIf { it > 0L }
                 ?: attachment.size.toLong().takeIf { it > 0L }
@@ -343,6 +368,18 @@ class VideoShareRefinementActivity : ComponentActivity() {
             if (activeConnection === connection) activeConnection = null
             connection.disconnect()
         }
+    }
+
+    private suspend fun copyFinishedHls(attachment: AttachmentInfo, directory: File): File {
+        trimShareCache(directory, attachment.size.toLong().coerceAtLeast(0L))
+        val destination = File(directory, "share_${System.currentTimeMillis()}_${UUID.randomUUID()}.mp4")
+        partialFile = destination
+        val outcome = HlsVideoCopy.copyToFile(this, attachment.url, destination) { percent ->
+            runOnUiThread { updateProgress(percent) }
+        }
+        if (outcome != HlsVideoCopy.Outcome.SAVED) throw HlsCopyFailure(outcome)
+        isPreparedFromHls = true
+        return destination
     }
 
     private fun updateProgress(percent: Int) {

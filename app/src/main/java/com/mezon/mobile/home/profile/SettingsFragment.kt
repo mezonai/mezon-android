@@ -144,15 +144,15 @@ class SettingsFragment : BaseFragment() {
         ).apply { topMargin = LayoutHelper.dp(8) })
 
         applySearchQuery("")
-        return wrapWithActionBar(getString(R.string.common_settings), scroll)
+        return wrapWithActionBar(getString(R.string.common_settings), scroll) { themeColors.background }
     }
 
     private fun settingIconLightQr(): Int =
-        if (themeColors.resolvedMode == ThemeMode.LIGHT) R.drawable.ic_qr_scan_setting_icon_black
+        if (themeColors.resolvedMode.isLight) R.drawable.ic_qr_scan_setting_icon_black
         else R.drawable.ic_qr_scan_setting_icon
 
     private fun settingIconLightApp(): Int =
-        if (themeColors.resolvedMode == ThemeMode.LIGHT) R.drawable.ic_app_icon_black
+        if (themeColors.resolvedMode.isLight) R.drawable.ic_app_icon_black
         else R.drawable.ic_app_icon
 
     private fun buildMenuModel(): List<MenuSection> {
@@ -164,6 +164,14 @@ class SettingsFragment : BaseFragment() {
                 true,
                 false,
                 { openAccountSettings() }
+            ),
+            MenuItem(
+                getString(R.string.setting_app_chat),
+                R.drawable.ic_chat_setting_icon,
+                null,
+                true,
+                false,
+                { presentFragment(ChatSettingFragment()) }
             ),
             MenuItem(
                 getString(R.string.friends_request_title),
@@ -320,6 +328,7 @@ class SettingsFragment : BaseFragment() {
             section.title?.let { title ->
                 val header = HeaderCell(requireContext(), themeColors).apply {
                     setText(title)
+                    textView.setTextColor(themeColors.onSurface)
                     setSideMargin(0)
                     setTopPadding(if (index == 0) 0 else SECTION_HEADER_TOP_DP)
                 }
@@ -387,7 +396,7 @@ class SettingsFragment : BaseFragment() {
             val valueView = TextView(context).apply {
                 text = valueText
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, VALUE_TEXT_SP)
-                setTextColor(themeColors.onSurfaceVariant)
+                setTextColor(themeColors.onSurface)
             }
             row.addView(valueView, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -397,7 +406,7 @@ class SettingsFragment : BaseFragment() {
         if (item.showChevron) {
             val chevron = ImageView(context).apply {
                 setImageResource(MezonIcon.chevronSmallRightIcon.resId)
-                colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
+                colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
             }
             row.addView(chevron, LinearLayout.LayoutParams(LayoutHelper.dp(18), LayoutHelper.dp(18)).apply {
@@ -441,12 +450,7 @@ class SettingsFragment : BaseFragment() {
         presentFragment(LanguageSettingFragment())
     }
 
-    private fun getThemeDisplayName(mode: ThemeMode): String = when (mode) {
-        ThemeMode.LIGHT -> getString(R.string.setting_theme_light)
-        ThemeMode.DARK -> getString(R.string.setting_theme_dark)
-        ThemeMode.ABYSS -> getString(R.string.setting_theme_abyss)
-        ThemeMode.SYSTEM -> getString(R.string.setting_theme_system)
-    }
+    private fun getThemeDisplayName(mode: ThemeMode): String = getString(mode.titleResId)
 
     private fun confirmLogout() {
         AlertsCreator.createConfirmDialog(

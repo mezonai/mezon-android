@@ -35,8 +35,6 @@ class ServerRolesFragment : BaseFragment() {
         private const val MENU_ADD_ROLE = 2
         private const val ROLE_ROW_ICON_DP = 32
         private const val ROLE_ICON_GAP_END_DP = 10
-        private const val EVERYONE_LEAD_PAD_DP = 8
-        private const val EVERYONE_GROUP_ICON_DP = 20
         private const val MENU_PLUS_INSET_DP = 14
 
         fun newInstance(clanId: Long): ServerRolesFragment =
@@ -94,7 +92,10 @@ class ServerRolesFragment : BaseFragment() {
         rebuildContent()
     }
 
+    override fun getStatusBarColor(): Int = themeColors.background
+
     override fun createView(context: Context): View {
+        setNavigationBarColor(themeColors.background)
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
         }
@@ -102,7 +103,7 @@ class ServerRolesFragment : BaseFragment() {
         val perm = permissionsState()
         actionBar = ActionBarView(context, themeColors).apply {
             setTitle(getString(R.string.menu_clan_roles))
-            setBackButtonImage(R.drawable.ic_close_24)
+            setBackButtonImage(R.drawable.ic_arrow_back)
             setBackButtonContentDescription(getString(R.string.clan_roles_back_content_desc))
             setCenterTitle(true)
             ClanRolesUiTheme.applyPrimaryFlowActionBar(this, themeColors)
@@ -165,7 +166,7 @@ class ServerRolesFragment : BaseFragment() {
             TextView(content.context).apply {
                 text = getString(R.string.clan_roles_description)
                 textSize = 14f
-                setTextColor(ClanRolesUiTheme.textOnScreenMuted(themeColors))
+                setTextColor(themeColors.textDisabled)
                 gravity = Gravity.CENTER_HORIZONTAL
                 setPadding(0, LayoutHelper.dp(14f), 0, LayoutHelper.dp(14f))
             },
@@ -183,7 +184,7 @@ class ServerRolesFragment : BaseFragment() {
             TextView(content.context).apply {
                 text = getString(R.string.clan_roles_header_count, displayRoles.size)
                 textSize = 14f
-                setTextColor(ClanRolesUiTheme.textOnScreenMuted(themeColors))
+                setTextColor(themeColors.textStrong)
             },
             LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 10f, 0f, 0f)
         )
@@ -193,18 +194,18 @@ class ServerRolesFragment : BaseFragment() {
                 TextView(content.context).apply {
                     text = getString(R.string.clan_roles_no_roles)
                     textSize = 14f
-                    setTextColor(ClanRolesUiTheme.textOnScreenMuted(themeColors))
-                    gravity = Gravity.CENTER_HORIZONTAL
+                    setTextColor(themeColors.textDisabled)
+                    gravity = Gravity.START
+                    val padding = LayoutHelper.dp(12f)
+                    setPadding(padding, padding, padding, padding)
+                    background = roleCardBackground(10f)
                 },
-                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.CENTER_HORIZONTAL, 0f, 24f, 0f, 0f)
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 10f, 0f, 10f)
             )
         } else {
             val panel = LinearLayout(content.context).apply {
                 orientation = LinearLayout.VERTICAL
-                background = GradientDrawable().apply {
-                    cornerRadius = LayoutHelper.dpf(10f)
-                    setColor(CreateClanRnUiTokens.menuItemBackground(themeColors))
-                }
+                background = roleCardBackground(10f)
                 clipToOutline = true
             }
             displayRoles.forEachIndexed { index, role ->
@@ -219,15 +220,17 @@ class ServerRolesFragment : BaseFragment() {
         }
     }
 
+    private fun roleCardBackground(radiusDp: Float) = GradientDrawable().apply {
+        cornerRadius = LayoutHelper.dpf(radiusDp)
+        setColor(CreateClanRnUiTokens.menuItemBackground(themeColors))
+    }
+
     private fun buildEveryoneRow(context: Context, everyoneRoleId: Long, isViewOnly: Boolean): View {
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(LayoutHelper.dp(12f), LayoutHelper.dp(12f), LayoutHelper.dp(12f), LayoutHelper.dp(12f))
-            background = GradientDrawable().apply {
-                cornerRadius = LayoutHelper.dpf(12f)
-                setColor(CreateClanRnUiTokens.menuItemBackground(themeColors))
-            }
+            background = roleCardBackground(12f)
             isClickable = true
             setOnClickListener {
                 presentFragment(
@@ -240,23 +243,14 @@ class ServerRolesFragment : BaseFragment() {
             gravity = Gravity.CENTER_VERTICAL
             layoutParams = LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1f)
         }
-        val circle = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setPadding(LayoutHelper.dp(EVERYONE_LEAD_PAD_DP.toFloat()), LayoutHelper.dp(EVERYONE_LEAD_PAD_DP.toFloat()), LayoutHelper.dp(EVERYONE_LEAD_PAD_DP.toFloat()), LayoutHelper.dp(EVERYONE_LEAD_PAD_DP.toFloat()))
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(themeColors.channelPanelBg)
-            }
-        }
-        val gIcon = ImageView(context).apply {
-            setImageDrawable(MezonIcon.groupIcon.getDrawable(context).apply {
-                colorFilter = PorterDuffColorFilter(themeColors.colorText, PorterDuff.Mode.SRC_IN)
-            })
+        val everyoneIcon = ImageView(context).apply {
+            setImageDrawable(MezonIcon.groupIcon.getDrawable(context, themeColors.textStrong))
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
-        circle.addView(gIcon, LayoutHelper.createLinear(LayoutHelper.dp(EVERYONE_GROUP_ICON_DP), LayoutHelper.dp(EVERYONE_GROUP_ICON_DP)))
-        lead.addView(circle, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, 10f, 0f))
+        lead.addView(
+            everyoneIcon,
+            LayoutHelper.createLinear(ROLE_ROW_ICON_DP, ROLE_ROW_ICON_DP, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, ROLE_ICON_GAP_END_DP.toFloat(), 0f)
+        )
         val texts = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1f)
@@ -274,7 +268,7 @@ class ServerRolesFragment : BaseFragment() {
             TextView(context).apply {
                 text = getString(R.string.clan_roles_default_role)
                 textSize = 13f
-                setTextColor(themeColors.colorText)
+                setTextColor(themeColors.textDisabled)
                 maxLines = 1
                 ellipsize = TextUtils.TruncateAt.END
             },
@@ -295,11 +289,11 @@ class ServerRolesFragment : BaseFragment() {
         row.addView(
             ImageView(context).apply {
                 setImageDrawable(MezonIcon.chevronSmallRightIcon.getDrawable(context).apply {
-                    colorFilter = PorterDuffColorFilter(themeColors.colorText, PorterDuff.Mode.SRC_IN)
+                    colorFilter = PorterDuffColorFilter(themeColors.textDisabled, PorterDuff.Mode.SRC_IN)
                 })
                 scaleType = ImageView.ScaleType.FIT_CENTER
             },
-            LayoutHelper.createLinear(LayoutHelper.dp(16), LayoutHelper.dp(16), 0f, Gravity.CENTER_VERTICAL)
+            LayoutHelper.createLinear(16, 16, 0f, Gravity.CENTER_VERTICAL)
         )
         return row
     }
@@ -379,7 +373,7 @@ class ServerRolesFragment : BaseFragment() {
             TextView(context).apply {
                 text = sub
                 textSize = 13f
-                setTextColor(themeColors.colorText)
+                setTextColor(themeColors.textDisabled)
             },
             LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT)
         )
@@ -387,16 +381,16 @@ class ServerRolesFragment : BaseFragment() {
         row.addView(
             ImageView(context).apply {
                 setImageDrawable(MezonIcon.chevronSmallRightIcon.getDrawable(context).apply {
-                    colorFilter = PorterDuffColorFilter(themeColors.colorText, PorterDuff.Mode.SRC_IN)
+                    colorFilter = PorterDuffColorFilter(themeColors.textDisabled, PorterDuff.Mode.SRC_IN)
                 })
                 scaleType = ImageView.ScaleType.FIT_CENTER
             },
-            LayoutHelper.createLinear(LayoutHelper.dp(16), LayoutHelper.dp(16), 0f, Gravity.CENTER_VERTICAL)
+            LayoutHelper.createLinear(16, 16, 0f, Gravity.CENTER_VERTICAL)
         )
         wrap.addView(row)
         if (showDivider) {
             val div = View(context).apply {
-                setBackgroundColor(themeColors.borderDim)
+                setBackgroundColor(themeColors.border)
             }
             wrap.addView(div, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.dp(1), 0f, Gravity.NO_GRAVITY, 12f, 0f, 12f, 0f))
         }

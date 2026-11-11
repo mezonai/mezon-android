@@ -380,10 +380,14 @@ class MezonImageLoader private constructor(context: Context) {
                 inflightUrlCalls.remove(logicalUrl, call)
                 if (!response.isSuccessful) {
                     val code = response.code
+                    val requestWasSigned = response.request.url != call.request().url
                     response.close()
                     if (fetchSourceInsteadOfProxy(fetchUrl, logicalUrl)) return
-                    if (code == 403) markForbidden(logicalUrl)
-                    if (attempt < MAX_NETWORK_RETRIES && (code == 408 || code == 429 || code >= 500)) {
+                    val accessDenied = code == 403 &&
+                        CdnSigner.isAccessDenied(fetchUrl.substringBefore('#'), requestWasSigned)
+                    if (accessDenied) markForbidden(logicalUrl)
+                    val awaitingSignature = code == 403 && !accessDenied
+                    if (attempt < MAX_NETWORK_RETRIES && (code == 408 || code == 429 || code >= 500 || awaitingSignature)) {
                         mainHandler.postDelayed({
                             ensureNetworkFetch(fetchUrl, logicalUrl, attempt + 1)
                         }, retryDelayMs(attempt))

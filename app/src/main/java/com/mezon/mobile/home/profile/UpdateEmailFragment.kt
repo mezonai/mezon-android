@@ -42,6 +42,7 @@ class UpdateEmailFragment : BaseFragment() {
     private lateinit var nextButton: ActionButton
     private lateinit var loadingView: View
     private lateinit var rootFrame: FrameLayout
+    private lateinit var screenRoot: View
 
     private val cooldownHandler = Handler(Looper.getMainLooper())
     private var cooldownRunnable: Runnable? = null
@@ -55,7 +56,6 @@ class UpdateEmailFragment : BaseFragment() {
     override fun createView(context: Context): View {
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(themeColors.background)
             val pad = LayoutHelper.dp(16)
             setPadding(pad, pad, pad, pad)
         }
@@ -76,7 +76,10 @@ class UpdateEmailFragment : BaseFragment() {
         content.addView(nextButton, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 48))
 
         rootFrame = FrameLayout(context)
-        rootFrame.addView(wrapWithActionBar(getString(R.string.update_email_title), content), LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
+        screenRoot = wrapWithActionBar(getString(R.string.update_email_title), content).apply {
+            setBackgroundColor(themeColors.surface)
+        }
+        rootFrame.addView(screenRoot, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
         loadingView = View(context).apply {
             setBackgroundColor(0x88000000.toInt())
             visibility = View.GONE
@@ -102,7 +105,7 @@ class UpdateEmailFragment : BaseFragment() {
         super.onFragmentCreate()
 
         observe(NotificationCenter.themeChanged) { _, _, _ ->
-            fragmentView?.setBackgroundColor(themeColors.background)
+            if (::screenRoot.isInitialized) screenRoot.setBackgroundColor(themeColors.surface)
         }
 
         return true

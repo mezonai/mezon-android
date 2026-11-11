@@ -49,6 +49,7 @@ class VoiceFocusedShareView(
     private var rendererInitialized = false
     private var frameReplay: VideoSurfaceFrameReplay? = null
     var onVideoVisibilityChanged: ((VideoTrack, Boolean) -> Unit)? = null
+    var onContentAspectChanged: (() -> Unit)? = null
     private var currentVideoTrack: VideoTrack? = null
     private var contentAspectRatio = 16f / 9f
     private var pendingVideoTrack: VideoTrack? = null
@@ -111,7 +112,13 @@ class VoiceFocusedShareView(
             setVerticalPanEnabled(true)
             setFlingEnabled(true)
         }
-        zoomCenterHost = FrameLayout(context)
+        zoomCenterHost = FrameLayout(context).apply {
+            addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+                if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) {
+                    zoomContainer.post { zoomContainer.moveToCenter(MIN_SCALE, false) }
+                }
+            }
+        }
         zoomContent = FrameLayout(context)
         val renderer = SurfaceViewRenderer(context).apply {
             setZOrderMediaOverlay(true)
@@ -377,6 +384,15 @@ class VoiceFocusedShareView(
         if (currentVideoTrack == null) return
         contentAspectRatio = aspect.coerceIn(MIN_ASPECT_RATIO, MAX_ASPECT_RATIO)
         updateZoomContentLayout()
+        onContentAspectChanged?.invoke()
+    }
+
+    fun aspectRatioFor(participant: ParticipantInfo): Float {
+        val track = participant.videoTrack
+        val aspect = track?.let { VideoTrackLastFrameStore.lastFrameAspect(it) }
+            ?: frameAspectRatio.takeIf { track != null && track === currentVideoTrack && it > 0f }
+            ?: participant.contentAspectRatio
+        return aspect.coerceIn(MIN_ASPECT_RATIO, MAX_ASPECT_RATIO)
     }
 
     private fun updateZoomContentLayout() {
