@@ -32,7 +32,6 @@ class TopicNotificationCell(
     private var currentAvatarUrl: String? = null
     private var avatarDisposable: MezonImageLoader.Cancellable? = null
     private var layoutWidth = 0
-    private var measuredCellHeight = MIN_HEIGHT
 
     private var headerLayout: StaticLayout? = null
     private var repliedToLayout: StaticLayout? = null
@@ -49,14 +48,6 @@ class TopicNotificationCell(
         avatarDisposable = null
     }
 
-    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        super.onSizeChanged(w, h, oldw, oldh)
-        if (w > 0 && w != layoutWidth) {
-            layoutWidth = w
-            rebuildFromEntity()
-        }
-    }
-
     fun update(mask: Int, newEntity: SdTopicEntity? = null): Boolean {
         val item = newEntity ?: entity ?: return false
         if (newEntity != null) entity = newEntity
@@ -70,26 +61,24 @@ class TopicNotificationCell(
             (mask and NotificationCenter.UPDATE_MASK_MESSAGE_TEXT) != 0 ||
             (mask and NotificationCenter.UPDATE_MASK_NAME) != 0
         if (rebuildText) {
-            if (layoutWidth > 0) {
-                buildLayouts(item, layoutWidth)
-                measuredCellHeight = computeHeight()
-            }
+            buildLayouts(item, layoutWidth)
+            requestLayout()
         }
         if (mask == 0 || (mask and NotificationCenter.UPDATE_MASK_AVATAR) != 0 || (mask and NotificationCenter.UPDATE_MASK_NAME) != 0) {
             loadAvatar(avatarUrl)
         }
-        if (rebuildText) requestLayout()
         invalidate()
         return true
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val w = MeasureSpec.getSize(widthMeasureSpec)
-        if (w > 0 && w != layoutWidth) {
-            layoutWidth = w
-            rebuildFromEntity()
+        val width = MeasureSpec.getSize(widthMeasureSpec)
+        if (width != layoutWidth) {
+            layoutWidth = width
+            entity?.let { buildLayouts(it, width) }
         }
-        setMeasuredDimension(w, measuredCellHeight.coerceAtLeast(MIN_HEIGHT))
+        val height = PADDING_V * 2 + maxOf(AVATAR_SIZE, textBlockHeight())
+        setMeasuredDimension(width, height)
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -104,7 +93,7 @@ class TopicNotificationCell(
         avatarDrawable.draw(canvas)
 
         val textLeft = (avatarLeft + AVATAR_SIZE + GAP_H).toFloat()
-        var textTop = ((height - textBlockHeight()) / 2f).coerceAtLeast(PADDING_V.toFloat())
+        var textTop = (height - textBlockHeight()) / 2f
         val headerTop = textTop
 
         headerLayout?.let {
@@ -137,16 +126,6 @@ class TopicNotificationCell(
             height.toFloat(),
             theme.dividerPaint
         )
-    }
-
-    private fun rebuildFromEntity() {
-        val item = entity ?: return
-        buildLayouts(item, layoutWidth)
-        measuredCellHeight = computeHeight()
-    }
-
-    private fun computeHeight(): Int {
-        return PADDING_V * 2 + AVATAR_SIZE.coerceAtLeast(textBlockHeight())
     }
 
     private fun textBlockHeight(): Int {
@@ -227,11 +206,10 @@ class TopicNotificationCell(
         clanAvatar.ifBlank { avatarUrl }
 
     companion object {
-        private val AVATAR_SIZE = LayoutHelper.dp(44)
+        private val AVATAR_SIZE = LayoutHelper.dp(36)
         private val PADDING_H = LayoutHelper.dp(16)
-        private val PADDING_V = LayoutHelper.dp(12)
+        private val PADDING_V = LayoutHelper.dp(8)
         private val GAP_H = LayoutHelper.dp(12)
         private val GAP_AFTER_HEADER = LayoutHelper.dp(2)
-        private val MIN_HEIGHT = LayoutHelper.dp(88)
     }
 }

@@ -31,6 +31,7 @@ import com.mezon.mobile.home.chat.TopicFragment
 import com.mezon.mobile.home.chat.SdTopicEntity
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.clans.ClansController
+import com.mezon.mobile.home.friends.FriendController
 import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
@@ -52,6 +53,7 @@ class NotificationsFragment : BaseFragment() {
     private lateinit var topicController: TopicController
     private lateinit var memberResolver: MemberResolver
     private lateinit var userClanController: UserClanController
+    private lateinit var friendController: FriendController
     private lateinit var clansController: ClansController
     private lateinit var channelController: ChannelController
     private lateinit var dialogsController: DialogsController
@@ -96,6 +98,7 @@ class NotificationsFragment : BaseFragment() {
         topicController = entryPoint.topicController()
         memberResolver = entryPoint.memberResolver()
         userClanController = entryPoint.userClanController()
+        friendController = entryPoint.friendController()
         clansController = entryPoint.clansController()
         channelController = entryPoint.channelController()
         dialogsController = entryPoint.dialogsController()
@@ -155,14 +158,20 @@ class NotificationsFragment : BaseFragment() {
             }
         }
         observe(NotificationCenter.userClansDidLoad) { _, _, _ ->
-            if (fragmentView == null || !::recyclerView.isInitialized || isPaused) return@observe
-            refreshVisibleAvatars()
+            if (fragmentView == null || !::recyclerView.isInitialized) return@observe
+            refreshAvatars()
         }
         observe(NotificationCenter.clanMembersDidLoad) { _, _, args ->
-            if (fragmentView == null || !::recyclerView.isInitialized || isPaused) return@observe
+            if (fragmentView == null || !::recyclerView.isInitialized) return@observe
             val clanId = args.firstOrNull() as? Long ?: return@observe
             if (clanId != clansController.selectedClanId.value) return@observe
-            refreshVisibleAvatars()
+            refreshAvatars()
+        }
+        observe(NotificationCenter.friendsLoaded) { _, _, _ ->
+            if (fragmentView == null || !::recyclerView.isInitialized || currentCategory != NOTIF_CATEGORY_FOR_YOU) {
+                return@observe
+            }
+            refreshAvatars()
         }
         observe(NotificationCenter.updateInterfaces) { _, _, args ->
             if (fragmentView == null || isPaused) return@observe
@@ -426,6 +435,26 @@ class NotificationsFragment : BaseFragment() {
                 ?.let { result[senderId] = it }
         }
         return result
+    }
+
+    private fun enrichForYouAvatars(items: List<NotificationEntity>): List<NotificationEntity> {
+        val profileAvatars = HashMap<Long, String>()
+        return items.map { item ->
+            val senderId = item.senderId
+            if (senderId == 0L || item.payloadAvatarUrl().isNotEmpty()) return@map item
+
+            val avatar = profileAvatars.getOrPut(senderId) {
+                userClanController.getUserById(senderId)?.avatarUrl.usableNotificationAvatar()
+                    .ifEmpty {
+                        friendController.findFriendByUserId(senderId)?.user?.avatarUrl.usableNotificationAvatar()
+                    }
+            }.ifEmpty {
+                val member = memberResolver.resolveMember(senderId, item.clanId, item.channelId, item.channelType)
+                member?.clanAvatar.usableNotificationAvatar()
+                    .ifEmpty { member?.avatarUrl.usableNotificationAvatar() }
+            }
+            if (avatar.isEmpty()) item else item.copy(avatarUrl = avatar)
+        }
     }
 
     private fun handleNotificationPress(entity: NotificationEntity) {
@@ -733,6 +762,7 @@ class NotificationsFragment : BaseFragment() {
         }
         currentCategory = category
         rebuildTabChipColors()
+        if (category == NOTIF_CATEGORY_FOR_YOU) friendController.loadFriendRelations()
 
         val cached = store.getForCategory(category).value
         if (cached.isNotEmpty()) {
@@ -771,6 +801,10 @@ class NotificationsFragment : BaseFragment() {
             refreshList()
             return
         }
+        if (currentCategory == NOTIF_CATEGORY_FOR_YOU && (mask and NotificationCenter.UPDATE_MASK_AVATAR) != 0) {
+            refreshAvatars()
+            return
+        }
         val count = recyclerView.childCount
         for (i in 0 until count) {
             val child = recyclerView.getChildAt(i)
@@ -780,7 +814,14 @@ class NotificationsFragment : BaseFragment() {
         }
     }
 
-    private fun refreshVisibleAvatars() {
+    private fun refreshAvatars() {
+        if (currentCategory == NOTIF_CATEGORY_FOR_YOU) {
+            val items = store.forYou.value
+            if (items.isNotEmpty()) {
+                if (isPaused) pendingListRefresh = true else showList(items)
+            }
+            return
+        }
         if (isPaused) return
         val mask = NotificationCenter.UPDATE_MASK_NAME or NotificationCenter.UPDATE_MASK_AVATAR
         if (currentCategory == NOTIF_TAB_TOPICS_UI) {
@@ -857,7 +898,11 @@ class NotificationsFragment : BaseFragment() {
         emptyView.visibility = View.GONE
         recyclerView.visibility = View.VISIBLE
         val hasMore = store.hasMoreForCategory(currentCategory)
-        adapter.setData(items, hasMore, resolveNotificationMembers(items), isTabChange)
+        if (currentCategory == NOTIF_CATEGORY_FOR_YOU) {
+            adapter.setData(enrichForYouAvatars(items), hasMore, isTabChange = isTabChange)
+        } else {
+            adapter.setData(items, hasMore, resolveNotificationMembers(items), isTabChange)
+        }
 
         if (isTabChange) {
             val savedState = scrollStates[currentCategory]

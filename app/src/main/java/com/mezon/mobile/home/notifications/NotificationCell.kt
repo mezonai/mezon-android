@@ -12,6 +12,7 @@ import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.home.chat.MezonImageLoader
+import com.mezon.mobile.util.absoluteResourceUrl
 import com.mezon.mobile.util.avatarImgproxyUrl
 import com.mezon.mobile.util.convertTimestampToTimeAgo
 
@@ -25,10 +26,18 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : BaseC
     private val avatarDrawable = AvatarDrawable()
     private var currentAvatarUrl: String? = null
     private var avatarDisposable: MezonImageLoader.Cancellable? = null
+    private var layoutWidth = 0
 
     private var subjectLayout: StaticLayout? = null
     private var bodyLayout: StaticLayout? = null
     private var timeLayout: StaticLayout? = null
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        if (avatarDisposable == null) {
+            currentAvatarUrl?.takeIf { it.isNotEmpty() }?.let(::loadAvatar)
+        }
+    }
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
@@ -42,12 +51,12 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : BaseC
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), CELL_HEIGHT)
-    }
-
-    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        super.onSizeChanged(w, h, oldw, oldh)
-        buildLayouts()
+        val width = MeasureSpec.getSize(widthMeasureSpec)
+        if (width != layoutWidth) {
+            layoutWidth = width
+            buildLayouts()
+        }
+        setMeasuredDimension(width, desiredHeight())
     }
 
     fun setData(n: NotificationEntity) {
@@ -61,7 +70,7 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : BaseC
         if (mask == 0) {
             if (newEntity != null) entity = newEntity
             avatarDrawable.setUserId(n.senderId.takeIf { it != 0L } ?: n.id)
-            buildLayouts()
+            rebuildLayouts()
             loadAvatar(resolveAvatarUrl(n))
             invalidate()
             return true
@@ -91,7 +100,7 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : BaseC
         if (newEntity != null) entity = newEntity
 
         if (rebuildLayout) {
-            buildLayouts()
+            rebuildLayouts()
             invalidate()
             return true
         }
@@ -101,9 +110,23 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : BaseC
         return false
     }
 
+    private fun rebuildLayouts() {
+        val previousHeight = desiredHeight()
+        buildLayouts()
+        if (desiredHeight() != previousHeight) requestLayout()
+    }
+
+    private fun desiredHeight(): Int = PADDING_V * 2 + maxOf(AVATAR_SIZE, textBlockHeight())
+
+    private fun textBlockHeight(): Int {
+        val subjectHeight = subjectLayout?.height ?: 0
+        val bodyHeight = bodyLayout?.height ?: return subjectHeight
+        return subjectHeight + BODY_GAP_AFTER_SUBJECT + bodyHeight
+    }
+
     private fun buildLayouts() {
         val n = entity ?: return
-        val contentWidth = width - PADDING_H * 2 - AVATAR_SIZE - GAP_H
+        val contentWidth = layoutWidth - PADDING_H * 2 - AVATAR_SIZE - GAP_H
         if (contentWidth <= 0) return
 
         val timeText = convertTimestampToTimeAgo(context, n.createTimeSeconds)
@@ -154,10 +177,11 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : BaseC
     private fun resolveForYouUsername(n: NotificationEntity): String = n.senderUsername
 
     private fun resolveAvatarUrl(n: NotificationEntity): String {
-        val fromEntity = n.avatarUrl.ifBlank { n.senderAvatar }
+        val fromEntity = n.payloadAvatarUrl()
         if (fromEntity.isNotEmpty()) return fromEntity
         val member = memberResolver?.invoke(n.senderId, n.clanId, n.channelId, n.channelType)
-        return member?.let { it.clanAvatar.ifBlank { it.avatarUrl } }.orEmpty()
+        return member?.clanAvatar.usableNotificationAvatar()
+            .ifEmpty { member?.avatarUrl.usableNotificationAvatar() }
     }
 
     private fun loadAvatar(url: String) {
@@ -168,7 +192,12 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : BaseC
         avatarDisposable?.cancel()
         avatarDisposable = null
         if (url.isNotEmpty()) {
-            val proxyUrl = avatarImgproxyUrl(url, AVATAR_SIZE)
+            val sourceUrl = if (url.startsWith("data:image/", ignoreCase = true)) {
+                url
+            } else {
+                absoluteResourceUrl(url)
+            }
+            val proxyUrl = avatarImgproxyUrl(sourceUrl, AVATAR_SIZE)
             avatarDrawable.setLoadingPlaceholder(true)
             avatarDisposable = MezonImageLoader.getInstance(context).load(
                 proxyUrl, AVATAR_SIZE, AVATAR_SIZE,
@@ -192,12 +221,7 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : BaseC
         avatarDrawable.draw(canvas)
 
         val textLeft = (avatarLeft + AVATAR_SIZE + GAP_H).toFloat()
-        var textTop = PADDING_V.toFloat()
-
-        if (bodyLayout == null) {
-            val subjectHeight = subjectLayout?.height ?: 0
-            textTop = (height - subjectHeight) / 2f
-        }
+        val textTop = (height - textBlockHeight()) / 2f
 
         subjectLayout?.let {
             canvas.save()
@@ -214,11 +238,10 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : BaseC
             canvas.restore()
         }
 
-        textTop += (subjectLayout?.height ?: 0) + BODY_GAP_AFTER_SUBJECT_PX
-
         bodyLayout?.let {
+            val bodyTop = textTop + (subjectLayout?.height ?: 0) + BODY_GAP_AFTER_SUBJECT
             canvas.save()
-            canvas.translate(textLeft, textTop)
+            canvas.translate(textLeft, bodyTop)
             it.draw(canvas)
             canvas.restore()
         }
@@ -230,9 +253,8 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : BaseC
     companion object {
         private val AVATAR_SIZE = LayoutHelper.dp(44)
         private val PADDING_H = LayoutHelper.dp(16)
-        private val PADDING_V = LayoutHelper.dp(14)
+        private val PADDING_V = LayoutHelper.dp(8)
         private val GAP_H = LayoutHelper.dp(12)
-        private val CELL_HEIGHT = LayoutHelper.dp(76)
-        private val BODY_GAP_AFTER_SUBJECT_PX = LayoutHelper.dp(2).toFloat()
+        private val BODY_GAP_AFTER_SUBJECT = LayoutHelper.dp(2)
     }
 }

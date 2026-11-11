@@ -17,6 +17,29 @@ const val NOTIF_CATEGORY_FOR_YOU = 3
 const val NOTIF_CODE_MESSAGE_TO_INBOX = -12
 
 private val FOR_YOU_USERNAME_REGEX = Regex("""^([\w.]+)\s""")
+private val SENDER_AVATAR_KEYS = listOf(
+    "avatar_url", "avatarUrl", "avatarURL", "avatar", "sender_avatar", "senderAvatar"
+)
+
+internal fun String?.usableNotificationAvatar(): String =
+    this?.trim()?.takeUnless {
+        it.equals("default", ignoreCase = true) || it.equals("null", ignoreCase = true)
+    }.orEmpty()
+
+internal fun NotificationEntity.payloadAvatarUrl(): String =
+    avatarUrl.usableNotificationAvatar().ifEmpty { senderAvatar.usableNotificationAvatar() }
+
+private fun JSONObject.readSenderAvatar(): String {
+    for (key in SENDER_AVATAR_KEYS) {
+        val avatar = (opt(key) as? String).usableNotificationAvatar()
+        if (avatar.isNotEmpty()) return avatar
+    }
+    return optJSONObject("user")?.readSenderAvatar().orEmpty()
+        .ifEmpty { optJSONObject("sender")?.readSenderAvatar().orEmpty() }
+}
+
+private fun String.notificationContentObject(): JSONObject? =
+    if (trimStart().startsWith('{')) runCatching { JSONObject(this) }.getOrNull() else null
 
 internal fun pendingNotificationId(channelId: Long, messageId: Long): Long {
     val mixed = channelId xor java.lang.Long.rotateLeft(messageId, 32)
@@ -90,10 +113,13 @@ fun Notification.toNotificationEntity(): NotificationEntity {
     if (content != null && !content.isEmpty) {
         try {
             val bytes = content.toByteArray()
-            val firstByte = bytes[0].toInt() and 0xFF
-            if (firstByte == 123 || firstByte == 91) {
-                val obj = JSONObject(content.toStringUtf8())
+            val firstContentByte = bytes.firstOrNull { it.toInt().toChar() !in " \t\r\n" }
+            val obj = if (firstContentByte == '{'.code.toByte()) {
+                content.toStringUtf8().notificationContentObject()
+            } else null
+            if (obj != null) {
                 val innerStr = obj.optString("content", "")
+                val innerContent = innerStr.notificationContentObject()
                 if (channelId == 0L) channelId = obj.optString("channel_id", "0").toLongOrNull() ?: 0L
                 if (clanId == 0L) clanId = obj.optString("clan_id", "0").toLongOrNull() ?: 0L
                 if (messageId == 0L) {
@@ -107,10 +133,10 @@ fun Notification.toNotificationEntity(): NotificationEntity {
                 }
                 senderUsername = obj.optString("username", "")
                 senderName = obj.optString("display_name", "").ifEmpty { senderUsername }
-                senderAvatar = obj.optString("avatar", "")
+                senderAvatar = obj.readSenderAvatar().ifEmpty { innerContent?.readSenderAvatar().orEmpty() }
                 if (createTimeSeconds == 0L) createTimeSeconds = obj.optLong("create_time_seconds", 0L)
                 val textRaw = if (innerStr.isNotEmpty()) {
-                    try { JSONObject(innerStr).optString("t", "") } catch (_: Exception) { innerStr }
+                    innerContent?.optString("t", "") ?: innerStr
                 } else obj.optString("t", "")
                 messageText = parseContentText(textRaw).ifEmpty { textRaw }
             } else {
@@ -154,9 +180,10 @@ fun Notification.toNotificationEntity(): NotificationEntity {
                     }
                     else -> ""
                 }
-                val textRaw = if (innerStr.isNotEmpty()) {
-                    try { JSONObject(innerStr).optString("t", "") } catch (_: Exception) { innerStr }
-                } else ""
+                val innerContent = innerStr.notificationContentObject()
+                senderAvatar = senderAvatar.usableNotificationAvatar()
+                    .ifEmpty { innerContent?.readSenderAvatar().orEmpty() }
+                val textRaw = innerContent?.optString("t", "") ?: innerStr
                 messageText = parseContentText(textRaw).ifEmpty { textRaw }
             }
         } catch (_: Exception) {
@@ -164,7 +191,7 @@ fun Notification.toNotificationEntity(): NotificationEntity {
     }
 
 
-    val resolvedAvatar = this.avatarUrl.ifEmpty { senderAvatar }
+    val resolvedAvatar = this.avatarUrl.usableNotificationAvatar().ifEmpty { senderAvatar }
     senderUsername = enrichForYouUsername(category, senderUsername, messageText)
 
     return NotificationEntity(
@@ -201,7 +228,7 @@ fun parseNotificationsJson(jsonString: String): List<NotificationEntity> {
 
 private fun parseNotificationItemJson(item: JSONObject): NotificationEntity {
     val id = item.optString("id", "0").toLongOrNull() ?: 0L
-    val avatarUrl = item.optString("avatar_url", "")
+    val avatarUrl = item.readSenderAvatar()
 
     var channelId = item.optString("channel_id", "0").toLongOrNull() ?: 0L
     var clanId = item.optString("clan_id", "0").toLongOrNull() ?: 0L
@@ -210,7 +237,7 @@ private fun parseNotificationItemJson(item: JSONObject): NotificationEntity {
     var channelLabel = ""; var messageText = ""; var createTimeSeconds = 0L
     var messageId = item.optString("message_id", "0").toLongOrNull() ?: 0L
 
-    val content = item.optJSONObject("content")
+    val content = item.optJSONObject("content") ?: item.optString("content").notificationContentObject()
     if (content != null) {
         if (channelId == 0L) channelId = content.optString("channel_id", "0").toLongOrNull() ?: 0L
         if (clanId == 0L) clanId = content.optString("clan_id", "0").toLongOrNull() ?: 0L
@@ -218,13 +245,14 @@ private fun parseNotificationItemJson(item: JSONObject): NotificationEntity {
         if (messageId == 0L) messageId = content.optString("message_id", "0").toLongOrNull() ?: 0L
         senderUsername = content.optString("username", "")
         senderName = content.optString("display_name", "").ifEmpty { senderUsername }
-        senderAvatar = content.optString("avatar", "")
         clanName = content.optString("clan_name", "")
         channelLabel = content.optString("channel_label", "")
         createTimeSeconds = content.optLong("create_time_seconds", 0L)
         val innerStr = content.optString("content", "")
+        val innerContent = innerStr.notificationContentObject()
+        senderAvatar = content.readSenderAvatar().ifEmpty { innerContent?.readSenderAvatar().orEmpty() }
         val textRaw = if (innerStr.isNotEmpty()) {
-            try { JSONObject(innerStr).optString("t", "") } catch (_: Exception) { innerStr }
+            innerContent?.optString("t", "") ?: innerStr
         } else content.optString("t", "")
         messageText = parseContentText(textRaw).ifEmpty { textRaw }
     }
