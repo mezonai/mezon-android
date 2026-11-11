@@ -144,7 +144,7 @@ class ClanMenuBottomSheet(
             }
         )
 
-        val actionIconSizeDp = 9
+        val actionIconSizeDp = 20
         val inviteBtn = ClanSettingsUiHelpers.buildHorizontalActionButton(
             context, theme, R.drawable.mz_user_plus_24,
             context.getString(R.string.clan_menu_action_invite),

@@ -566,13 +566,11 @@ class ClansFragment : BaseFragment() {
 
     private fun LinearLayout.applyChannelPanelBg() {
         applyThemeSurface(themeColors.channelPanelBg, themeColors.desktop.conversationGradient)
-        normalClanHeaderRoot?.setBackgroundColor(themeColors.channelPanelBg)
     }
 
     private fun buildClanHeader(context: Context): View {
         val header = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(themeColors.channelPanelBg)
         }
 
         bannerImage = ImageView(context).apply {
@@ -593,12 +591,9 @@ class ClansFragment : BaseFragment() {
             val rippleMask = android.graphics.drawable.GradientDrawable().apply {
                 setColor(0xFFFFFFFF.toInt())
             }
-            val zoneBg = android.graphics.drawable.GradientDrawable().apply {
-                setColor(themeColors.channelPanelBg)
-            }
             background = RippleDrawable(
                 ColorStateList.valueOf(themeColors.onSurface and 0x1AFFFFFF),
-                zoneBg,
+                null,
                 rippleMask
             )
             isClickable = true
@@ -657,7 +652,7 @@ class ClansFragment : BaseFragment() {
 
         val searchPill = FrameLayout(context).apply {
             val pillBg = android.graphics.drawable.GradientDrawable().apply {
-                setColor(themeColors.tertiary)
+                setColor(themeColors.secondaryLight)
                 cornerRadius = LayoutHelper.dp(32f).toFloat()
             }
             val rippleMask = android.graphics.drawable.GradientDrawable().apply {
@@ -701,20 +696,25 @@ class ClansFragment : BaseFragment() {
             0, LayoutHelper.dp(32), 1f
         ))
 
-        val qrButton = ImageView(context).apply {
+        fun roundActionBackground(): RippleDrawable {
             val circleBg = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(themeColors.tertiary)
+                setColor(themeColors.secondaryLight)
+                setStroke(LayoutHelper.dp(1), themeColors.outline)
             }
             val rippleMask = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 setColor(0xFFFFFFFF.toInt())
             }
-            background = RippleDrawable(
+            return RippleDrawable(
                 ColorStateList.valueOf(themeColors.onSurface and 0x1AFFFFFF),
                 circleBg,
                 rippleMask
             )
+        }
+
+        val qrButton = ImageView(context).apply {
+            background = roundActionBackground()
             setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_qr_24, themeColors.iconTint))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             val pad = LayoutHelper.dp(8)
@@ -730,19 +730,7 @@ class ClansFragment : BaseFragment() {
         ).apply { leftMargin = LayoutHelper.dp(8) })
 
         val eventButton = ImageView(context).apply {
-            val circleBg = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(themeColors.tertiary)
-            }
-            val rippleMask = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(0xFFFFFFFF.toInt())
-            }
-            background = RippleDrawable(
-                ColorStateList.valueOf(themeColors.onSurface and 0x1AFFFFFF),
-                circleBg,
-                rippleMask
-            )
+            background = roundActionBackground()
             setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_event_24, ThemeColors.defaultIconTint))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             val pad = LayoutHelper.dp(7)
