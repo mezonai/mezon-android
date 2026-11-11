@@ -74,6 +74,8 @@ import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
 import com.mezon.mobile.search.GlobalSearchFragment
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.ToastOverlay
+import com.mezon.mobile.ui.cells.createCountBadgeView
+import com.mezon.mobile.ui.cells.updateCountBadge
 import com.mezon.mobile.ui.MezonToast
 import com.mezon.mobile.home.qr.QrScanFragment
 import com.mezon.mobile.home.profile.UserController
@@ -188,7 +190,6 @@ class ClansFragment : BaseFragment() {
             val clanId = args.firstOrNull() as? Long ?: return@observe
             if (clanId == clansController.selectedClanId.value) {
                 updateChannelList()
-                updateEventCountBadge()
             }
             if (clanId == channelMenuClanId) {
                 channelMenuSheet?.updateMuteState(
@@ -287,7 +288,12 @@ class ClansFragment : BaseFragment() {
         observe(NotificationCenter.selectedClanChanged) { _, _, args ->
             if (fragmentView == null || !clansController.clansLoaded) return@observe
             val clanId = args.firstOrNull() as? Long ?: 0L
-            if (clanId != 0L) discoveringFromRailWhileHasClans = false
+            if (clanId != 0L) {
+                discoveringFromRailWhileHasClans = false
+            } else {
+                renderedClanId = 0L
+                updateEventCountBadge()
+            }
             updateServerRail()
             if (clanId != 0L) {
                 userClanController.loadClanMembers(clanId)
@@ -745,20 +751,11 @@ class ClansFragment : BaseFragment() {
         val eventButtonContainer = FrameLayout(context).apply {
             addView(eventButton, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
         }
-        eventCountBadge = TextView(context).apply {
-            textSize = 10f
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER
-            includeFontPadding = false
-            minWidth = LayoutHelper.dp(16)
-            setPadding(LayoutHelper.dp(4), 0, LayoutHelper.dp(4), 0)
-            setTextColor(android.graphics.Color.WHITE)
-            background = GradientDrawable().apply {
-                cornerRadius = LayoutHelper.dpf(8f)
-                setColor(themeColors.badgeRed)
-            }
+        eventCountBadge = createCountBadgeView(
+            context, themeColors.badgeRed, heightDp = 16, horizontalPaddingDp = 4,
+        ).apply {
+            maxLines = 1
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            visibility = View.GONE
         }.also { badge ->
             eventButtonContainer.addView(badge, FrameLayout.LayoutParams(
                 LayoutHelper.WRAP_CONTENT, LayoutHelper.dp(16), Gravity.TOP or Gravity.END
@@ -844,6 +841,7 @@ class ClansFragment : BaseFragment() {
         super.onResume()
         if (fragmentView != null && !listFrozen && clansController.clansLoaded) {
             updateVisibleRows(NotificationCenter.UPDATE_MASK_BADGE)
+            updateEventCountBadge()
         }
         ensureVoiceMembersLoaded()
         updateMemberCount()
@@ -887,6 +885,7 @@ class ClansFragment : BaseFragment() {
         if (!frozen && fragmentView != null) {
             updateServerRail()
             updateChannelList()
+            updateEventCountBadge()
         }
     }
 
@@ -1007,6 +1006,7 @@ class ClansFragment : BaseFragment() {
 
         if (clanChanged) {
             clanEventController.loadEvents(clan.clanId)
+            updateEventCountBadge()
             renderedSubtitleKey = null
             memberCountText.animate().cancel()
             if (userClanController.hasClanMemberCount(clan.clanId)) {
@@ -1018,15 +1018,12 @@ class ClansFragment : BaseFragment() {
             }
         }
         updateMemberCount()
-        updateEventCountBadge()
     }
 
     private fun updateEventCountBadge() {
         val badge = eventCountBadge ?: return
         val count = clanEventController.visibleEvents(clansController.selectedClanId.value).size
-        badge.text = count.toString()
-        badge.visibility = if (count > 0) View.VISIBLE else View.GONE
-        (badge.background as GradientDrawable).setColor(themeColors.badgeRed)
+        badge.updateCountBadge(count, themeColors.badgeRed)
     }
 
     private fun updateMemberCount() {

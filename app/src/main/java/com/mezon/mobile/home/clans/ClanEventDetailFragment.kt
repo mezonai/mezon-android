@@ -104,10 +104,6 @@ class ClanEventDetailFragment : BaseFragment() {
             val id = args.firstOrNull() as? Long ?: return@observe
             if (id == clanId) bindContent()
         }
-        observe(NotificationCenter.channelsDidLoad) { _, _, args ->
-            if (isPaused || fragmentView == null) return@observe
-            if (args.firstOrNull() == clanId) bindContent()
-        }
         observe(NotificationCenter.clanMembersDidLoad) { _, _, args ->
             if (isPaused || fragmentView == null) return@observe
             val id = args.firstOrNull() as? Long ?: return@observe
@@ -590,12 +586,13 @@ class ClanEventDetailFragment : BaseFragment() {
     }
 
     private fun openEventChannel(channel: ClanChannelEntity) {
-        onOpenChannel?.invoke(channel) ?: run {
+        val currentChannel = clanEventController.getChannel(clanId, channel.channelId) ?: return
+        onOpenChannel?.invoke(currentChannel) ?: run {
             (getParentActivity() as? MainActivity)?.openChat(
-                channel.channelId,
-                channel.channelLabel,
-                if (channel.clanId != 0L) channel.clanId else clanId,
-                channel.type,
+                currentChannel.channelId,
+                currentChannel.channelLabel,
+                if (currentChannel.clanId != 0L) currentChannel.clanId else clanId,
+                currentChannel.type,
             )
         }
     }
