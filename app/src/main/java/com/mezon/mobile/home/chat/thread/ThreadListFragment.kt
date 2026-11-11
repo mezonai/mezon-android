@@ -1,5 +1,7 @@
 package com.mezon.mobile.home.chat.thread
 
+import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.ui.cells.setMezonIconResource
 import android.content.Context
 import com.mezon.mobile.R
 import android.graphics.PorterDuff
@@ -163,14 +165,14 @@ class ThreadListFragment : BaseFragment() {
         }
 
         val actionBarView = ActionBarView(context, themeColors).apply {
-            setBackButtonImage(R.drawable.ic_arrow_back)
+            setBackButtonImage(R.drawable.mz_arrow_left_24)
             setBackgroundColor(themeColors.surface)
             setTitle(getString(R.string.thread_list_title))
             setCenterTitle(true)
         }
         actionBar = actionBarView
 
-        val createMenuItem = actionBarView.createMenu().addItem(1, MezonIcon.plusLargeIcon.getDrawable(context).apply {
+        val createMenuItem = actionBarView.createMenu().addItem(1, MezonIcon.loadDrawable(context, R.drawable.mz_plus_24, ThemeColors.defaultIconTint).apply {
             colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
         })
         this.createMenuItem = createMenuItem
@@ -293,7 +295,7 @@ class ThreadListFragment : BaseFragment() {
         container.addView(searchInput, LayoutHelper.createLinear(0, LayoutHelper.MATCH_PARENT, 1f))
 
         val clearButton = ImageView(context).apply {
-            setImageDrawable(MezonIcon.closeSmallBold.getDrawable(context).apply {
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_close_20, ThemeColors.defaultIconTint).apply {
                 colorFilter = PorterDuffColorFilter(themeColors.textStrong, PorterDuff.Mode.SRC_IN)
             })
             visibility = View.GONE
@@ -331,8 +333,7 @@ class ThreadListFragment : BaseFragment() {
             }
         }
         val iconView = ImageView(context).apply {
-            setImageDrawable(MezonIcon.threadIcon.getDrawable(context))
-            imageTintList = android.content.res.ColorStateList.valueOf(themeColors.textDisabled)
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_thread_24, themeColors.textDisabled))
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
         iconCircle.addView(iconView, LayoutHelper.createFrame(22, 22, Gravity.CENTER))
@@ -398,7 +399,7 @@ class ThreadListFragment : BaseFragment() {
         }
 
         prevButton = ImageView(context).apply {
-            setImageResource(android.R.drawable.ic_media_previous)
+            setMezonIconResource(R.drawable.mz_chevron_left_16)
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 setColor(themeColors.surfaceVariant)
@@ -430,7 +431,7 @@ class ThreadListFragment : BaseFragment() {
         row.addView(spacerRight, LayoutHelper.createLinear(0, 0, 1f))
 
         nextButton = ImageView(context).apply {
-            setImageResource(android.R.drawable.ic_media_next)
+            setMezonIconResource(R.drawable.mz_chevron_right_16)
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 setColor(themeColors.surfaceVariant)

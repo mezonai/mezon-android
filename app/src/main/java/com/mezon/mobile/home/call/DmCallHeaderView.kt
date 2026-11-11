@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.call
 
+import com.mezon.mobile.R
 import android.content.Context
 import android.graphics.Typeface
 import android.os.Build
@@ -12,7 +13,6 @@ import android.widget.TextView
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.voice.VoiceStyleCircleButton
-import com.mezon.mobile.ui.cells.MezonIcon
 
 class DmCallHeaderView(
     context: Context,
@@ -46,7 +46,7 @@ class DmCallHeaderView(
             gravity = Gravity.CENTER_VERTICAL
         }
 
-        minimizeButton = VoiceStyleCircleButton(context, MezonIcon.chevronDownSmallIcon, themeColors.tertiary, btnBorder, defaultTint).apply {
+        minimizeButton = VoiceStyleCircleButton(context, R.drawable.mz_chevron_down_16, themeColors.tertiary, btnBorder, defaultTint).apply {
             setOnClickListener { onMinimizeClick?.invoke() }
         }
         leftWrap.addView(minimizeButton, LinearLayout.LayoutParams(BUTTON_SIZE, BUTTON_SIZE))
@@ -75,11 +75,11 @@ class DmCallHeaderView(
             gravity = Gravity.CENTER_VERTICAL
         }
 
-        switchCameraButton = VoiceStyleCircleButton(context, MezonIcon.cameraFront, themeColors.tertiary, btnBorder, defaultTint).apply {
+        switchCameraButton = VoiceStyleCircleButton(context, R.drawable.mz_camera_switch_20, themeColors.tertiary, btnBorder, defaultTint).apply {
             setOnClickListener { onSwitchCameraClick?.invoke() }
             visibility = View.GONE
         }
-        videoButton = VoiceStyleCircleButton(context, MezonIcon.videoSlashIcon, themeColors.tertiary, btnBorder, defaultTint).apply {
+        videoButton = VoiceStyleCircleButton(context, R.drawable.mz_video_off_20, themeColors.tertiary, btnBorder, defaultTint).apply {
             setOnClickListener { onVideoToggleClick?.invoke() }
         }
 
@@ -100,6 +100,6 @@ class DmCallHeaderView(
     }
 
     fun setLocalVideoEnabled(enabled: Boolean) {
-        videoButton.updateIcon(if (enabled) MezonIcon.videoIcon else MezonIcon.videoSlashIcon)
+        videoButton.updateIcon(if (enabled) R.drawable.mz_video_20 else R.drawable.mz_video_off_20)
     }
 }

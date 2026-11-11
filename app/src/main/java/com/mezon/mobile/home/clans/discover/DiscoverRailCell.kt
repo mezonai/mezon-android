@@ -1,5 +1,7 @@
 package com.mezon.mobile.home.clans.discover
 
+import com.mezon.mobile.ui.cells.drawCenteredIcon
+import com.mezon.mobile.R
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -8,6 +10,7 @@ import android.view.View
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.ui.theme.ThemeMode
 
 class DiscoverRailCell(
     context: Context,
@@ -19,8 +22,10 @@ class DiscoverRailCell(
     }
 
     private val iconSizePx = LayoutHelper.dp(42)
-    private val iconDrawableSizePx = LayoutHelper.dp(28)
-    private val joinDrawable: Drawable = MezonIcon.joinClanIcon.getDrawable(context)
+    private val discoverDrawable: Drawable = MezonIcon.loadDrawable(context, R.drawable.mz_discover_20)
+    private val highlightedDiscoverDrawable by lazy {
+        MezonIcon.loadDrawable(context, R.drawable.mz_discover_20, ThemeMode.DARK.iconTint)
+    }
     private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
 
     private var embeddedDiscoverHighlight: Boolean = false
@@ -50,6 +55,8 @@ class DiscoverRailCell(
             CORNER_RADIUS,
             bgPaint
         )
-        MezonIcon.drawIcon(canvas, joinDrawable, cx.toInt(), cy.toInt(), iconDrawableSizePx)
+        val icon = if (embeddedDiscoverHighlight) highlightedDiscoverDrawable else discoverDrawable
+        if (!embeddedDiscoverHighlight) icon.setTint(themeColors.iconTint)
+        icon.drawCenteredIcon(canvas, cx.toInt(), cy.toInt())
     }
 }

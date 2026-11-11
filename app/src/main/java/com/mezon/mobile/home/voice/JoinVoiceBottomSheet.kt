@@ -1,6 +1,9 @@
 package com.mezon.mobile.home.voice
 
+import com.mezon.mobile.ui.cells.withDefaultIconTint
+import com.mezon.mobile.R
 import android.content.Context
+import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
@@ -86,7 +89,7 @@ class JoinVoiceBottomSheet(
             setOnClickListener { dismiss() }
         }
         closeButton.addView(ImageView(context).apply {
-            setImageDrawable(MezonIcon.chevronDownSmallIcon.getDrawable(context).apply {
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_chevron_down_20, ThemeColors.defaultIconTint).apply {
                 colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
             })
             scaleType = ImageView.ScaleType.CENTER_INSIDE
@@ -171,12 +174,12 @@ class JoinVoiceBottomSheet(
                     setStroke(LayoutHelper.dp(1), themeColors.border)
                 }
                 val icon = if (kind == JoinMediaSheetKind.STREAMING) {
-                    MezonIcon.channelStream
+                    R.drawable.mz_live_32
                 } else {
-                    MezonIcon.channelVoice
+                    R.drawable.mz_speaker_32
                 }
                 addView(ImageView(context).apply {
-                    setImageDrawable(icon.getDrawable(context).apply {
+                    setImageDrawable(MezonIcon.loadDrawable(context, icon).withDefaultIconTint(context, icon, ThemeColors.defaultIconTint).apply {
                         colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
                     })
                     scaleType = ImageView.ScaleType.CENTER_INSIDE
@@ -304,7 +307,7 @@ class JoinVoiceBottomSheet(
             }
         }
         chatButton.addView(ImageView(context).apply {
-            setImageDrawable(MezonIcon.chatIcon.getDrawable(context).apply {
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_chat_24, ThemeColors.defaultIconTint).apply {
                 colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
             })
             scaleType = ImageView.ScaleType.CENTER_INSIDE
@@ -363,9 +366,7 @@ class JoinVoiceBottomSheet(
             isFocusable = true
             applyVoiceButtonPressFeedback()
             addView(ImageView(context).apply {
-                setImageDrawable(MezonIcon.chevronDownSmallIcon.getDrawable(context).apply {
-                    colorFilter = PorterDuffColorFilter(0xFFFFFFFF.toInt(), PorterDuff.Mode.SRC_IN)
-                })
+                setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_chevron_down_20, Color.WHITE))
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
             }, FrameLayout.LayoutParams(LayoutHelper.dp(18), LayoutHelper.dp(18), Gravity.CENTER))
             setOnClickListener { showRoleDropdown(this) }

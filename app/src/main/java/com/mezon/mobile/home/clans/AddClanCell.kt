@@ -1,5 +1,8 @@
 package com.mezon.mobile.home.clans
 
+import com.mezon.mobile.ui.cells.drawCenteredIcon
+import com.mezon.mobile.ui.cells.setIconColor
+import com.mezon.mobile.R
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -20,7 +23,7 @@ class AddClanCell(
     }
 
     private val iconSizePx = LayoutHelper.dp(42)
-    private val plusDrawable: Drawable = MezonIcon.plusLargeIcon.getDrawable(context, themeColors.blurple)
+    private val plusDrawable: Drawable = MezonIcon.loadDrawable(context, R.drawable.mz_plus_20, ThemeColors.defaultIconTint)
     private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -42,6 +45,7 @@ class AddClanCell(
             CORNER_RADIUS,
             bgPaint
         )
-        MezonIcon.drawIcon(canvas, plusDrawable, cx.toInt(), cy.toInt(), PLUS_ICON_SIZE)
+        plusDrawable.setIconColor(themeColors.blurple)
+        plusDrawable.drawCenteredIcon(canvas, cx.toInt(), cy.toInt())
     }
 }

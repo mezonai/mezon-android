@@ -1,11 +1,10 @@
 package com.mezon.mobile.home.chat.input
 
+import com.mezon.mobile.R
 import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Color
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
@@ -19,6 +18,7 @@ import android.widget.TextView
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.ui.theme.ThemeMode
 
 class VoiceRecordingOverlay(
     context: Context,
@@ -81,9 +81,7 @@ class VoiceRecordingOverlay(
         )
 
         micIcon = ImageView(context).apply {
-            val d = MezonIcon.microphoneIcon.getDrawable(context)
-            d.colorFilter = PorterDuffColorFilter(Color.WHITE, PorterDuff.Mode.SRC_IN)
-            setImageDrawable(d)
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_mic_20, ThemeMode.DARK.iconTint))
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
         micContainer.addView(
@@ -121,9 +119,7 @@ class VoiceRecordingOverlay(
         )
 
         chevronIcon = ImageView(context).apply {
-            val d = MezonIcon.chevronSmallLeftIcon.getDrawable(context)
-            d.colorFilter = PorterDuffColorFilter(Color.WHITE, PorterDuff.Mode.SRC_IN)
-            setImageDrawable(d)
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_chevron_left_16, ThemeMode.DARK.iconTint))
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
         slideContainer.addView(

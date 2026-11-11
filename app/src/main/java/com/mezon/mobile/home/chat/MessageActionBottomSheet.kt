@@ -1,5 +1,7 @@
 package com.mezon.mobile.home.chat
 
+import com.mezon.mobile.ui.cells.setIconColor
+import com.mezon.mobile.ui.cells.setMezonIconResource
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -268,7 +270,7 @@ class MessageActionBottomSheet(
         }
         val plusIv = ImageView(context).apply {
             scaleType = ImageView.ScaleType.FIT_CENTER
-            val d = com.mezon.mobile.ui.cells.MezonIcon.reactionIcon.getDrawable(context)
+            val d = MezonIcon.loadDrawable(context, R.drawable.mz_emoji_20, ThemeColors.defaultIconTint)
             d.colorFilter = android.graphics.PorterDuffColorFilter(theme.textStrong, android.graphics.PorterDuff.Mode.SRC_IN)
             setImageDrawable(d)
         }
@@ -291,7 +293,7 @@ class MessageActionBottomSheet(
             actions.add(ActionItem(
                 ActionType.ResendMessage,
                 context.getString(R.string.action_resend_message),
-                R.drawable.ic_chat_icon
+                R.drawable.mz_chat_20
             ))
         }
 
@@ -299,7 +301,7 @@ class MessageActionBottomSheet(
             actions.add(ActionItem(
                 ActionType.GiveACoffee,
                 context.getString(R.string.action_give_coffee),
-                R.drawable.ic_gift_icon,
+                R.drawable.mz_send_money_24,
                 applyIconTint = false
             ))
         }
@@ -307,14 +309,14 @@ class MessageActionBottomSheet(
         actions.add(ActionItem(
             ActionType.Reply,
             context.getString(R.string.action_reply),
-            R.drawable.ic_arrowangleleftuplight
+            R.drawable.mz_reply_20
         ))
 
         if (showForwardSingle) {
             actions.add(ActionItem(
                 ActionType.ForwardMessage,
                 context.getString(R.string.action_forward),
-                R.drawable.ic_arrowanglerightuplight
+                R.drawable.mz_forward_20
             ))
         }
 
@@ -322,7 +324,7 @@ class MessageActionBottomSheet(
             actions.add(ActionItem(
                 ActionType.ForwardAllNearby,
                 context.getString(R.string.action_forward_all_nearby),
-                R.drawable.ic_forward_all
+                R.drawable.mz_forward_all_16
             ))
         }
 
@@ -330,7 +332,7 @@ class MessageActionBottomSheet(
             actions.add(ActionItem(
                 ActionType.EditMessage,
                 context.getString(R.string.action_edit),
-                R.drawable.ic_pencil_iconlight 
+                R.drawable.mz_edit_20
             ))
         }
 
@@ -338,7 +340,7 @@ class MessageActionBottomSheet(
             actions.add(ActionItem(
                 ActionType.CreateThread,
                 context.getString(R.string.action_create_thread),
-                MezonIcon.threadCreateIcon.resId,
+                R.drawable.mz_thread_add_24,
                 applyIconTint = false
             ))
         }
@@ -347,7 +349,7 @@ class MessageActionBottomSheet(
             actions.add(ActionItem(
                 ActionType.TopicDiscussion,
                 context.getString(R.string.topic_discussion),
-                MezonIcon.notificationTabTopic.resId,
+                R.drawable.mz_topic_24,
                 applyIconTint = false
             ))
         }
@@ -363,14 +365,14 @@ class MessageActionBottomSheet(
             actions.add(ActionItem(
                 ActionType.CopyText,
                 context.getString(R.string.action_copy_text),
-                R.drawable.ic_copy_text
+                R.drawable.mz_copy_20
             ))
 
             if (messageHasExplicitTextBody(message.content) && parseContentText(message.content).isNotBlank()) {
                 actions.add(ActionItem(
                     ActionType.ShareText,
                     context.getString(R.string.action_share_text),
-                    R.drawable.ic_share_box
+                    R.drawable.mz_share_20
                 ))
             }
         }
@@ -380,14 +382,14 @@ class MessageActionBottomSheet(
                 actions.add(ActionItem(
                     ActionType.UnPinMessage,
                     context.getString(R.string.action_unpin),
-                    R.drawable.ic_pin_icon,
+                    R.drawable.mz_pin_off_20,
                     applyIconTint = false
                 ))
             } else {
                 actions.add(ActionItem(
                     ActionType.PinMessage,
                     context.getString(R.string.action_pin),
-                    R.drawable.ic_pin_icon,
+                    R.drawable.mz_pin_20,
                     applyIconTint = false
                 ))
             }
@@ -397,7 +399,7 @@ class MessageActionBottomSheet(
             actions.add(ActionItem(
                 ActionType.AddToInbox,
                 context.getString(R.string.action_add_to_inbox),
-                MezonIcon.inbox.resId
+                R.drawable.mz_inbox_24
             ))
         }
 
@@ -405,7 +407,7 @@ class MessageActionBottomSheet(
             actions.add(ActionItem(
                 ActionType.QuickMenu,
                 context.getString(R.string.action_quick_menu),
-                MezonIcon.quickAction.resId
+                R.drawable.mz_bolt_20
             ))
         }
 
@@ -433,12 +435,12 @@ class MessageActionBottomSheet(
             actions.add(ActionItem(
                 ActionType.SaveMedia,
                 context.getString(saveMediaTitleRes),
-                R.drawable.ic_download_icon
+                R.drawable.mz_download_20
             ))
             actions.add(ActionItem(
                 ActionType.CopyMediaLink,
                 context.getString(copyLinkTitleRes),
-                R.drawable.ic_link_icon
+                R.drawable.mz_link_20
             ))
         }
 
@@ -446,12 +448,12 @@ class MessageActionBottomSheet(
             actions.add(ActionItem(
                 ActionType.CopyImage,
                 context.getString(R.string.action_copy_image),
-                R.drawable.ic_image_icon
+                R.drawable.mz_image_20
             ))
             actions.add(ActionItem(
                 ActionType.ShareImage,
                 context.getString(R.string.action_share_image),
-                R.drawable.ic_share_box
+                R.drawable.mz_share_20
             ))
         }
 
@@ -466,7 +468,7 @@ class MessageActionBottomSheet(
             actions.add(ActionItem(
                 ActionType.DeleteMessage,
                 context.getString(R.string.action_delete),
-                R.drawable.ic_trash_icon,
+                R.drawable.mz_trash_20,
                 isWarning = true
             ))
         }
@@ -475,7 +477,7 @@ class MessageActionBottomSheet(
             actions.add(ActionItem(
                 ActionType.Report,
                 context.getString(R.string.action_report),
-                R.drawable.ic_flag_icon,
+                R.drawable.mz_flag_20,
                 isWarning = true
             ))
         }
@@ -521,9 +523,11 @@ class MessageActionBottomSheet(
         // RN: MezonIconCDN renders at 20×20 (or 18×18 for warning/delete)
         val icon = ImageView(context).apply {
             try {
-                setImageResource(item.iconRes)
+                setMezonIconResource(item.iconRes)
             } catch (_: Exception) {}
-            if (item.applyIconTint) {
+            if (item.isWarning) {
+                drawable?.let { it.setIconColor(textColor) }
+            } else if (item.applyIconTint) {
                 setColorFilter(iconColor)
             }
             scaleType = ImageView.ScaleType.FIT_CENTER

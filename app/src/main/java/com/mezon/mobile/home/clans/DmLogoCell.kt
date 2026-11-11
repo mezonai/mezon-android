@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.clans
 
+import com.mezon.mobile.R
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -32,7 +33,7 @@ class DmLogoCell(
 
     private val iconSizePx = LayoutHelper.dp(42)
     private val cornerRadius = LayoutHelper.dp(8).toFloat()
-    private val fallbackDrawable: Drawable = MezonIcon.logoMezon.getDrawable(context).mutate()
+    private val fallbackDrawable: Drawable = MezonIcon.loadDrawable(context, R.drawable.ic_logo_mezon).mutate()
     private var logoBitmap: Bitmap? = null
     private var currentLogoUrl: String = ""
     private var logoCancellable: MezonImageLoader.Cancellable? = null

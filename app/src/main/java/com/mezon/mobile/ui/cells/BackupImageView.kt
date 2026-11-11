@@ -1,5 +1,7 @@
 package com.mezon.mobile.ui.cells
 
+import androidx.core.content.ContextCompat
+import com.mezon.mobile.core.ThemeColors
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Path
@@ -111,7 +113,7 @@ class BackupImageView(context: Context) : View(context) {
         cancellable = null
         imageUrl = null
         loadedDrawable?.callback = null
-        loadedDrawable = context.resources.getDrawable(resId, null)
+        loadedDrawable = (if (resId == 0) null else ContextCompat.getDrawable(context, resId)?.mutate())?.withDefaultIconTint(context, resId, ThemeColors.defaultIconTint)
         invalidate()
     }
 

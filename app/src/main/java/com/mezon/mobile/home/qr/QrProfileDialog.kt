@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.qr
 
+import com.mezon.mobile.ui.cells.withDefaultIconTint
 import android.app.Dialog
 import android.content.Context
 import android.content.res.ColorStateList
@@ -91,7 +92,7 @@ class QrProfileDialog(
         }
         actions.addView(actionButton(
             context.getString(R.string.qr_profile_message),
-            MezonIcon.chatIcon,
+            R.drawable.mz_chat_20,
             themeColors.primary,
             themeColors.onPrimary,
             onMessage,
@@ -100,7 +101,7 @@ class QrProfileDialog(
         })
         actions.addView(actionButton(
             context.getString(R.string.profile_call),
-            MezonIcon.phoneCallIcon,
+            R.drawable.mz_call_20,
             themeColors.primary,
             themeColors.onPrimary,
             onCall,
@@ -110,7 +111,7 @@ class QrProfileDialog(
         if (showAddFriend) {
             card.addView(actionButton(
                 context.getString(R.string.qr_profile_add_friend),
-                MezonIcon.userPlusIcon,
+                R.drawable.mz_user_plus_24,
                 themeColors.channelPanelBg,
                 themeColors.textStrong,
                 onAddFriend,
@@ -131,7 +132,7 @@ class QrProfileDialog(
         val closeButton = object : ImageView(context) {
             override fun getAccessibilityClassName(): CharSequence = Button::class.java.name
         }.apply {
-            setImageDrawable(MezonIcon.closeIcon.getDrawable(context, themeColors.tabLabelInactive))
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_close_20, ThemeColors.defaultIconTint))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             setPadding(LayoutHelper.dp(13), LayoutHelper.dp(13), LayoutHelper.dp(13), LayoutHelper.dp(13))
             contentDescription = context.getString(R.string.common_close)
@@ -176,7 +177,7 @@ class QrProfileDialog(
 
     private fun actionButton(
         label: String,
-        icon: MezonIcon,
+        icon: Int,
         color: Int,
         textColor: Int,
         onClick: () -> Unit,
@@ -184,7 +185,7 @@ class QrProfileDialog(
     ): TextView = object : TextView(context) {
         override fun getAccessibilityClassName(): CharSequence = Button::class.java.name
     }.apply {
-        val iconDrawable = icon.getDrawable(context, textColor)
+        val iconDrawable = MezonIcon.loadDrawable(context, icon).withDefaultIconTint(context, icon, ThemeColors.defaultIconTint)
         val iconHeight = LayoutHelper.dp(iconHeightDp)
         val iconWidth = if (iconDrawable.intrinsicWidth > 0 && iconDrawable.intrinsicHeight > 0) {
             (iconDrawable.intrinsicWidth * iconHeight.toFloat() / iconDrawable.intrinsicHeight).roundToInt()

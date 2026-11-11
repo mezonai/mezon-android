@@ -1,5 +1,7 @@
 package com.mezon.mobile.home.voice
 
+import com.mezon.mobile.ui.cells.withDefaultIconTint
+import com.mezon.mobile.ui.cells.setIconColor
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.PorterDuff
@@ -84,7 +86,7 @@ class VoiceHeaderView(
             gravity = Gravity.CENTER_VERTICAL
         }
 
-        minimizeBtn = createCircleButton(context, MezonIcon.chevronDownSmallIcon) {
+        minimizeBtn = createCircleButton(context, R.drawable.mz_chevron_down_16) {
             onMinimizeClick?.invoke()
         }
         leftContainer.addView(minimizeBtn, LinearLayout.LayoutParams(BUTTON_SIZE, BUTTON_SIZE))
@@ -168,7 +170,7 @@ class VoiceHeaderView(
             applyVoiceButtonPressFeedback()
         }
         agentIconView = ImageView(context).apply {
-            setImageDrawable(MezonIcon.agentIcon.getDrawable(context).apply {
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_bot_20, ThemeColors.defaultIconTint).apply {
                 colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
             })
             scaleType = ImageView.ScaleType.CENTER_INSIDE
@@ -182,21 +184,21 @@ class VoiceHeaderView(
         agentBtn.addView(agentProgress, LayoutParams(progressSize, progressSize, Gravity.CENTER))
         rightContainer.addView(agentBtn, LinearLayout.LayoutParams(BUTTON_SIZE, BUTTON_SIZE))
 
-        switchCameraBtn = createCircleButton(context, MezonIcon.cameraFront) {
+        switchCameraBtn = createCircleButton(context, R.drawable.mz_camera_switch_20) {
             onSwitchCameraClick?.invoke()
         }
         rightContainer.addView(switchCameraBtn, LinearLayout.LayoutParams(BUTTON_SIZE, BUTTON_SIZE).apply {
             marginStart = RIGHT_GAP
         })
 
-        raiseHandBtn = createCircleButton(context, MezonIcon.raiseHandIcon, RAISE_HAND_ICON_SIZE) {
+        raiseHandBtn = createCircleButton(context, R.drawable.mz_hand_raise_20, RAISE_HAND_ICON_SIZE) {
             onRaiseHandClick?.invoke()
         }
         rightContainer.addView(raiseHandBtn, LinearLayout.LayoutParams(BUTTON_SIZE, BUTTON_SIZE).apply {
             marginStart = RIGHT_GAP
         })
 
-        audioOutputBtn = createCircleButton(context, MezonIcon.channelVoice) { v ->
+        audioOutputBtn = createCircleButton(context, R.drawable.mz_speaker_24) { v ->
             onAudioOutputClick?.invoke(v)
         }
         val audioLP = LinearLayout.LayoutParams(BUTTON_SIZE, BUTTON_SIZE).apply {
@@ -204,7 +206,7 @@ class VoiceHeaderView(
         }
         rightContainer.addView(audioOutputBtn, audioLP)
 
-        moreBtn = createCircleButton(context, MezonIcon.moreVerticalIcon) { v ->
+        moreBtn = createCircleButton(context, R.drawable.mz_more_vertical_20) { v ->
             onMoreClick?.invoke(v)
         }
         val moreLP = LinearLayout.LayoutParams(BUTTON_SIZE, BUTTON_SIZE).apply {
@@ -282,7 +284,7 @@ class VoiceHeaderView(
         raiseHandActive = active
         val iconView = raiseHandBtn.getChildAt(0) as? ImageView ?: return
         val tint = if (active) RAISE_HAND_ACTIVE else themeColors.onSurface
-        iconView.drawable?.mutate()?.colorFilter = PorterDuffColorFilter(tint, PorterDuff.Mode.SRC_IN)
+        iconView.drawable?.let { it.setIconColor(tint) }
     }
 
     fun setAgentVisible(visible: Boolean) {
@@ -322,16 +324,16 @@ class VoiceHeaderView(
         moreBtn.visibility = if (visible) View.VISIBLE else View.GONE
     }
 
-    fun setAudioOutputIcon(icon: MezonIcon) {
+    fun setAudioOutputIcon(icon: Int) {
         val iconView = audioOutputBtn.getChildAt(0) as? ImageView ?: return
-        iconView.setImageDrawable(icon.getDrawable(context).apply {
+        iconView.setImageDrawable(MezonIcon.loadDrawable(context, icon).withDefaultIconTint(context, icon, ThemeColors.defaultIconTint).apply {
             colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
         })
     }
 
     private fun applyAgentIconTint() {
         val tint = if (agentActive) themeColors.onPrimary else themeColors.onSurface
-        agentIconView.drawable?.mutate()?.colorFilter = PorterDuffColorFilter(tint, PorterDuff.Mode.SRC_IN)
+        agentIconView.drawable?.let { it.setIconColor(tint) }
     }
 
     private fun createCircleBackground() = GradientDrawable().apply {
@@ -342,7 +344,7 @@ class VoiceHeaderView(
 
     private fun createCircleButton(
         context: Context,
-        icon: MezonIcon,
+        icon: Int,
         iconSize: Int = ICON_SIZE,
         onClick: (View) -> Unit
     ): FrameLayout {
@@ -354,7 +356,7 @@ class VoiceHeaderView(
             applyVoiceButtonPressFeedback()
 
             val iconView = ImageView(context).apply {
-                setImageDrawable(icon.getDrawable(context).apply {
+                setImageDrawable(MezonIcon.loadDrawable(context, icon).withDefaultIconTint(context, icon, ThemeColors.defaultIconTint).apply {
                     colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
                 })
                 scaleType = ImageView.ScaleType.CENTER_INSIDE

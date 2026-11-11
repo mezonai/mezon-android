@@ -1,5 +1,7 @@
 package com.mezon.mobile.home.call
 
+import com.mezon.mobile.R
+import com.mezon.mobile.ui.cells.MezonIcon
 import android.content.Context
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
@@ -9,7 +11,7 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.voice.VoiceChrome
 import com.mezon.mobile.home.voice.VoiceStyleCircleButton
-import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.ui.theme.ThemeMode
 
 class CallControlBar(
     context: Context,
@@ -41,6 +43,7 @@ class CallControlBar(
         }
 
     companion object {
+        private const val ACTIVE_SPEAKER_TINT = 0xFF939BF6.toInt()
         private val BUTTON_SIZE = LayoutHelper.dp(50)
         private val BUTTON_GAP = LayoutHelper.dp(10)
         private val PILL_H_PADDING = LayoutHelper.dp(10)
@@ -71,24 +74,41 @@ class CallControlBar(
         val tertiary = themeColors.tertiary
         val defaultTint = themeColors.onSurface
 
-        speakerBtn = VoiceStyleCircleButton(context, MezonIcon.voiceLowIcon, tertiary, btnBorder, defaultTint).apply {
+        speakerBtn = VoiceStyleCircleButton(
+            context,
+            R.drawable.mz_speaker_low_24,
+            tertiary,
+            btnBorder,
+            defaultTint,
+            VoiceStyleCircleButton.defaultIconSizePx(context),
+            fixedIconLoader = { iconContext, icon ->
+                if (icon == R.drawable.mz_speaker_24) {
+                    MezonIcon.loadDrawable(iconContext, icon, ACTIVE_SPEAKER_TINT)
+                } else {
+                    MezonIcon.loadDrawable(iconContext, icon, themeColors.iconTint)
+                }
+            }
+        ).apply {
             setOnClickListener { delegate?.onSpeakerClicked() }
         }
         row.addView(speakerBtn, LinearLayout.LayoutParams(BUTTON_SIZE, BUTTON_SIZE))
 
         endBtn = VoiceStyleCircleButton(
             context,
-            MezonIcon.callCancelIcon,
+            R.drawable.mz_call_cancel_24,
             VoiceChrome.RED_STRONG,
             0,
             0xFFFFFFFF.toInt(),
-            VoiceStyleCircleButton.endCallIconSizePx(context)
+            VoiceStyleCircleButton.endCallIconSizePx(context),
+            fixedIconLoader = { iconContext, icon ->
+                MezonIcon.loadDrawable(iconContext, icon, ThemeMode.DARK.iconTint)
+            }
         ).apply {
             setOnClickListener { delegate?.onEndCallClicked() }
         }
         row.addView(endBtn, LinearLayout.LayoutParams(BUTTON_SIZE, BUTTON_SIZE).apply { marginStart = BUTTON_GAP })
 
-        micBtn = VoiceStyleCircleButton(context, MezonIcon.microphoneSlashIcon, tertiary, btnBorder, defaultTint).apply {
+        micBtn = VoiceStyleCircleButton(context, R.drawable.mz_mic_off_20, tertiary, btnBorder, defaultTint).apply {
             setOnClickListener { delegate?.onMicClicked() }
         }
         row.addView(micBtn, LinearLayout.LayoutParams(BUTTON_SIZE, BUTTON_SIZE).apply { marginStart = BUTTON_GAP })
@@ -100,22 +120,16 @@ class CallControlBar(
     }
 
     private fun applySpeakerUi() {
-        speakerBtn.updateBgColor(controlFill(isSpeakerActive))
-        if (isSpeakerActive) {
-            speakerBtn.updateIcon(MezonIcon.voiceWaveDoubleIcon)
-            speakerBtn.updateIconTint(themeColors.surface)
-        } else {
-            speakerBtn.updateIcon(MezonIcon.voiceWaveIcon)
-            speakerBtn.updateIconTint(themeColors.onSurface)
-        }
+        speakerBtn.updateBgColor(controlFill())
+        speakerBtn.updateIcon(if (isSpeakerActive) R.drawable.mz_speaker_24 else R.drawable.mz_speaker_low_24)
     }
 
     private fun applyMicUi() {
-        micBtn.updateIcon(if (isMicActive) MezonIcon.microphoneIcon else MezonIcon.microphoneSlashIcon)
-        micBtn.updateBgColor(controlFill(isMicActive))
-        micBtn.updateIconTint(if (isMicActive) themeColors.surface else themeColors.onSurface)
+        micBtn.updateIcon(if (isMicActive) R.drawable.mz_mic_20 else R.drawable.mz_mic_off_20)
+        micBtn.updateBgColor(controlFill())
+        micBtn.updateIconTint(themeColors.onSurface)
     }
 
-    private fun controlFill(active: Boolean): Int = if (active) themeColors.onSurface
-        else (themeColors.mobile.secondaryWeight and 0x00FFFFFF) or 0x8C000000.toInt()
+    private fun controlFill(): Int =
+        (themeColors.mobile.secondaryWeight and 0x00FFFFFF) or 0x8C000000.toInt()
 }

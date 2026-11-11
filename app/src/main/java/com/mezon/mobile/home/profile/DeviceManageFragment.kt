@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.profile
 
+import com.mezon.mobile.ui.cells.setMezonIconResource
 import android.content.Context
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
@@ -189,8 +190,8 @@ class DeviceManageFragment : BaseFragment() {
 
     private fun getDeviceIcon(device: Device): Int {
         return when (device.platform?.lowercase()) {
-            "mobile", "ios", "android" -> R.drawable.ic_mobile_device
-            else -> R.drawable.ic_desktop_computer
+            "mobile", "ios", "android" -> R.drawable.mz_device_mobile_24
+            else -> R.drawable.mz_device_desktop_24
         }
     }
 
@@ -244,7 +245,7 @@ class DeviceManageFragment : BaseFragment() {
                 container.removeAllViews()
 
                 val iconView = ImageView(itemView.context).apply {
-                    setImageResource(getDeviceIcon(device))
+                    setMezonIconResource(getDeviceIcon(device))
                     colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
                     scaleType = ImageView.ScaleType.CENTER_INSIDE
                 }

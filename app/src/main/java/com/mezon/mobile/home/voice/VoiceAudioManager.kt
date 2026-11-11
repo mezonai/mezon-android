@@ -1,11 +1,11 @@
 package com.mezon.mobile.home.voice
 
+import com.mezon.mobile.R
 import android.content.Context
 import android.media.AudioManager
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.home.call.MezonAudioSwitch
 import com.mezon.mobile.home.call.CallController
-import com.mezon.mobile.ui.cells.MezonIcon
 import com.twilio.audioswitch.AudioDevice
 import com.twilio.audioswitch.AudioDeviceChangeListener
 
@@ -117,11 +117,11 @@ class VoiceAudioManager(context: Context) {
         }
     }
 
-    fun currentOutputIcon(): MezonIcon {
+    fun currentOutputIcon(): Int {
         return when (audioSwitch.selectedAudioDevice) {
-            is AudioDevice.Speakerphone -> MezonIcon.voiceWaveDoubleIcon
-            is AudioDevice.BluetoothHeadset -> MezonIcon.bluetoothIcon
-            else -> MezonIcon.voiceWaveIcon
+            is AudioDevice.Speakerphone -> R.drawable.mz_speaker_24
+            is AudioDevice.BluetoothHeadset -> R.drawable.ic_bluetooth_icon
+            else -> R.drawable.mz_speaker_low_24
         }
     }
 

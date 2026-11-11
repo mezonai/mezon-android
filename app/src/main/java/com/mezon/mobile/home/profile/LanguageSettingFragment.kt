@@ -1,8 +1,6 @@
 package com.mezon.mobile.home.profile
 
 import android.content.Context
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.view.Gravity
 import android.view.View
 import android.widget.ImageView
@@ -15,6 +13,7 @@ import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.session.LocaleManager
+import com.mezon.mobile.ui.cells.MezonIcon
 
 class LanguageSettingFragment : BaseFragment() {
 
@@ -114,8 +113,7 @@ class LanguageSettingFragment : BaseFragment() {
 
             if (isSelected) {
                 val checkIcon = ImageView(requireContext()).apply {
-                    setImageResource(R.drawable.ic_checkmark_small_icon)
-                    colorFilter = PorterDuffColorFilter(themeColors.primary, PorterDuff.Mode.SRC_IN)
+                    setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_check_20, themeColors.primary))
                     scaleType = ImageView.ScaleType.CENTER_INSIDE
                 }
                 row.addView(checkIcon, LinearLayout.LayoutParams(LayoutHelper.dp(20), LayoutHelper.dp(20)))

@@ -1,8 +1,6 @@
 package com.mezon.mobile.home.chat.channelinfo.permissions
 
 import android.content.Context
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.text.TextUtils
@@ -25,7 +23,9 @@ import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.home.clans.ClanRole
 import com.mezon.mobile.ui.cells.AvatarView
 import com.mezon.mobile.ui.cells.SearchCell
+import com.mezon.mobile.home.clans.settings.ClanRolesUiTheme
 import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.ui.theme.ThemeMode
 
 class AddMemberOrRoleBottomSheet(
     context: Context,
@@ -143,7 +143,7 @@ class AddMemberOrRoleBottomSheet(
         isClickable = true
     }
 
-    private fun iconCircle(context: Context, icon: MezonIcon, color: Int): View {
+    private fun iconCircle(context: Context, icon: Int, color: Int): View {
         val circle = FrameLayout(context).apply {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
@@ -152,9 +152,8 @@ class AddMemberOrRoleBottomSheet(
         }
         circle.addView(
             ImageView(context).apply {
-                setImageDrawable(icon.getDrawable(context).apply {
-                    colorFilter = PorterDuffColorFilter(0xFFFFFFFF.toInt(), PorterDuff.Mode.SRC_IN)
-                })
+                tag = "roleIcon"
+                setImageDrawable(MezonIcon.loadDrawable(context, icon, ThemeMode.DARK.iconTint))
             },
             LayoutHelper.createFrame(18, 18, Gravity.CENTER)
         )
@@ -173,9 +172,7 @@ class AddMemberOrRoleBottomSheet(
         if (checked) {
             frame.addView(
                 ImageView(context).apply {
-                    setImageDrawable(MezonIcon.checkmarkSmallIcon.getDrawable(context).apply {
-                        colorFilter = PorterDuffColorFilter(0xFFFFFFFF.toInt(), PorterDuff.Mode.SRC_IN)
-                    })
+                    setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_check_16, ThemeMode.DARK.iconTint))
                 },
                 LayoutHelper.createFrame(14, 14, Gravity.CENTER)
             )
@@ -259,7 +256,7 @@ class AddMemberOrRoleBottomSheet(
             val row = baseRow(context).apply {
                 layoutParams = rowParams()
             }
-            row.addView(iconCircle(context, MezonIcon.bravePermission, theme.blurple).apply { tag = "iconCircle" })
+            row.addView(iconCircle(context, R.drawable.mz_role_24, theme.blurple).apply { tag = "iconCircle" })
             row.addView(
                 TextView(context).apply {
                     textSize = 15f
@@ -329,10 +326,14 @@ class AddMemberOrRoleBottomSheet(
             private val title = row.findViewWithTag<TextView>("title")
             private val checkbox = row.findViewWithTag<FrameLayout>("checkbox")
             private val iconCircle = row.findViewWithTag<View>("iconCircle")
+            private val roleIcon = row.findViewWithTag<ImageView>("roleIcon")
 
             fun bind(role: ClanRole) {
                 title.text = role.title
-                (iconCircle.background as? GradientDrawable)?.setColor(role.color.takeIf { it != 0 } ?: theme.blurple)
+                val color = role.color.takeIf { it != 0 } ?: theme.blurple
+                (iconCircle.background as? GradientDrawable)?.setColor(color)
+                val tint = ClanRolesUiTheme.badgeIconTint(color, theme) ?: theme.iconTint
+                roleIcon.setImageDrawable(MezonIcon.loadDrawable(row.context, R.drawable.mz_role_24, tint))
                 bindCheckbox(checkbox, role.roleId in selectedRoleIds)
                 row.setOnClickListener {
                     if (role.roleId in selectedRoleIds) selectedRoleIds.remove(role.roleId) else selectedRoleIds.add(role.roleId)
@@ -402,9 +403,7 @@ class AddMemberOrRoleBottomSheet(
         if (checked) {
             frame.addView(
                 ImageView(frame.context).apply {
-                    setImageDrawable(MezonIcon.checkmarkSmallIcon.getDrawable(frame.context).apply {
-                        colorFilter = PorterDuffColorFilter(0xFFFFFFFF.toInt(), PorterDuff.Mode.SRC_IN)
-                    })
+                    setImageDrawable(MezonIcon.loadDrawable(frame.context, R.drawable.mz_check_16, ThemeMode.DARK.iconTint))
                 },
                 LayoutHelper.createFrame(14, 14, Gravity.CENTER)
             )

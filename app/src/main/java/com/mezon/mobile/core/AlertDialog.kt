@@ -1,5 +1,6 @@
 package com.mezon.mobile.core
 
+import com.mezon.mobile.ui.cells.setMezonIconResource
 import android.app.Dialog
 import android.content.Context
 import android.content.DialogInterface
@@ -243,7 +244,7 @@ open class AlertDialog(context: Context, private val type: Int = ALERT_TYPE_MESS
 
         if (topImageRes != 0) {
             val topImageView = android.widget.ImageView(context).apply {
-                setImageResource(topImageRes)
+                setMezonIconResource(topImageRes)
                 scaleType = android.widget.ImageView.ScaleType.CENTER
             }
             root.addView(topImageView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, topHeight, 0f, Gravity.CENTER_HORIZONTAL, 0f, 0f, 0f, 8f))

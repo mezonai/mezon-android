@@ -19,7 +19,6 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.ui.cells.ActionBarView
 import com.mezon.mobile.ui.cells.InputCell
-import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.util.CategoryNameValidator
 import com.mezon.mobile.util.NetworkErrorMessages
@@ -58,7 +57,7 @@ class CreateCategoryFragment : BaseFragment() {
 
         actionBar = ActionBarView(context, themeColors).apply {
             occupyStatusBar = false
-            setBackButtonImage(MezonIcon.closeLargeIcon.resId)
+            setBackButtonImage(R.drawable.mz_close_24)
             setTitle(getString(R.string.category_creator_screen_title))
             setTitleColor(themeColors.textStrong)
             setCenterTitle(true)

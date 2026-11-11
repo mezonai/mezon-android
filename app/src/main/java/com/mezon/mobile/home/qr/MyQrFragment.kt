@@ -43,6 +43,7 @@ import com.mezon.mobile.ui.cells.AvatarView
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.PopupMenu
 import com.mezon.mobile.ui.cells.ToastOverlay
+import com.mezon.mobile.ui.theme.ThemeMode
 import java.io.File
 import java.io.FileOutputStream
 import java.net.URLEncoder
@@ -325,7 +326,7 @@ class MyQrFragment : BaseFragment() {
                 shape = GradientDrawable.OVAL
                 setColor(MyQrSnapshotStyle.badgeBackground)
             }
-            setImageDrawable(MezonIcon.pencilIcon.getDrawable(context, MyQrSnapshotStyle.badgeIcon))
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_edit_16, ThemeMode.LIGHT.iconTint))
             setPadding(LayoutHelper.dp(11), LayoutHelper.dp(11), LayoutHelper.dp(11), LayoutHelper.dp(11))
             elevation = LayoutHelper.dp(2).toFloat()
             contentDescription = context.getString(R.string.qr_center_image_title)
@@ -368,7 +369,7 @@ class MyQrFragment : BaseFragment() {
     private fun createMezonLogoBitmap(context: Context): Bitmap {
         val size = LayoutHelper.dp(96)
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-        MezonIcon.logoMezon.getDrawable(context).apply {
+        MezonIcon.loadDrawable(context, R.drawable.ic_logo_mezon).apply {
             setBounds(0, 0, size, size)
             draw(Canvas(bitmap))
         }
@@ -409,12 +410,12 @@ class MyQrFragment : BaseFragment() {
         val buttonHeight = LayoutHelper.dp(42)
         val downloadBtn = buildIconButton(
             context,
-            MezonIcon.downloadIcon,
+            R.drawable.mz_download_24,
             R.string.common_download
         ) { downloadQr() }
         val shareBtn = buildIconButton(
             context,
-            MezonIcon.shareIcon,
+            R.drawable.mz_share_24,
             R.string.common_share
         ) { shareQr() }
 
@@ -427,7 +428,7 @@ class MyQrFragment : BaseFragment() {
 
     private fun buildIconButton(
         context: Context,
-        icon: MezonIcon,
+        icon: Int,
         contentDescriptionRes: Int,
         onClick: () -> Unit
     ): ImageView {
@@ -436,7 +437,7 @@ class MyQrFragment : BaseFragment() {
                 cornerRadius = LayoutHelper.dp(8f).toFloat()
                 setColor(MyQrSnapshotStyle.badgeBackground)
             }
-            setImageDrawable(icon.getDrawable(context, MyQrSnapshotStyle.badgeIcon))
+            setImageDrawable(MezonIcon.loadDrawable(context, icon, ThemeMode.LIGHT.iconTint))
             contentDescription = context.getString(contentDescriptionRes)
             isFocusable = true
             val pad = LayoutHelper.dp(10)

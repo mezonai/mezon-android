@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.clans
 
+import com.mezon.mobile.ui.cells.withDefaultIconTint
 import android.graphics.Typeface
 import android.os.Bundle
 import android.view.Gravity
@@ -52,15 +53,13 @@ class ChannelMenuBottomSheet(
         val isChannel = !channel.isThread
         val showMarkAsRead = channel.type != CHANNEL_TYPE_STREAMING && channel.type != CHANNEL_TYPE_VOICE
         val originalColorIcons = setOf(
-            MezonIcon.markUnreadIcon,
-            MezonIcon.copyIcon,
-            MezonIcon.favoriteFilledIcon,
-            MezonIcon.starIcon,
-            MezonIcon.bellIcon,
-            MezonIcon.bellSlashIcon,
-            MezonIcon.channelNotificaitionIcon,
-            MezonIcon.threadIcon,
-            MezonIcon.settingClanIcon,
+            R.drawable.mz_eye_20,
+            R.drawable.mz_link_20,
+            R.drawable.mz_star_20,
+            R.drawable.mz_bell_20,
+            R.drawable.mz_bell_off_20,
+            R.drawable.mz_thread_20,
+            R.drawable.mz_settings_20,
         )
 
         fun dismissAndRun(action: () -> Unit): Runnable = Runnable {
@@ -70,7 +69,7 @@ class ChannelMenuBottomSheet(
 
         fun buildRow(
             label: String,
-            icon: MezonIcon,
+            icon: Int,
             labelColor: Int = theme.textStrong,
             iconColor: Int = theme.textStrong,
             onClick: () -> Unit,
@@ -133,7 +132,7 @@ class ChannelMenuBottomSheet(
                 add(
                     buildRow(
                         context.getString(R.string.channel_menu_mark_as_read),
-                        MezonIcon.markUnreadIcon,
+                        R.drawable.mz_eye_20,
                         onClick = onMarkAsRead,
                     )
                 )
@@ -142,7 +141,7 @@ class ChannelMenuBottomSheet(
                 add(
                     buildRow(
                         context.getString(R.string.channel_menu_copy_link),
-                        MezonIcon.copyIcon,
+                        R.drawable.mz_link_20,
                         onClick = onCopyLink,
                     )
                 )
@@ -157,15 +156,10 @@ class ChannelMenuBottomSheet(
                     } else {
                         R.string.channel_menu_mark_favorite
                     }
-                    val favoriteIcon = if (isFavorite) {
-                        MezonIcon.favoriteFilledIcon
-                    } else {
-                        MezonIcon.starIcon
-                    }
                     add(
                         buildRow(
                             context.getString(favoriteLabelRes),
-                            favoriteIcon,
+                            R.drawable.mz_star_20,
                             onClick = onToggleFavorite,
                         )
                     )
@@ -173,7 +167,7 @@ class ChannelMenuBottomSheet(
                 add(
                     buildRow(
                         context.getString(R.string.channel_menu_copy_link),
-                        MezonIcon.copyIcon,
+                        R.drawable.mz_link_20,
                         onClick = onCopyLink,
                     )
                 )
@@ -189,9 +183,9 @@ class ChannelMenuBottomSheet(
             else -> R.string.channel_menu_mute_channel
         }
         val muteIcon = if (isMuted) {
-            MezonIcon.bellIcon
+            R.drawable.mz_bell_20
         } else {
-            MezonIcon.bellSlashIcon
+            R.drawable.mz_bell_off_20
         }
         val notificationRows = listOf(
             buildRow(
@@ -201,7 +195,7 @@ class ChannelMenuBottomSheet(
             ).also { muteRow = it },
             buildRow(
                 context.getString(R.string.channel_menu_notification_settings),
-                MezonIcon.channelNotificaitionIcon,
+                R.drawable.mz_bell_20,
                 onClick = onNotificationSettings,
             ),
         )
@@ -210,7 +204,7 @@ class ChannelMenuBottomSheet(
             listOf(
                 buildRow(
                     context.getString(R.string.channel_menu_threads),
-                    MezonIcon.threadIcon,
+                    R.drawable.mz_thread_20,
                     onClick = onOpenThreadList,
                 )
             )
@@ -233,7 +227,7 @@ class ChannelMenuBottomSheet(
                 add(
                     buildRow(
                         context.getString(R.string.channel_settings_menu_leave_thread),
-                        MezonIcon.leaveGroupIcon,
+                        R.drawable.mz_leave_20,
                         labelColor = theme.error,
                         iconColor = theme.error,
                         onClick = onLeaveThread,
@@ -244,7 +238,7 @@ class ChannelMenuBottomSheet(
                 add(
                     buildRow(
                         context.getString(editLabelRes),
-                        MezonIcon.settingClanIcon,
+                        R.drawable.mz_settings_20,
                         onClick = onEditChannel,
                     )
                 )
@@ -253,7 +247,7 @@ class ChannelMenuBottomSheet(
                 add(
                     buildRow(
                         context.getString(deleteLabelRes),
-                        MezonIcon.closeSmallBold,
+                        R.drawable.mz_close_16,
                         labelColor = theme.error,
                         iconColor = theme.error,
                         onClick = onDeleteChannel,
@@ -297,8 +291,8 @@ class ChannelMenuBottomSheet(
             channel.isThread -> R.string.channel_menu_mute_thread
             else -> R.string.channel_menu_mute_channel
         }
-        val icon = if (muted) MezonIcon.bellIcon else MezonIcon.bellSlashIcon
-        (row.getChildAt(0) as? ImageView)?.setImageDrawable(icon.getDrawable(context))
+        val icon = if (muted) R.drawable.mz_bell_20 else R.drawable.mz_bell_off_20
+        (row.getChildAt(0) as? ImageView)?.setImageDrawable(MezonIcon.loadDrawable(context, icon).withDefaultIconTint(context, icon, ThemeColors.defaultIconTint))
         (row.getChildAt(1) as? TextView)?.setText(labelRes)
         row.contentDescription = context.getString(labelRes)
     }

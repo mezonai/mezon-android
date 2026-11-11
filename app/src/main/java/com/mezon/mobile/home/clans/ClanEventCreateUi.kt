@@ -106,7 +106,7 @@ object ClanEventCreateUi {
         context: Context,
         theme: ThemeColors,
         @StringRes headingRes: Int,
-        icon: MezonIcon,
+        icon: Int,
         clearable: Boolean = false,
         placeholder: CharSequence? = null,
         onPick: () -> Unit,
@@ -327,7 +327,7 @@ class EventCoverBannerPicker private constructor(
                 scaleType = ImageView.ScaleType.CENTER
                 val pad = LayoutHelper.dp(11)
                 setPadding(pad, pad, pad, pad)
-                setImageDrawable(MezonIcon.cameraIcon.getDrawable(context, theme.primary))
+                setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_camera_24, theme.primary))
                 background = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL
                     setColor(theme.surface)
@@ -337,7 +337,7 @@ class EventCoverBannerPicker private constructor(
             val clearButton = ImageView(context).apply {
                 visibility = View.GONE
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
-                setImageDrawable(MezonIcon.closeSmallBold.getDrawable(context, theme.error))
+                setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_close_16, theme.error))
                 background = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL
                     setColor(0xCC000000.toInt())

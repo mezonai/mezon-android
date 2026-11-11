@@ -72,7 +72,7 @@ class ChannelAppsStripView(
             applyRipple(this, cornerDp = 8)
         }
         headerArrow = ImageView(context).apply {
-            setImageDrawable(MezonIcon.chevronDownSmallIcon.getDrawable(context, themeColors.colorText))
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_chevron_down_16, ThemeColors.defaultIconTint))
             layoutParams = LayoutParams(ChannelSectionCell.ARROW_SIZE, ChannelSectionCell.ARROW_SIZE)
         }
         header = TextView(context).apply {
@@ -143,7 +143,7 @@ class ChannelAppsStripView(
     fun invalidateTheme() {
         header.setTextColor(themeColors.colorText)
         headerArrow.setImageDrawable(
-            MezonIcon.chevronDownSmallIcon.getDrawable(context, themeColors.colorText)
+            MezonIcon.loadDrawable(context, R.drawable.mz_chevron_down_16, ThemeColors.defaultIconTint)
         )
         setApps(apps.toList())
     }
@@ -294,7 +294,7 @@ class ChannelAppsStripView(
         }
         applyRipple(logoBox, cornerDp = 0, oval = true)
         val chevron = ImageView(context).apply {
-            setImageDrawable(MezonIcon.chevronSmallRightIcon.getDrawable(context, BLURPLE))
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_chevron_right_16, BLURPLE))
             val sz = LayoutHelper.dp(30)
             layoutParams = FrameLayout.LayoutParams(sz, sz, Gravity.CENTER)
         }
@@ -350,7 +350,7 @@ class ChannelAppsStripView(
             }
         }
         val placeholder = ImageView(context).apply {
-            setImageDrawable(MezonIcon.channelApp.getDrawable(context, themeColors.textDisabled))
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_channel_app_24, ThemeColors.defaultIconTint))
             val sz = LayoutHelper.dp(16)
             layoutParams = FrameLayout.LayoutParams(sz, sz, Gravity.CENTER)
             scaleType = ImageView.ScaleType.FIT_CENTER

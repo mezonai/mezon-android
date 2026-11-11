@@ -134,9 +134,7 @@ class BotCommandStatusLayout(private val context: Context) {
         height = firstRowHeight + if (actionOnNewLine) ROW_GAP + actionHeight else 0
         width = maxWidth
 
-        dismissDrawable = MezonIcon.closeSmallBold.getDrawable(context).mutate().apply {
-            setTint(theme.textDisabled)
-        }
+        dismissDrawable = MezonIcon.loadDrawable(context, R.drawable.mz_close_16, theme.textDisabled)
         isVisible = true
     }
 

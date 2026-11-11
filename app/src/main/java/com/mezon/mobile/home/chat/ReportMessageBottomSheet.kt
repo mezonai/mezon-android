@@ -208,7 +208,7 @@ class ReportMessageBottomSheet(
             }
             backBtn.addView(
                 ImageView(context).apply {
-                    setImageDrawable(MezonIcon.backArrowLarge.getDrawable(context).apply {
+                    setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_arrow_left_20, ThemeColors.defaultIconTint).apply {
                         colorFilter = PorterDuffColorFilter(textStrongColor, PorterDuff.Mode.SRC_IN)
                     })
                     scaleType = ImageView.ScaleType.FIT_CENTER
@@ -393,7 +393,7 @@ class ReportMessageBottomSheet(
         }
         val chev = ImageView(context).apply {
             setImageDrawable(
-                MezonIcon.chevronSmallRightIcon.getDrawable(context).apply {
+                MezonIcon.loadDrawable(context, R.drawable.mz_chevron_right_16, ThemeColors.defaultIconTint).apply {
                     colorFilter = PorterDuffColorFilter(chevTint, PorterDuff.Mode.SRC_IN)
                 }
             )

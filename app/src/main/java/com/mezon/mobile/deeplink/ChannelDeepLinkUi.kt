@@ -77,7 +77,7 @@ internal class ChannelUnavailableBottomSheet(
             }
         }
         iconBackground.addView(ImageView(context).apply {
-            setImageDrawable(MezonIcon.lockIcon.getDrawable(context, colors.primary))
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_lock_24, colors.primary))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
         }, FrameLayout.LayoutParams(LayoutHelper.dp(30), LayoutHelper.dp(30), Gravity.CENTER))
         content.addView(iconBackground, LinearLayout.LayoutParams(LayoutHelper.dp(64), LayoutHelper.dp(64)))

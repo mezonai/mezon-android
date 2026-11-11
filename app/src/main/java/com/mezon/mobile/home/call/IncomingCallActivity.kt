@@ -25,6 +25,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.ContextCompat
 import com.mezon.mobile.R
+import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
@@ -33,7 +34,7 @@ import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.voice.VoiceChrome
 import com.mezon.mobile.home.voice.VoiceStyleCircleButton
 import com.mezon.mobile.ui.cells.AvatarView
-import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.ui.theme.ThemeMode
 import dagger.hilt.android.EntryPointAccessors
 import org.json.JSONObject
 
@@ -474,11 +475,14 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
             val btnSize = dp(64)
             val declineBtn = VoiceStyleCircleButton(
                 this@IncomingCallActivity,
-                MezonIcon.callCancelIcon,
+                R.drawable.mz_call_cancel_24,
                 VoiceChrome.RED_STRONG,
                 0,
                 0xFFFFFFFF.toInt(),
-                VoiceStyleCircleButton.endCallIconSizePx(this@IncomingCallActivity)
+                VoiceStyleCircleButton.endCallIconSizePx(this@IncomingCallActivity),
+                fixedIconLoader = { iconContext, icon ->
+                    MezonIcon.loadDrawable(iconContext, icon, ThemeMode.DARK.iconTint)
+                }
             ).apply {
                 setOnClickListener { declineCall() }
             }
@@ -486,11 +490,14 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
 
             val acceptBtn = VoiceStyleCircleButton(
                 this@IncomingCallActivity,
-                MezonIcon.phoneCallIcon,
+                R.drawable.mz_call_24,
                 tc.onlineGreen,
                 0,
                 0xFFFFFFFF.toInt(),
-                VoiceStyleCircleButton.endCallIconSizePx(this@IncomingCallActivity)
+                VoiceStyleCircleButton.endCallIconSizePx(this@IncomingCallActivity),
+                fixedIconLoader = { iconContext, icon ->
+                    MezonIcon.loadDrawable(iconContext, icon, ThemeMode.LIGHT.iconTint)
+                }
             ).apply {
                 setOnClickListener { acceptCall() }
             }
@@ -536,11 +543,14 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
             }, LinearLayout.LayoutParams(dp(36), dp(36)))
             addView(VoiceStyleCircleButton(
                 this@IncomingCallActivity,
-                MezonIcon.callCancelIcon,
+                R.drawable.mz_call_cancel_24,
                 VoiceChrome.RED_STRONG,
                 0,
                 0xFFFFFFFF.toInt(),
-                VoiceStyleCircleButton.endCallIconSizePx(this@IncomingCallActivity)
+                VoiceStyleCircleButton.endCallIconSizePx(this@IncomingCallActivity),
+                fixedIconLoader = { iconContext, icon ->
+                    MezonIcon.loadDrawable(iconContext, icon, ThemeMode.DARK.iconTint)
+                }
             ).apply {
                 contentDescription = getString(R.string.call_end_action)
                 setOnClickListener { endConnectingCall() }

@@ -53,7 +53,6 @@ import com.mezon.mobile.network.HttpRpcStatusException
 import com.mezon.mobile.home.profile.UserController
 import com.mezon.mobile.ui.MezonToast
 import com.mezon.mobile.ui.cells.ToastOverlay
-import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.home.voice.sfu.MezonSfuSession
 import com.mezon.mobile.home.voice.sfu.NoiseSuppressionState
 import com.mezon.mobile.home.voice.sfu.SfuConnectionState
@@ -1665,7 +1664,7 @@ class VoiceRoomFragment : BaseFragment() {
     }
 
     private fun updateAudioOutputIcon() {
-        val icon = audioManager?.currentOutputIcon() ?: MezonIcon.voiceWaveIcon
+        val icon = audioManager?.currentOutputIcon() ?: R.drawable.mz_speaker_low_24
         headerView.setAudioOutputIcon(icon)
     }
 

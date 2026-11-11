@@ -1,5 +1,7 @@
 package com.mezon.mobile.home.chat
 
+import com.mezon.mobile.ui.cells.withDefaultIconTint
+import com.mezon.mobile.ui.cells.setMezonIconResource
 import android.graphics.Color
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
@@ -26,6 +28,7 @@ import com.mezon.mobile.home.clans.CHANNEL_TYPE_VOICE
 import com.mezon.mobile.home.clans.ChannelItemCell
 import com.mezon.mobile.home.friends.showUserBlockProgress
 import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.ui.cells.applyActionLabelColor
 import com.mezon.mobile.util.ColorUtilities
 import com.mezon.mobile.util.avatarImgproxyUrl
 import com.mezon.mobile.di.FragmentEntryPoint
@@ -301,7 +304,7 @@ class UserProfileBottomSheet(
     ) {
         val friendBtn = ImageView(context).apply {
             scaleType = ImageView.ScaleType.CENTER_INSIDE
-            setImageDrawable(MezonIcon.userPlusIcon.getDrawable(context).apply {
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_user_plus_24, ThemeColors.defaultIconTint).apply {
                 colorFilter = PorterDuffColorFilter(iconTint, PorterDuff.Mode.SRC_IN)
             })
             background = GradientDrawable().apply {
@@ -332,7 +335,7 @@ class UserProfileBottomSheet(
     ) {
         val transferBtn = ImageView(context).apply {
             scaleType = ImageView.ScaleType.CENTER_INSIDE
-            setImageResource(MezonIcon.transferIcon.resId)
+            setMezonIconResource(R.drawable.mz_send_money_24)
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 setColor(theme.surfaceVariant)
@@ -444,7 +447,7 @@ class UserProfileBottomSheet(
 
             actionsRow.addView(buildActionButton(
                 context.getString(R.string.user_profile_send_message),
-                R.drawable.ic_chat_icon,
+                R.drawable.mz_chat_24,
                 textColor
             ) {
                 dismiss()
@@ -459,7 +462,7 @@ class UserProfileBottomSheet(
             if (!isOwnProfile) {
                 val callButton = buildActionButton(
                     context.getString(R.string.user_profile_voice_call),
-                    R.drawable.ic_phone_call_icon,
+                    R.drawable.mz_call_24,
                     textColor
                 ) {
                     dismiss()
@@ -475,7 +478,7 @@ class UserProfileBottomSheet(
 
                 val addFriendButton = buildActionButton(
                     context.getString(R.string.user_profile_add_friend),
-                    R.drawable.ic_user_plus_icon,
+                    R.drawable.mz_user_plus_24,
                     0xFF42A869.toInt()  // baseColor.green
                 ) {
                     requestedFriend = true
@@ -571,8 +574,13 @@ class UserProfileBottomSheet(
         }
 
         val icon = ImageView(context).apply {
-            try { setImageResource(iconRes) } catch (_: Exception) {}
-            setColorFilter(labelColor)
+            try {
+                if (iconRes == R.drawable.mz_user_plus_24) {
+                    setImageDrawable(MezonIcon.loadDrawable(context, iconRes, labelColor))
+                } else {
+                    setMezonIconResource(iconRes)
+                }
+            } catch (_: Exception) {}
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
         button.addView(icon, LinearLayout.LayoutParams(
@@ -832,7 +840,7 @@ class UserProfileBottomSheet(
         if (ex.showMuteAction) {
             actionsRow.addView(
                 buildVoiceModerationActionItem(
-                    icon = MezonIcon.microphoneSlashIcon,
+                    icon = R.drawable.mz_mic_off_16,
                     title = context.getString(R.string.voice_room_mute_voice),
                     labelColor = rnRedStrong
                 ) {
@@ -846,7 +854,7 @@ class UserProfileBottomSheet(
         }
         actionsRow.addView(
             buildVoiceModerationActionItem(
-                icon = MezonIcon.removeFriend,
+                icon = R.drawable.mz_user_minus_24,
                 title = context.getString(R.string.voice_room_kick_voice),
                 labelColor = rnRedStrong
             ) {
@@ -880,8 +888,11 @@ class UserProfileBottomSheet(
         }
         voiceRow.addView(
             ImageView(context).apply {
-                val d = ChannelItemCell.resolveChannelIcon(ex.voiceChannelType, ex.voiceChannelPrivate)
-                    .getDrawable(context)
+                val d = MezonIcon.loadDrawable(
+                    context,
+                    ChannelItemCell.resolveChannelIcon(ex.voiceChannelType, ex.voiceChannelPrivate),
+                    ThemeColors.defaultIconTint,
+                )
                     .mutate()
                 d.colorFilter = PorterDuffColorFilter(textColor, PorterDuff.Mode.SRC_IN)
                 setImageDrawable(d)
@@ -923,7 +934,7 @@ class UserProfileBottomSheet(
     }
 
     private fun buildVoiceModerationActionItem(
-        icon: MezonIcon,
+        icon: Int,
         title: String,
         labelColor: Int,
         onClick: () -> Unit
@@ -942,8 +953,8 @@ class UserProfileBottomSheet(
             setOnClickListener { onClick() }
         }
         row.addView(ImageView(context).apply {
-            setImageDrawable(icon.getDrawable(context).apply {
-                colorFilter = PorterDuffColorFilter(labelColor, PorterDuff.Mode.SRC_IN)
+            setImageDrawable(MezonIcon.loadDrawable(context, icon).withDefaultIconTint(context, icon, ThemeColors.defaultIconTint).apply {
+                applyActionLabelColor(labelColor, theme)
             })
             scaleType = ImageView.ScaleType.CENTER_INSIDE
         }, LinearLayout.LayoutParams(LayoutHelper.dp(18), LayoutHelper.dp(18)).apply {

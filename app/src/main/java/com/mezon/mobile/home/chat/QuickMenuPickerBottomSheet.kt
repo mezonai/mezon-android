@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.chat
 
+import com.mezon.mobile.ui.cells.setMezonIconResource
 import android.content.Context
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -17,7 +18,6 @@ import com.mezon.mobile.R
 import com.mezon.mobile.core.BottomSheet
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
-import com.mezon.mobile.ui.cells.MezonIcon
 
 class QuickMenuPickerBottomSheet(
     context: Context,
@@ -133,7 +133,7 @@ class QuickMenuPickerBottomSheet(
         }
         iconBg.addView(
             ImageView(context).apply {
-                setImageResource(MezonIcon.quickAction.resId)
+                setMezonIconResource(R.drawable.mz_bolt_16)
                 setColorFilter(theme.textStrong)
                 scaleType = ImageView.ScaleType.FIT_CENTER
             },

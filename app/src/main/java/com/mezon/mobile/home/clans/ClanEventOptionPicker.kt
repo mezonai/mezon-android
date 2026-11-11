@@ -1,8 +1,6 @@
 package com.mezon.mobile.home.clans
 
 import android.content.Context
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
@@ -20,7 +18,7 @@ class ClanEventOptionPicker(
     context: Context,
     private val theme: ThemeColors,
     heading: CharSequence,
-    private val defaultIcon: MezonIcon = MezonIcon.channelText,
+    private val defaultIcon: Int = R.drawable.mz_channel_24,
     placeholder: CharSequence? = null,
     private val clearable: Boolean = true,
 ) : LinearLayout(context) {
@@ -75,7 +73,7 @@ class ClanEventOptionPicker(
         }
     }
 
-    fun bindValue(value: CharSequence, icon: MezonIcon = defaultIcon) {
+    fun bindValue(value: CharSequence, icon: Int = defaultIcon) {
         selectedChannelId = 0L
         bindLeadingIcon(icon, selected = true)
         leadingIcon.visibility = if (clearable) View.VISIBLE else View.GONE
@@ -125,13 +123,13 @@ class ClanEventOptionPicker(
 
     private fun createTrailingChevron() = ImageView(context).apply {
         scaleType = ImageView.ScaleType.CENTER_INSIDE
-        setImageDrawable(tintedIcon(MezonIcon.chevronSmallRightIcon, CreateClanRnUiTokens.textDisabled(theme)))
+        setImageDrawable(tintedIcon(R.drawable.mz_chevron_right_16, CreateClanRnUiTokens.textDisabled(theme)))
     }
 
     private fun createTrailingClear() = ImageView(context).apply {
         contentDescription = context.getString(R.string.event_creator_clear_selection)
         scaleType = ImageView.ScaleType.CENTER_INSIDE
-        setImageDrawable(tintedIcon(MezonIcon.closeSmallBold, CreateClanRnUiTokens.textDisabled(theme)))
+        setImageDrawable(tintedIcon(R.drawable.mz_close_16, CreateClanRnUiTokens.textDisabled(theme)))
         val pad = LayoutHelper.dp(4f)
         setPadding(pad, pad, pad, pad)
         isClickable = true
@@ -139,7 +137,7 @@ class ClanEventOptionPicker(
         setOnClickListener { onClearRequested?.invoke() }
     }
 
-    private fun bindLeadingIcon(icon: MezonIcon, selected: Boolean) {
+    private fun bindLeadingIcon(icon: Int, selected: Boolean) {
         val color = if (selected) {
             CreateClanRnUiTokens.menuText(theme)
         } else {
@@ -168,10 +166,8 @@ class ClanEventOptionPicker(
         }
     }
 
-    private fun tintedIcon(icon: MezonIcon, color: Int): Drawable {
-        return icon.getDrawable(context).mutate().apply {
-            colorFilter = PorterDuffColorFilter(color, PorterDuff.Mode.SRC_IN)
-        }
+    private fun tintedIcon(icon: Int, color: Int): Drawable {
+        return MezonIcon.loadDrawable(context, icon, color)
     }
 
     companion object {

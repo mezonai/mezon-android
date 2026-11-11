@@ -123,10 +123,10 @@ class ShareContactCardLayout(private val context: Context) {
         headerHeight = HEADER_PAD_V * 2 + headerContentH
         textBlockTop = HEADER_PAD_V + (headerContentH - textStackH) / 2f
 
-        callIcon = MezonIcon.phoneCallIcon.getDrawable(context).mutate().apply {
+        callIcon = MezonIcon.loadDrawable(context, R.drawable.mz_call_20, ThemeColors.defaultIconTint).mutate().apply {
             setColorFilter(theme.colorText, android.graphics.PorterDuff.Mode.SRC_IN)
         }
-        messageIcon = MezonIcon.chatIcon.getDrawable(context).mutate().apply {
+        messageIcon = MezonIcon.loadDrawable(context, R.drawable.mz_chat_20, ThemeColors.defaultIconTint).mutate().apply {
             setColorFilter(theme.colorText, android.graphics.PorterDuff.Mode.SRC_IN)
         }
 

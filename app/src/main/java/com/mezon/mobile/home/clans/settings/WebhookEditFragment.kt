@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.clans.settings
 
+import com.mezon.mobile.core.ThemeColors
 import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -162,7 +163,7 @@ class WebhookEditFragment : BaseFragment() {
 
         actionBar = ActionBarView(context, themeColors).apply {
             setTitle(getString(R.string.webhooks_edit_title))
-            setBackButtonImage(R.drawable.ic_close_24)
+            setBackButtonImage(R.drawable.mz_close_24)
             setBackButtonContentDescription(getString(R.string.common_close))
             setCenterTitle(true)
 
@@ -237,9 +238,7 @@ class WebhookEditFragment : BaseFragment() {
 
         avatarOuter.addView(
             ImageView(context).apply {
-                val d = MezonIcon.uploadPlusIcon.getDrawable(context).mutate()
-                d.colorFilter = PorterDuffColorFilter(themeColors.onPrimary, PorterDuff.Mode.SRC_IN)
-                setImageDrawable(d)
+                setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_image_add_24, themeColors.onPrimary))
                 elevation = LayoutHelper.dp(4f).toFloat()
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
             },
@@ -324,7 +323,7 @@ class WebhookEditFragment : BaseFragment() {
                         setPadding(0, LayoutHelper.dp(6f), 0, 0)
                         addView(
                             ImageView(context).apply {
-                                val d = MezonIcon.channelText.getDrawable(context)
+                                val d = MezonIcon.loadDrawable(context, R.drawable.mz_channel_16, ThemeColors.defaultIconTint)
                                 d.mutate()
                                 d.colorFilter = PorterDuffColorFilter(CreateClanRnUiTokens.menuText(themeColors), PorterDuff.Mode.SRC_IN)
                                 setImageDrawable(d)
@@ -335,7 +334,7 @@ class WebhookEditFragment : BaseFragment() {
                         addView(channelLabel, LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1f))
                         addView(
                             ImageView(context).apply {
-                                val d = MezonIcon.chevronSmallRightIcon.getDrawable(context)
+                                val d = MezonIcon.loadDrawable(context, R.drawable.mz_chevron_right_16, ThemeColors.defaultIconTint)
                                 d.mutate()
                                 d.colorFilter = PorterDuffColorFilter(CreateClanRnUiTokens.textDisabled(themeColors), PorterDuff.Mode.SRC_IN)
                                 setImageDrawable(d)

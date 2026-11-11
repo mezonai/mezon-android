@@ -1,15 +1,16 @@
 package com.mezon.mobile.home.chat
 
+import com.mezon.mobile.ui.cells.drawCenteredIcon
+import com.mezon.mobile.ui.cells.MezonIcon
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.graphics.RectF
 import android.graphics.drawable.Drawable
 import android.text.StaticLayout
 import android.text.TextPaint
 import android.view.View
+import androidx.core.graphics.withScale
 import com.mezon.mobile.R
 import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.LayoutHelper
@@ -80,10 +81,7 @@ class WelcomeMessageCell(context: Context, private val theme: ThemeColors) : Vie
     private fun resolveChannelIcon(): Drawable? {
         if (isDM) return null
         val iconEnum = ChannelItemCell.resolveChannelIcon(channelType, isPrivate, isAgeRestricted)
-        val drawable = iconEnum.getDrawable(context, theme)
-        if (!iconEnum.shouldKeepOriginalFill()) {
-            drawable.colorFilter = PorterDuffColorFilter(theme.tabLabelInactive, PorterDuff.Mode.SRC_IN)
-        }
+        val drawable = MezonIcon.loadDrawable(context, iconEnum, theme.iconTint)
         return drawable
     }
 
@@ -214,9 +212,12 @@ class WelcomeMessageCell(context: Context, private val theme: ThemeColors) : Vie
                 iconCirclePaint.color = theme.surfaceVariant
                 canvas.drawCircle(cx.toFloat(), cy.toFloat(), radius.toFloat(), iconCirclePaint)
 
-                val iconHalf = ICON_INNER_SIZE / 2
-                d.setBounds(cx - iconHalf, cy - iconHalf, cx + iconHalf, cy + iconHalf)
-                d.draw(canvas)
+                // Packaged icons draw at their intrinsic size, so scale them to the welcome header's slot.
+                val scaleX = ICON_INNER_SIZE.toFloat() / d.intrinsicWidth
+                val scaleY = ICON_INNER_SIZE.toFloat() / d.intrinsicHeight
+                canvas.withScale(scaleX, scaleY, cx.toFloat(), cy.toFloat()) {
+                    d.drawCenteredIcon(this, cx, cy)
+                }
 
                 y += (ICON_CIRCLE_SIZE + ICON_MARGIN_BOTTOM).toFloat()
             }

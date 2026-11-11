@@ -2,8 +2,6 @@ package com.mezon.mobile.ui.cells
 
 import android.content.Context
 import android.graphics.Canvas
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
@@ -23,6 +21,12 @@ import androidx.core.content.ContextCompat
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 
+internal fun Drawable.applyActionLabelColor(labelColor: Int, theme: ThemeColors) {
+    if (labelColor == theme.error || labelColor == theme.redStrong || labelColor == 0xFFFF3B30.toInt()) {
+        this.setIconColor(labelColor)
+    }
+}
+
 class PopupMenu(
     private val context: Context,
     private val theme: ThemeColors,
@@ -40,20 +44,17 @@ class PopupMenu(
     data class MenuItem(
         val text: String,
         val icon: Drawable? = null,
-        val destructive: Boolean = false
+        val destructive: Boolean = false,
+        val usePackagedIconStyle: Boolean = false,
     )
 
     fun addItem(text: String, icon: Drawable? = null, destructive: Boolean = false) {
-        items.add(MenuItem(text, icon, destructive))
+        items.add(MenuItem(text, icon?.mutate(), destructive))
     }
 
     fun addItem(text: String, @DrawableRes iconResId: Int, destructive: Boolean = false) {
-        val drawable = if (iconResId != 0) ContextCompat.getDrawable(context, iconResId)?.mutate() else null
-        items.add(MenuItem(text, drawable, destructive))
-    }
-
-    fun addItem(text: String, mezonIcon: MezonIcon, destructive: Boolean = false) {
-        addItem(text, mezonIcon.resId, destructive)
+        val drawable = if (iconResId == 0) null else ContextCompat.getDrawable(context, iconResId)?.mutate()
+        items.add(MenuItem(text, drawable, destructive, usePackagedIconStyle = context.isPackagedIcon(iconResId)))
     }
 
     fun setOnItemClickListener(listener: (Int) -> Unit) {
@@ -186,15 +187,19 @@ class PopupMenu(
                 textPaint.color = theme.onSurface
             }
 
-            item.icon?.let { d ->
-                d.mutate()
-                d.colorFilter = PorterDuffColorFilter(
-                    if (item.destructive) theme.error else theme.onSurfaceVariant,
-                    PorterDuff.Mode.SRC_IN
-                )
-                val iconTop = (cellHeight - iconSize) / 2
-                d.setBounds(leftPad, iconTop, leftPad + iconSize, iconTop + iconSize)
-                d.draw(canvas)
+            item.icon?.let { icon ->
+                val tint = when {
+                    item.destructive -> theme.error
+                    item.usePackagedIconStyle -> theme.iconTint
+                    else -> theme.onSurfaceVariant
+                }
+                icon.setIconColor(tint)
+                if (item.usePackagedIconStyle) {
+                    icon.drawCenteredIcon(canvas, leftPad + iconSize / 2, cellHeight / 2)
+                } else {
+                    val iconTop = (cellHeight - iconSize) / 2
+                    MezonIcon.drawIcon(canvas, icon, leftPad, iconTop, leftPad + iconSize, iconTop + iconSize)
+                }
             }
 
             val textX = if (item.icon != null) leftPad + iconSize + iconTextGap else leftPad

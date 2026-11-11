@@ -1,5 +1,8 @@
 package com.mezon.mobile.home.profile
 
+import com.mezon.mobile.ui.cells.setIconColor
+import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.ui.cells.setMezonIconResource
 import com.mezon.mobile.core.theme.MobileThemeColors
 import android.app.Activity
 import android.app.Dialog
@@ -22,7 +25,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.mezon.mobile.R
-import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.core.AlertsCreator
 import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.BaseFragment
@@ -39,6 +41,7 @@ import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.home.clans.ClanEntity
 import com.mezon.mobile.home.clans.ClansController
 import com.mezon.mobile.util.ColorUtilities
+import com.mezon.mobile.ui.theme.ThemeMode
 import android.view.ViewGroup
 
 class EditProfileFragment : BaseFragment() {
@@ -173,7 +176,7 @@ class EditProfileFragment : BaseFragment() {
 
         actionBar = createActionBar(context).apply {
             setBackgroundColor(themeColors.background)
-            setBackButtonImage(R.drawable.ic_close_icon)
+            setBackButtonImage(R.drawable.mz_close_24)
             setTitle(getString(R.string.edit_profile_title))
             setCenterTitle(true)
             val saveItem = createMenu().addItem(1, getString(R.string.edit_profile_save))
@@ -391,8 +394,8 @@ class EditProfileFragment : BaseFragment() {
         }
         removeDmLogoIcon = ImageView(context).apply {
             background = removeIconBg
-            setImageResource(R.drawable.ic_close_icon) 
-            imageTintList = android.content.res.ColorStateList.valueOf(0xFFFFFFFF.toInt())
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_close_16, ThemeMode.DARK.iconTint))
+            scaleType = ImageView.ScaleType.CENTER
             setPadding(LayoutHelper.dp(4), LayoutHelper.dp(4), LayoutHelper.dp(4), LayoutHelper.dp(4))
             setOnClickListener { removeDmLogo() }
         }
@@ -696,8 +699,8 @@ class EditProfileFragment : BaseFragment() {
 
                 if (clan.clanId == selectedClan?.clanId) {
                     val check = ImageView(context).apply {
-                        setImageResource(MezonIcon.checkmarkSmallIcon.resId)
-                        imageTintList = android.content.res.ColorStateList.valueOf(themeColors.onlineGreen)
+                        setMezonIconResource(R.drawable.mz_check_24)
+                        drawable?.let { it.setIconColor(themeColors.onlineGreen) }
                     }
                     itemRow.addView(check, LayoutHelper.createLinear(24, 24, 0f, Gravity.CENTER_VERTICAL))
                 }

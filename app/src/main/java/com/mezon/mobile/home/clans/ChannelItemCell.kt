@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.clans
 
+import com.mezon.mobile.R
 import com.mezon.mobile.core.theme.DesktopThemeToken
 import android.content.Context
 import android.graphics.Canvas
@@ -10,6 +11,7 @@ import android.graphics.RectF
 import android.graphics.drawable.Drawable
 import android.text.TextPaint
 import android.text.TextUtils
+import androidx.core.content.ContextCompat
 import com.mezon.mobile.core.BaseCell
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
@@ -47,18 +49,22 @@ class ChannelItemCell(
         fun resolveChannelIcon(
             type: Int,
             isPrivate: Boolean,
-            isAgeRestricted: Boolean = false
-        ): MezonIcon = when (type) {
-            CHANNEL_TYPE_VOICE -> if (isPrivate) MezonIcon.channelVoiceLock else MezonIcon.channelVoice
-            CHANNEL_TYPE_STREAMING -> MezonIcon.channelStream
-            CHANNEL_TYPE_APP -> MezonIcon.channelApp
-            CHANNEL_TYPE_FORUM -> MezonIcon.forumIcon
-            CHANNEL_TYPE_ANNOUNCEMENT -> MezonIcon.announcementIcon
-            CHANNEL_TYPE_THREAD -> if (isPrivate) MezonIcon.threadLockIcon else MezonIcon.threadIcon
-            else -> when {
-                isAgeRestricted -> MezonIcon.channelTextWarning
-                isPrivate -> MezonIcon.channelTextLock
-                else -> MezonIcon.channelText
+            isAgeRestricted: Boolean = false,
+            compact: Boolean = false,
+        ): Int {
+            fun size(regular: Int, small: Int) = if (compact) small else regular
+            return when (type) {
+                CHANNEL_TYPE_VOICE -> if (isPrivate) size(R.drawable.mz_speaker_lock_20, R.drawable.mz_speaker_lock_16) else size(R.drawable.mz_speaker_20, R.drawable.mz_speaker_16)
+                CHANNEL_TYPE_STREAMING -> size(R.drawable.mz_live_20, R.drawable.mz_live_16)
+                CHANNEL_TYPE_APP -> size(R.drawable.mz_channel_app_20, R.drawable.mz_channel_app_16)
+                CHANNEL_TYPE_FORUM -> size(R.drawable.mz_forum_20, R.drawable.mz_forum_16)
+                CHANNEL_TYPE_ANNOUNCEMENT -> size(R.drawable.mz_announcement_20, R.drawable.mz_announcement_16)
+                CHANNEL_TYPE_THREAD -> if (isPrivate) size(R.drawable.mz_thread_private_20, R.drawable.mz_thread_private_16) else size(R.drawable.mz_thread_20, R.drawable.mz_thread_16)
+                else -> when {
+                    isAgeRestricted -> size(R.drawable.mz_channel_warning_20, R.drawable.mz_channel_warning_16)
+                    isPrivate -> size(R.drawable.mz_channel_private_20, R.drawable.mz_channel_private_16)
+                    else -> size(R.drawable.mz_channel_20, R.drawable.mz_channel_16)
+                }
             }
         }
     }
@@ -89,7 +95,7 @@ class ChannelItemCell(
 
     private val cellHeightPx = LayoutHelper.dp(34)
     private val paddingHPx = LayoutHelper.dp(16)
-    private val iconSizePx = LayoutHelper.dp(12)
+    private val iconSizePx = LayoutHelper.dp(16)
     private val iconMarginPx = LayoutHelper.dp(8)
     private val badgeSizePx = LayoutHelper.dp(20)
     private val unreadDotRadius = LayoutHelper.dp(3f).toFloat()
@@ -193,20 +199,21 @@ class ChannelItemCell(
         }
 
         val icon = resolveIconDrawable(ch.type, ch.isPrivate, ch.isAgeRestricted)
-        val iconEnum = resolveChannelIcon(ch.type, ch.isPrivate, ch.isAgeRestricted)
         val isVoiceType = ch.type == CHANNEL_TYPE_VOICE || ch.type == CHANNEL_TYPE_STREAMING || ch.type == CHANNEL_TYPE_APP
-        icon.colorFilter = if (iconEnum.shouldKeepOriginalFill()) {
-            null
-        } else if (isVoiceType && voiceActive) {
+        icon.colorFilter = if (isVoiceType && voiceActive) {
             voiceActiveColorFilter
         } else {
-            val token = if (isActive || showUnreadHighlight) {
-                DesktopThemeToken.BG_ICON_THEME_ACTIVE
+            val iconColor = if (ch.type == CHANNEL_TYPE_THREAD) {
+                themeColors.iconTint
             } else {
-                DesktopThemeToken.BG_ICON_THEME
-            }
-            val iconColor = themeColors.desktop[token].let {
-                if (isMutedVisual) withAlpha(it, MUTED_CONTENT_ALPHA) else it
+                val token = if (isActive || showUnreadHighlight) {
+                    DesktopThemeToken.BG_ICON_THEME_ACTIVE
+                } else {
+                    DesktopThemeToken.BG_ICON_THEME
+                }
+                themeColors.desktop[token].let {
+                    if (isMutedVisual) withAlpha(it, MUTED_CONTENT_ALPHA) else it
+                }
             }
             if (cachedIconColorFilter == null || cachedIconColor != iconColor) {
                 cachedIconColor = iconColor
@@ -254,7 +261,9 @@ class ChannelItemCell(
             val textRight = (width - paddingHPx).toFloat()
             val iconRight = textRight - viewerCountPaint.measureText(streamViewerCountText) - LayoutHelper.dp(6)
             val iconSize = LayoutHelper.dp(14)
-            val eye = viewerEyeDrawable ?: MezonIcon.eyeIcon.getDrawable(context).mutate().also { viewerEyeDrawable = it }
+            val eye = viewerEyeDrawable
+                ?: requireNotNull(ContextCompat.getDrawable(context, R.drawable.mz_eye_16)).mutate()
+                    .also { viewerEyeDrawable = it }
             eye.setTint(textColor)
             eye.setBounds((iconRight - iconSize).toInt(), (cy - iconSize / 2f).toInt(), iconRight.toInt(), (cy + iconSize / 2f).toInt())
             eye.draw(canvas)
@@ -279,14 +288,15 @@ class ChannelItemCell(
         return color and 0x00FFFFFF or (alpha shl 24)
     }
 
-    private fun resolveIconDrawable(type: Int, isPrivate: Boolean, isAgeRestricted: Boolean = false): Drawable {
+    private fun resolveIconDrawable(type: Int, isPrivate: Boolean, isAgeRestricted: Boolean): Drawable {
         if (currentIconDrawable != null && currentIconType == type && currentIconPrivate == isPrivate && currentIconAgeRestricted == isAgeRestricted) {
             return currentIconDrawable!!
         }
         currentIconType = type
         currentIconPrivate = isPrivate
         currentIconAgeRestricted = isAgeRestricted
-        currentIconDrawable = resolveChannelIcon(type, isPrivate, isAgeRestricted).getDrawable(context)
+        val resId = resolveChannelIcon(type, isPrivate, isAgeRestricted, compact = true)
+        currentIconDrawable = MezonIcon.loadDrawable(context, resId)
         return currentIconDrawable!!
     }
 }

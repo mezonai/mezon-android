@@ -63,7 +63,7 @@ class AppUpdateGateBottomSheet(
         val icon = ImageView(context).apply {
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             setImageDrawable(
-                MezonIcon.downloadIcon.getDrawable(context, blurple)
+                MezonIcon.loadDrawable(context, R.drawable.mz_download_40, blurple)
             )
         }
         iconWrap.addView(

@@ -19,6 +19,7 @@ import com.mezon.mobile.core.BottomSheet
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.ui.theme.ThemeMode
 
 class ExternalMeetingLinkBottomSheet(
     context: Context,
@@ -62,7 +63,7 @@ class ExternalMeetingLinkBottomSheet(
             setOnClickListener { dismiss() }
         }
         closeButton.addView(ImageView(context).apply {
-            setImageDrawable(MezonIcon.chevronDownSmallIcon.getDrawable(context).apply {
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_chevron_down_20, ThemeColors.defaultIconTint).apply {
                 colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
             })
             scaleType = ImageView.ScaleType.CENTER_INSIDE
@@ -91,9 +92,7 @@ class ExternalMeetingLinkBottomSheet(
             }
         }
         iconCircle.addView(ImageView(context).apply {
-            setImageDrawable(MezonIcon.channelVoice.getDrawable(context).apply {
-                colorFilter = PorterDuffColorFilter(EXTERNAL_COLOR, PorterDuff.Mode.SRC_IN)
-            })
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_speaker_32, EXTERNAL_COLOR))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
         }, FrameLayout.LayoutParams(LayoutHelper.dp(30), LayoutHelper.dp(30), Gravity.CENTER))
         iconContainer.addView(iconCircle, FrameLayout.LayoutParams(LayoutHelper.dp(64), LayoutHelper.dp(64), Gravity.CENTER))
@@ -130,7 +129,7 @@ class ExternalMeetingLinkBottomSheet(
             buildActionButton(
                 context,
                 context.getString(R.string.external_meeting_join_in_app),
-                MezonIcon.channelVoice,
+                MezonIcon.loadDrawable(context, R.drawable.mz_speaker_24, ThemeMode.DARK.iconTint),
                 JOIN_IN_APP_COLOR,
                 0xFFFFFFFF.toInt(),
             ) {
@@ -146,7 +145,7 @@ class ExternalMeetingLinkBottomSheet(
             buildActionButton(
                 context,
                 context.getString(R.string.external_meeting_open_in_browser),
-                MezonIcon.linkIcon,
+                MezonIcon.loadDrawable(context, R.drawable.mz_link_24, themeColors.iconTint),
                 themeColors.surfaceVariant,
                 themeColors.onSurface,
             ) {
@@ -173,7 +172,7 @@ class ExternalMeetingLinkBottomSheet(
     private fun buildActionButton(
         context: Context,
         label: String,
-        icon: MezonIcon,
+        icon: android.graphics.drawable.Drawable,
         backgroundColor: Int,
         contentColor: Int,
         onClick: () -> Unit,
@@ -191,9 +190,7 @@ class ExternalMeetingLinkBottomSheet(
             applyVoiceButtonPressFeedback()
             setOnClickListener { onClick() }
             addView(ImageView(context).apply {
-                setImageDrawable(icon.getDrawable(context).apply {
-                    colorFilter = PorterDuffColorFilter(contentColor, PorterDuff.Mode.SRC_IN)
-                })
+                setImageDrawable(icon)
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
             }, LinearLayout.LayoutParams(LayoutHelper.dp(18), LayoutHelper.dp(18)))
             addView(TextView(context).apply {

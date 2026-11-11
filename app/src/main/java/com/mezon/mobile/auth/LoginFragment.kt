@@ -1,5 +1,6 @@
 package com.mezon.mobile.auth
 
+import com.mezon.mobile.ui.cells.MezonIcon
 import android.content.Context
 import android.content.res.ColorStateList
 import android.content.res.Resources
@@ -139,6 +140,7 @@ class LoginFragment : AuthFragment() {
 
         phoneCell = InputCell(context, themeColors).apply {
             setLightInputAppearance(fill = Color.TRANSPARENT, stroke = Color.TRANSPARENT)
+            useDarkClearIcon()
             setHint(getString(R.string.common_login_phone_number))
             editText.inputType = InputType.TYPE_CLASS_PHONE
             editText.imeOptions = EditorInfo.IME_ACTION_DONE
@@ -148,13 +150,14 @@ class LoginFragment : AuthFragment() {
 
         emailCell = InputCell(context, themeColors).apply {
             setLightInputAppearance()
+            useDarkClearIcon()
             setHint(getString(R.string.common_login_email_address))
             editText.inputType = InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
             editText.imeOptions = EditorInfo.IME_ACTION_NEXT
             setInputContainerMinHeightDp(50)
             setInputCornerRadiusDp(25f)
-            val drawable = androidx.core.content.ContextCompat.getDrawable(context, R.drawable.ic_email_outline)?.mutate()
-            drawable?.setBounds(0, 0, LayoutHelper.dp(24), LayoutHelper.dp(24))
+            val drawable = MezonIcon.loadDrawable(context, R.drawable.ic_email_outline, FIELD_ICON_TINT)
+            drawable.setBounds(0, 0, LayoutHelper.dp(24), LayoutHelper.dp(24))
             editText.setCompoundDrawables(drawable, null, null, null)
             editText.compoundDrawablePadding = LayoutHelper.dp(8)
         }
@@ -167,14 +170,15 @@ class LoginFragment : AuthFragment() {
 
         passwordCell = InputCell(context, themeColors).apply {
             setLightInputAppearance()
+            useDarkClearIcon()
             setHint(getString(R.string.common_login_password))
             editText.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             editText.typeface = android.graphics.Typeface.DEFAULT
             editText.imeOptions = EditorInfo.IME_ACTION_DONE
             setInputContainerMinHeightDp(50)
             setInputCornerRadiusDp(25f)
-            val drawable = androidx.core.content.ContextCompat.getDrawable(context, R.drawable.ic_lock_outline)?.mutate()
-            drawable?.setBounds(0, 0, LayoutHelper.dp(24), LayoutHelper.dp(24))
+            val drawable = MezonIcon.loadDrawable(context, R.drawable.ic_lock_outline, FIELD_ICON_TINT)
+            drawable.setBounds(0, 0, LayoutHelper.dp(24), LayoutHelper.dp(24))
             editText.setCompoundDrawables(drawable, null, null, null)
             editText.compoundDrawablePadding = LayoutHelper.dp(8)
         }
@@ -654,6 +658,7 @@ class LoginFragment : AuthFragment() {
 
     companion object {
         private const val TAG = "LoginFragment"
+        private const val FIELD_ICON_TINT = 0xFF8B8B8B.toInt()
         private val EMAIL_REGEX = Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")
         private val NON_DIGITS_REGEX = Regex("[^0-9]")
         private val VN_MOBILE_REGEX = Regex("^(3|5|7|8|9)[0-9]{8}$")

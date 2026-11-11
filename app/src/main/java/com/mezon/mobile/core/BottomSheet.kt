@@ -1,5 +1,6 @@
 package com.mezon.mobile.core
 
+import com.mezon.mobile.ui.cells.setMezonIconResource
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.animation.AnimatorSet
@@ -86,7 +87,7 @@ open class BottomSheet(
         fun setTextAndIcon(text: CharSequence, icon: Int) {
             textView.text = text
             if (icon != 0) {
-                imageView.setImageResource(icon)
+                imageView.setMezonIconResource(icon)
                 imageView.visibility = VISIBLE
             } else {
                 imageView.visibility = GONE

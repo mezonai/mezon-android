@@ -1,5 +1,7 @@
 package com.mezon.mobile.home.sharing
 
+import com.mezon.mobile.ui.cells.withDefaultIconTint
+import com.mezon.mobile.core.ThemeColors
 import android.content.ContentResolver
 import android.content.Context
 import android.graphics.BitmapFactory
@@ -69,6 +71,7 @@ import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.util.MarkdownMarker
 import com.mezon.mobile.util.parseContentPreview
 import com.mezon.mobile.util.parseMarkdownAndStrip
+import com.mezon.mobile.ui.theme.ThemeMode
 import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -439,7 +442,7 @@ class SharingFragment(
         }
 
         searchIcon = ImageView(context).apply {
-            val d = MezonIcon.magnifyingIcon.getDrawable(context)
+            val d = MezonIcon.loadDrawable(context, R.drawable.mz_search_20, ThemeColors.defaultIconTint)
             d.colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
             setImageDrawable(d)
         }
@@ -498,7 +501,7 @@ class SharingFragment(
         searchBarContainer.addView(searchEditText, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f))
 
         selectedChipClose = ImageView(context).apply {
-            val d = MezonIcon.closeSmallBold.getDrawable(context)
+            val d = MezonIcon.loadDrawable(context, R.drawable.mz_close_16, ThemeColors.defaultIconTint)
             d.colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
             setImageDrawable(d)
             visibility = View.GONE
@@ -550,14 +553,14 @@ class SharingFragment(
             ellipsize = TextUtils.TruncateAt.END
             visibility = View.GONE
         }
-        fun metaRow(icon: MezonIcon): Pair<LinearLayout, TextView> {
+        fun metaRow(icon: Int): Pair<LinearLayout, TextView> {
             val row = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
                 visibility = View.GONE
             }
             val iv = ImageView(context).apply {
-                setImageDrawable(icon.getDrawable(context))
+                setImageDrawable(MezonIcon.loadDrawable(context, icon).withDefaultIconTint(context, icon, ThemeColors.defaultIconTint))
                 colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
             }
             row.addView(iv, LayoutHelper.createLinear(16, 16, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, 6f, 0f))
@@ -568,13 +571,13 @@ class SharingFragment(
             row.addView(tv, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f))
             return row to tv
         }
-        val pImg = metaRow(MezonIcon.imageIcon)
+        val pImg = metaRow(R.drawable.mz_image_16)
         forwardPreviewImagesRow = pImg.first
         forwardPreviewImagesLabel = pImg.second
-        val pVid = metaRow(MezonIcon.playCircleIcon)
+        val pVid = metaRow(R.drawable.mz_play_16)
         forwardPreviewVideosRow = pVid.first
         forwardPreviewVideosLabel = pVid.second
-        val pFil = metaRow(MezonIcon.attachmentIcon)
+        val pFil = metaRow(R.drawable.mz_attach_24)
         forwardPreviewFilesRow = pFil.first
         forwardPreviewFilesLabel = pFil.second
         previewCol.addView(forwardPreviewContentText, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
@@ -650,9 +653,7 @@ class SharingFragment(
             setOnClickListener { onSend() }
         }
         sendIcon = ImageView(context).apply {
-            val d = MezonIcon.sendMessageIcon.getDrawable(context)
-            d.colorFilter = PorterDuffColorFilter(Color.WHITE, PorterDuff.Mode.SRC_IN)
-            setImageDrawable(d)
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_send_20, ThemeMode.DARK.iconTint))
         }
         sendButton.addView(sendIcon, LayoutHelper.createFrame(20, 20, Gravity.CENTER))
         sendProgress = ProgressBar(context).apply {
@@ -699,12 +700,7 @@ class SharingFragment(
 
             val mime = resolveSharedMimeType(context.contentResolver, uri)
             if (mime.startsWith("video/", ignoreCase = true)) {
-                val playOverlay = ImageView(context).apply {
-                    val d = MezonIcon.playIcon.getDrawable(context)
-                    d.colorFilter = PorterDuffColorFilter(Color.WHITE, PorterDuff.Mode.SRC_IN)
-                    setImageDrawable(d)
-                }
-                frame.addView(playOverlay, LayoutHelper.createFrame(20, 20, Gravity.CENTER))
+                frame.addView(createVideoPlayOverlay(context), LayoutHelper.createFrame(28, 28, Gravity.CENTER))
             }
 
             val lp = LinearLayout.LayoutParams(LayoutHelper.dp(60), LayoutHelper.dp(60))
@@ -722,12 +718,7 @@ class SharingFragment(
                 }
             }
             frame.addView(image, LayoutHelper.createFrame(60, 60))
-            val playOverlay = ImageView(context).apply {
-                val drawable = MezonIcon.playIcon.getDrawable(context)
-                drawable.colorFilter = PorterDuffColorFilter(Color.WHITE, PorterDuff.Mode.SRC_IN)
-                setImageDrawable(drawable)
-            }
-            frame.addView(playOverlay, LayoutHelper.createFrame(20, 20, Gravity.CENTER))
+            frame.addView(createVideoPlayOverlay(context), LayoutHelper.createFrame(28, 28, Gravity.CENTER))
             thumbRow.addView(frame, LinearLayout.LayoutParams(LayoutHelper.dp(60), LayoutHelper.dp(60)))
         }
         thumbScroll.addView(thumbRow)
@@ -771,9 +762,7 @@ class SharingFragment(
             setOnClickListener { onSend() }
         }
         sendIcon = ImageView(context).apply {
-            val d = MezonIcon.sendMessageIcon.getDrawable(context)
-            d.colorFilter = PorterDuffColorFilter(Color.WHITE, PorterDuff.Mode.SRC_IN)
-            setImageDrawable(d)
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_send_20, ThemeMode.DARK.iconTint))
         }
         sendButton.addView(sendIcon, LayoutHelper.createFrame(20, 20, Gravity.CENTER))
         sendProgress = ProgressBar(context).apply {
@@ -787,6 +776,15 @@ class SharingFragment(
         area.addView(inputRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
         return area
+    }
+
+    private fun createVideoPlayOverlay(context: Context) = ImageView(context).apply {
+        background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(0x99000000.toInt())
+        }
+        scaleType = ImageView.ScaleType.CENTER
+        setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_play_20, ThemeMode.DARK.iconTint))
     }
 
     private fun loadThumbnail(imageView: ImageView, uri: Uri) {

@@ -1,12 +1,11 @@
 package com.mezon.mobile.home.clans.settings
 
+import com.mezon.mobile.core.ThemeColors
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.graphics.BitmapFactory
 import android.graphics.Color
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
@@ -83,7 +82,7 @@ class CommunitySettingsFragment : BaseFragment() {
     override fun createView(context: Context): View {
         actionBar = ActionBarView(context, themeColors).apply {
             setTitle(getString(R.string.community_settings_title))
-            setBackButtonImage(R.drawable.ic_close_24)
+            setBackButtonImage(R.drawable.mz_close_24)
             setBackButtonContentDescription(getString(R.string.common_close))
             setCenterTitle(true)
             setMenuOnItemClick(object : ActionBarView.ActionBarMenuOnItemClick() {
@@ -316,11 +315,11 @@ class CommunitySettingsFragment : BaseFragment() {
             scaleType = ImageView.ScaleType.CENTER_CROP
         }
         val bannerCameraIcon = ImageView(ctx).apply {
-            setImageDrawable(MezonIcon.cameraIcon.getDrawable(ctx, themeColors.onSurfaceVariant))
+            setImageDrawable(MezonIcon.loadDrawable(ctx, R.drawable.mz_camera_24, ThemeColors.defaultIconTint))
             scaleType = ImageView.ScaleType.CENTER
         }
         val bannerRemoveBtn = ImageView(ctx).apply {
-            setImageDrawable(MezonIcon.circleXIcon.getDrawable(ctx, themeColors.error))
+            setImageDrawable(MezonIcon.loadDrawable(ctx, R.drawable.mz_close_circle_24, themeColors.error))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             elevation = LayoutHelper.dpf(4f)
             isClickable = true

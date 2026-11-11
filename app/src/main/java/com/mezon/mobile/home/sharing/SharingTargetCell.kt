@@ -1,11 +1,10 @@
 package com.mezon.mobile.home.sharing
 
+import com.mezon.mobile.R
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextUtils
@@ -18,6 +17,7 @@ import com.mezon.mobile.home.messages.ChannelAvatarLoadState
 import com.mezon.mobile.home.messages.ChannelAvatarRequest
 import com.mezon.mobile.home.messages.loadChannelAvatar
 import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.ui.theme.ThemeMode
 
 class SharingTargetCell(context: Context, private val theme: ThemeColors) : View(context) {
 
@@ -42,7 +42,7 @@ class SharingTargetCell(context: Context, private val theme: ThemeColors) : View
     private val checkFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
     }
-    private val checkMarkDrawable = MezonIcon.checkmarkSmallIcon.getDrawable(context).mutate()
+    private val checkMarkDrawable = MezonIcon.loadDrawable(context, R.drawable.mz_check_16, ThemeMode.DARK.iconTint)
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
@@ -168,7 +168,6 @@ class SharingTargetCell(context: Context, private val theme: ThemeColors) : View
             checkPaint.color = if (forwardSelected) theme.primary else theme.outline
             if (forwardSelected) {
                 canvas.drawRoundRect(checkBoxRect, CHECK_CORNER, CHECK_CORNER, checkFillPaint)
-                checkMarkDrawable.colorFilter = PorterDuffColorFilter(0xFFFFFFFF.toInt(), PorterDuff.Mode.SRC_IN)
                 val cx = checkBoxRect.centerX()
                 val cy = checkBoxRect.centerY()
                 val half = CHECK_ICON / 2f

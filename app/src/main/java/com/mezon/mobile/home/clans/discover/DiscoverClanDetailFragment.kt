@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.clans.discover
 
+import com.mezon.mobile.core.ThemeColors
 import android.content.Context
 import android.content.res.ColorStateList
 import android.os.Handler
@@ -287,10 +288,10 @@ class DiscoverClanDetailFragment : BaseFragment() {
             bottomMargin = LayoutHelper.dp(24)
         })
 
-        inner.addView(infoBlock(context, MezonIcon.messagePlusIcon, getString(R.string.discover_how_chatty), getString(R.string.discover_des_how_chatty)))
-        inner.addView(infoBlock(context, MezonIcon.calendarIcon, getString(R.string.discover_clan_created), formatCreateTime(createTimeSeconds)))
-        inner.addView(infoBlock(context, MezonIcon.starIcon, getString(R.string.discover_feature), getString(R.string.discover_des_feature)))
-        inner.addView(infoBlock(context, MezonIcon.userGroupIcon, getString(R.string.discover_community), getString(R.string.discover_des_community)))
+        inner.addView(infoBlock(context, R.drawable.mz_message_add_24, getString(R.string.discover_how_chatty), getString(R.string.discover_des_how_chatty)))
+        inner.addView(infoBlock(context, R.drawable.mz_calendar_24, getString(R.string.discover_clan_created), formatCreateTime(createTimeSeconds)))
+        inner.addView(infoBlock(context, R.drawable.mz_star_24, getString(R.string.discover_feature), getString(R.string.discover_des_feature)))
+        inner.addView(infoBlock(context, R.drawable.mz_members_24, getString(R.string.discover_community), getString(R.string.discover_des_community)))
 
         if (about.isNotEmpty()) {
             inner.addView(label(context, getString(R.string.discover_about), 16f, true, themeColors.onSurface).apply {
@@ -399,7 +400,7 @@ class DiscoverClanDetailFragment : BaseFragment() {
         gravity = Gravity.CENTER_HORIZONTAL
     }
 
-    private fun infoBlock(context: Context, mezonIcon: MezonIcon, title: String, body: String): LinearLayout {
+    private fun infoBlock(context: Context, mezonIcon: Int, title: String, body: String): LinearLayout {
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(0, 0, 0, LayoutHelper.dp(16))
@@ -414,7 +415,7 @@ class DiscoverClanDetailFragment : BaseFragment() {
             }
         }
         val icon = ImageView(context).apply {
-            setImageDrawable(mezonIcon.getDrawable(context, themeColors.onSurface))
+            setImageDrawable(MezonIcon.loadDrawable(context, mezonIcon, ThemeColors.defaultIconTint))
             layoutParams = FrameLayout.LayoutParams(LayoutHelper.dp(20), LayoutHelper.dp(20)).apply {
                 gravity = Gravity.CENTER
             }

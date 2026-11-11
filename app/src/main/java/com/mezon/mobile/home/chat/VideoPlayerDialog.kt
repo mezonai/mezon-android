@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.chat
 
+import com.mezon.mobile.ui.cells.MezonIcon
 import android.animation.ObjectAnimator
 import android.app.DownloadManager
 import android.content.BroadcastReceiver
@@ -59,6 +60,7 @@ import com.mezon.mobile.util.FileIngestPlaylist
 import com.mezon.mobile.util.HlsVideoCopy
 import com.mezon.mobile.util.VideoCache
 import com.mezon.mobile.util.VideoPrefetcher
+import com.mezon.mobile.ui.theme.ThemeMode
 import dagger.hilt.android.EntryPointAccessors
 import java.util.Locale
 import kotlinx.coroutines.Job
@@ -263,8 +265,8 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
         }
 
         val backButton = ImageView(context).apply {
-            setImageResource(R.drawable.ic_arrow_back)
-            setColorFilter(Color.WHITE)
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_arrow_left_24, ThemeMode.DARK.iconTint))
+            scaleType = ImageView.ScaleType.CENTER
             val padding = LayoutHelper.dp(16)
             setPadding(padding, padding, padding, padding)
             setOnClickListener { dismissWithAnimation() }
@@ -323,8 +325,8 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
         )
 
         val moreButton = ImageView(context).apply {
-            setImageResource(R.drawable.ic_more_vertical_24)
-            setColorFilter(Color.WHITE)
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_more_vertical_24, ThemeMode.DARK.iconTint))
+            scaleType = ImageView.ScaleType.CENTER
             val padding = LayoutHelper.dp(16)
             setPadding(padding, padding, padding, padding)
             setOnClickListener { showMoreOptions(it) }
@@ -705,7 +707,7 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
 
         when {
             item.uploaderId == VIDEO_ANONYMOUS_USER_ID && sender.avatarUrl == null -> {
-                avatarView.setImageDrawable(com.mezon.mobile.ui.cells.MezonIcon.anonymousAvatar.getDrawable(context))
+                avatarView.setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_anonymous_24, ThemeColors.defaultIconTint))
             }
             sender.avatarUrl != null -> {
                 avatarView.setImage(
