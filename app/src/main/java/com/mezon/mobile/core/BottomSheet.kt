@@ -274,6 +274,9 @@ open class BottomSheet(
     protected open val sheetHandleColor: Int
         get() = theme.getColor(ThemeColors.key_sheetHandle)
 
+    protected open val limitHeightToVisibleArea: Boolean
+        get() = false
+
     fun fixNavigationBar() {
         fixNavigationBar(resolvedSheetBackgroundColor)
     }
@@ -1308,10 +1311,11 @@ open class BottomSheet(
             }
             isPortrait = width < height
 
-            availableSheetHeight = if (snapPoints.isNotEmpty()) {
-                (height - statusBarHeight).coerceAtLeast(0)
-            } else {
-                height
+            availableSheetHeight = when {
+                limitHeightToVisibleArea ->
+                    (measuredHeight - layoutBottomInset() - statusBarHeight).coerceAtLeast(0)
+                snapPoints.isNotEmpty() -> (height - statusBarHeight).coerceAtLeast(0)
+                else -> height
             }
             containerView?.let { cv ->
                 val widthSpec = if (!useFullWidth) {
@@ -1326,7 +1330,7 @@ open class BottomSheet(
                         if (fitToContents) MeasureSpec.AT_MOST else MeasureSpec.EXACTLY
                     )
                 } else {
-                    MeasureSpec.makeMeasureSpec(height, MeasureSpec.AT_MOST)
+                    MeasureSpec.makeMeasureSpec(availableSheetHeight, MeasureSpec.AT_MOST)
                 }
                 cv.measure(widthSpec, heightSpec)
             }
@@ -1343,17 +1347,18 @@ open class BottomSheet(
             }
         }
 
-        override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
-            val layoutBottom = if (lastInsets != null && !drawNavigationBar) {
-                if (this@BottomSheet.needFocusable && this@BottomSheet.keyboardVisible) {
-                    bottom - (lastInsets!!.systemWindowInsetBottom - this@BottomSheet.bottomInset)
-                } else {
-                    bottom - this@BottomSheet.bottomInset
-                }
+        private fun layoutBottomInset(): Int {
+            val insets = lastInsets ?: return 0
+            if (drawNavigationBar) return 0
+            return if (needFocusable && keyboardVisible) {
+                insets.systemWindowInsetBottom - bottomInset
             } else {
-                bottom
+                bottomInset
             }
+        }
 
+        override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+            val layoutBottom = bottom - layoutBottomInset()
             containerView?.let { cv ->
                 val heightChanged = cv.height != cv.measuredHeight
                 val t = (layoutBottom - top) - cv.measuredHeight

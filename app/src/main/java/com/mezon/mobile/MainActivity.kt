@@ -25,6 +25,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
+import androidx.core.view.doOnPreDraw
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -180,7 +181,11 @@ class MainActivity : BasePermissionsActivity(),
         private set
 
     private var isContentReady = false
-    private val dismissSplashRunnable = Runnable { isContentReady = true }
+    private var notificationPermissionRequested = false
+    private val dismissSplashRunnable = Runnable {
+        isContentReady = true
+        scheduleNotificationPermissionRequest()
+    }
     private var splashContentObserver: NotificationCenter.NotificationCenterDelegate? = null
     private var appUpdateGateRunnable: Runnable? = null
     private var callingOverlay: CallingOverlay? = null
@@ -291,7 +296,6 @@ class MainActivity : BasePermissionsActivity(),
             appUpdateGateRunnable = run
             AndroidUtilities.runOnUIThread(run, 2000L)
         }
-        requestNotificationPermission()
         lifecycleScope.launch(Dispatchers.IO) {
             PendingCameraCapture.sweepOrphans(this@MainActivity)
             ImageClipboardCoordinator.sweepStaleFiles(this@MainActivity)
@@ -344,6 +348,12 @@ class MainActivity : BasePermissionsActivity(),
             promptSessionExpired()
         }
         flushPendingDeepLink()
+        scheduleNotificationPermissionRequest()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) scheduleNotificationPermissionRequest()
     }
 
     private fun maybePromptFullScreenIntentForIncomingCalls() {
@@ -821,6 +831,7 @@ class MainActivity : BasePermissionsActivity(),
     override fun onFragmentStackChanged(layout: INavigationLayout) {
         checkSystemBarColors()
         refreshOngoingCallBanner()
+        scheduleNotificationPermissionRequest()
     }
 
     // ── Navigation ──────────────────────────────────────────────────────────
@@ -866,11 +877,11 @@ class MainActivity : BasePermissionsActivity(),
     private fun setupSplashDismiss() {
         val observer = object : NotificationCenter.NotificationCenterDelegate {
             override fun didReceivedNotification(id: Int, account: Int, vararg args: Any?) {
-                isContentReady = true
                 AndroidUtilities.cancelRunOnUIThread(dismissSplashRunnable)
                 notificationCenter.removeObserver(this, NotificationCenter.clansDidLoad)
                 notificationCenter.removeObserver(this, NotificationCenter.dialogsNeedReload)
                 splashContentObserver = null
+                dismissSplashRunnable.run()
             }
         }
         splashContentObserver = observer
@@ -998,6 +1009,7 @@ class MainActivity : BasePermissionsActivity(),
             
         }
         flushPendingDeepLink()
+        scheduleNotificationPermissionRequest()
     }
 
     private fun promptSessionExpired() {
@@ -1773,12 +1785,14 @@ class MainActivity : BasePermissionsActivity(),
         }
     }
 
-    private fun requestNotificationPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(
-                    this, Manifest.permission.POST_NOTIFICATIONS
-                ) != PackageManager.PERMISSION_GRANTED
-            ) {
+    private fun scheduleNotificationPermissionRequest() {
+        if (!canRequestNotificationPermission()) return
+
+        // Let Home draw before the system permission dialog takes focus.
+        drawerLayoutContainer.doOnPreDraw {
+            drawerLayoutContainer.post {
+                if (!canRequestNotificationPermission()) return@post
+                notificationPermissionRequested = true
                 ActivityCompat.requestPermissions(
                     this,
                     arrayOf(Manifest.permission.POST_NOTIFICATIONS),
@@ -1786,6 +1800,20 @@ class MainActivity : BasePermissionsActivity(),
                 )
             }
         }
+        drawerLayoutContainer.invalidate()
+    }
+
+    private fun canRequestNotificationPermission(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            notificationPermissionRequested || !isContentReady || !isResumed ||
+            isFinishing || isDestroyed || !hasWindowFocus() ||
+            !StartupCache.hasSession || StartupCache.needsUsernameSetup ||
+            actionBarLayout.getLastFragment() !is MainTabsActivity
+        ) return false
+
+        return ContextCompat.checkSelfPermission(
+            this, Manifest.permission.POST_NOTIFICATIONS
+        ) != PackageManager.PERMISSION_GRANTED
     }
 
     private var lastLocaleTag: String? = null
