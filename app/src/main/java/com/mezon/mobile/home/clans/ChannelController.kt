@@ -2288,6 +2288,7 @@ class ChannelController @Inject constructor(
             dispatcher.channelMessages.collect { msg ->
                 if (msg.mode == STREAM_MODE_DM || msg.mode == STREAM_MODE_GROUP) return@collect
                 if (msg.topicId != 0L) return@collect
+                if (msg.channelId == 0L) return@collect
                 if (msg.code == CODE_CHAT_UPDATE) return@collect
                 val msgTs = msg.createTimeSeconds.toLong() and 0xFFFF_FFFFL
                 val clanId = findClanIdForChannel(msg.channelId)
