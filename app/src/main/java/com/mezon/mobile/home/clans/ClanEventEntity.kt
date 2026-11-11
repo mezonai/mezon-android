@@ -38,11 +38,18 @@ data class ClanEventEntity(
         return "$base/chat/clans/$clanId/channels/$linkedChannelId"
     }
 
+    internal val effectiveEndTimeMillis: Long?
+        get() = when {
+            endTimeSeconds != 0 -> endTimeSeconds.toLong() * 1_000
+            startTimeSeconds > 0 -> startTimeSeconds.toLong() * 1_000 + TimeUnit.HOURS.toMillis(2)
+            else -> null
+        }
+
     fun displayStatus(nowMillis: Long = System.currentTimeMillis()): Int {
         if (startTimeSeconds == 0) return eventStatus
-        val start = startTimeSeconds.toLong() * 1000
-        val end = if (endTimeSeconds != 0) endTimeSeconds.toLong() * 1000 else start + TimeUnit.HOURS.toMillis(2)
-        if (nowMillis in start..end) return ClanEventStatus.ONGOING
+        val start = startTimeSeconds.toLong() * 1_000
+        val end = effectiveEndTimeMillis ?: return eventStatus
+        if (nowMillis >= start && nowMillis < end) return ClanEventStatus.ONGOING
         if (start > nowMillis && start - nowMillis <= TimeUnit.MINUTES.toMillis(10)) return ClanEventStatus.UPCOMING
         return ClanEventStatus.CREATED
     }

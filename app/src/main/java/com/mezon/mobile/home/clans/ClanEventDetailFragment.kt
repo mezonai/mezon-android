@@ -113,7 +113,7 @@ class ClanEventDetailFragment : BaseFragment() {
         observe(NotificationCenter.clanRolesDidLoad) { _, _, args ->
             if (isPaused || fragmentView == null) return@observe
             if (args.firstOrNull() == clanId) {
-                updateActionBarMenu(clanEventController.getEvent(clanId, eventId))
+                updateActionBarMenu(visibleEvent())
             }
         }
         return true
@@ -126,7 +126,7 @@ class ClanEventDetailFragment : BaseFragment() {
 
     override fun onResume() {
         super.onResume()
-        updateActionBarMenu(clanEventController.getEvent(clanId, eventId))
+        bindContent()
     }
 
     override fun onFragmentDestroy() {
@@ -191,10 +191,13 @@ class ClanEventDetailFragment : BaseFragment() {
         return root
     }
 
+    private fun visibleEvent(): ClanEventEntity? =
+        clanEventController.visibleEvents(clanId).firstOrNull { it.id == eventId }
+
     private fun bindContent() {
         val ctx = fragmentView?.context ?: return
         contentHost.removeAllViews()
-        val event = clanEventController.getEvent(clanId, eventId)
+        val event = visibleEvent()
         if (event != null) {
             updateActionBarMenu(event)
             val members = userClanController.getClanMembers(clanId)
@@ -215,8 +218,10 @@ class ClanEventDetailFragment : BaseFragment() {
                     linkedChannel,
                     userId,
                     onToggleInterest = {
-                        val interested = !event.isInterested(userId)
-                        clanEventController.setInterested(clanId, event.id, interested) { _, _ -> bindContent() }
+                        visibleEvent()?.let { latest ->
+                            val interested = !latest.isInterested(userId)
+                            clanEventController.setInterested(clanId, latest.id, interested) { _, _ -> bindContent() }
+                        }
                     },
                 ),
             )
@@ -345,7 +350,7 @@ class ClanEventDetailFragment : BaseFragment() {
             dismissEventMenu()
             return
         }
-        val event = clanEventController.getEvent(clanId, eventId) ?: return
+        val event = visibleEvent() ?: return
         val ctx = fragmentView?.context ?: return
         val anchor = moreMenuItem ?: return
         val popup = PopupMenu(
@@ -400,7 +405,7 @@ class ClanEventDetailFragment : BaseFragment() {
         }
         popup.setOnItemClickListener { index ->
             dismissEventMenu()
-            val latestEvent = clanEventController.getEvent(clanId, eventId) ?: return@setOnItemClickListener
+            val latestEvent = visibleEvent() ?: return@setOnItemClickListener
             actions[index](latestEvent)
         }
         popup.setOnDismissListener {
@@ -584,12 +589,13 @@ class ClanEventDetailFragment : BaseFragment() {
     }
 
     private fun openEventChannel(channel: ClanChannelEntity) {
-        onOpenChannel?.invoke(channel) ?: run {
+        val currentChannel = clanEventController.getChannel(clanId, channel.channelId) ?: return
+        onOpenChannel?.invoke(currentChannel) ?: run {
             (getParentActivity() as? MainActivity)?.openChat(
-                channel.channelId,
-                channel.channelLabel,
-                if (channel.clanId != 0L) channel.clanId else clanId,
-                channel.type,
+                currentChannel.channelId,
+                currentChannel.channelLabel,
+                if (currentChannel.clanId != 0L) currentChannel.clanId else clanId,
+                currentChannel.type,
             )
         }
     }
@@ -614,7 +620,10 @@ class ClanEventDetailFragment : BaseFragment() {
             )
         } else {
             val label = voiceChannel?.channelLabel?.takeIf { it.isNotBlank() }
-                ?: context.getString(R.string.clan_event_private_room)
+                ?: context.getString(
+                    if (event.channelVoiceId != 0L) R.string.clan_event_private_room
+                    else R.string.clan_event_external_meeting_room,
+                )
             val row = buildInlineInfoRow(
                 context,
                 theme,
@@ -944,7 +953,7 @@ class ClanEventDetailFragment : BaseFragment() {
         } else if (clanEventController.canEndEvent(event)) {
             content.addView(
                 buildEventActionChip(context, theme, R.drawable.mz_close_20, context.getString(R.string.clan_event_end)) {
-                    val latest = clanEventController.getEvent(clanId, event.id)
+                    val latest = visibleEvent()
                     if (latest != null && clanEventController.canEndEvent(latest)) confirmDeleteEvent(latest)
                 },
                 LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 12f, 0f, 0f),

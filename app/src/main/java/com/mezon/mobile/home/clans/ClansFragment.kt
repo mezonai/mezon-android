@@ -74,6 +74,8 @@ import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
 import com.mezon.mobile.search.GlobalSearchFragment
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.ToastOverlay
+import com.mezon.mobile.ui.cells.createCountBadgeView
+import com.mezon.mobile.ui.cells.updateCountBadge
 import com.mezon.mobile.ui.MezonToast
 import com.mezon.mobile.home.qr.QrScanFragment
 import com.mezon.mobile.home.profile.UserController
@@ -139,6 +141,7 @@ class ClansFragment : BaseFragment() {
     private lateinit var clanNameText: TextView
     private var verifiedIcon: ImageView? = null
     private lateinit var memberCountText: TextView
+    private var eventCountBadge: TextView? = null
     private var viewJustCreated = false
 
     private var headerSwitch: FrameLayout? = null
@@ -201,6 +204,13 @@ class ClansFragment : BaseFragment() {
                 updateChannelAppsStrip(clanId)
             }
         }
+        observe(NotificationCenter.clanEventsDidLoad) { _, _, args ->
+            if (fragmentView == null || listFrozen) return@observe
+            val clanId = args.firstOrNull() as? Long ?: return@observe
+            if (clanId == clansController.selectedClanId.value) {
+                updateEventCountBadge()
+            }
+        }
         observe(NotificationCenter.clanInfoUpdated) { _, _, args ->
             if (fragmentView == null || isPaused || listFrozen) return@observe
             val clanId = args.firstOrNull() as? Long ?: return@observe
@@ -248,6 +258,7 @@ class ClansFragment : BaseFragment() {
             if (fragmentView == null || listFrozen) return@observe
             val clanId = clansController.selectedClanId.value
             if (clanId == 0L) return@observe
+            clanEventController.loadEvents(clanId, force = true)
             streamingController.fetchStreamChannelMembers(clanId, noCache = true)
             syncVoiceMembersUi()
         }
@@ -264,6 +275,7 @@ class ClansFragment : BaseFragment() {
                 updateMemberCount()
             }
             updateClanPanelHeaderMode()
+            updateEventCountBadge()
         }
 
         clansController.loadClans()
@@ -277,7 +289,12 @@ class ClansFragment : BaseFragment() {
         observe(NotificationCenter.selectedClanChanged) { _, _, args ->
             if (fragmentView == null || !clansController.clansLoaded) return@observe
             val clanId = args.firstOrNull() as? Long ?: 0L
-            if (clanId != 0L) discoveringFromRailWhileHasClans = false
+            if (clanId != 0L) {
+                discoveringFromRailWhileHasClans = false
+            } else {
+                renderedClanId = 0L
+                updateEventCountBadge()
+            }
             updateServerRail()
             if (clanId != 0L) {
                 userClanController.loadClanMembers(clanId)
@@ -730,7 +747,20 @@ class ClansFragment : BaseFragment() {
             isFocusable = true
             setOnClickListener { openClanEventsSheet() }
         }
-        navBar.addView(eventButton, LinearLayout.LayoutParams(
+        val eventButtonContainer = FrameLayout(context).apply {
+            addView(eventButton, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
+        }
+        eventCountBadge = createCountBadgeView(
+            context, themeColors.badgeRed, heightDp = 16, horizontalPaddingDp = 4,
+        ).apply {
+            maxLines = 1
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }.also { badge ->
+            eventButtonContainer.addView(badge, FrameLayout.LayoutParams(
+                LayoutHelper.WRAP_CONTENT, LayoutHelper.dp(16), Gravity.TOP or Gravity.END
+            ))
+        }
+        navBar.addView(eventButtonContainer, LinearLayout.LayoutParams(
             LayoutHelper.dp(32), LayoutHelper.dp(32)
         ).apply { leftMargin = LayoutHelper.dp(8) })
 
@@ -810,6 +840,7 @@ class ClansFragment : BaseFragment() {
         super.onResume()
         if (fragmentView != null && !listFrozen && clansController.clansLoaded) {
             updateVisibleRows(NotificationCenter.UPDATE_MASK_BADGE)
+            updateEventCountBadge()
         }
         ensureVoiceMembersLoaded()
         updateMemberCount()
@@ -843,6 +874,7 @@ class ClansFragment : BaseFragment() {
         renderedIsCommunity = null
         renderedBannerUrl = null
         renderedSubtitleKey = null
+        eventCountBadge = null
         super.clearViews()
     }
 
@@ -852,6 +884,7 @@ class ClansFragment : BaseFragment() {
         if (!frozen && fragmentView != null) {
             updateServerRail()
             updateChannelList()
+            updateEventCountBadge()
         }
     }
 
@@ -971,6 +1004,8 @@ class ClansFragment : BaseFragment() {
         }
 
         if (clanChanged) {
+            clanEventController.loadEvents(clan.clanId)
+            updateEventCountBadge()
             renderedSubtitleKey = null
             memberCountText.animate().cancel()
             if (userClanController.hasClanMemberCount(clan.clanId)) {
@@ -982,6 +1017,12 @@ class ClansFragment : BaseFragment() {
             }
         }
         updateMemberCount()
+    }
+
+    private fun updateEventCountBadge() {
+        val badge = eventCountBadge ?: return
+        val count = clanEventController.visibleEvents(clansController.selectedClanId.value).size
+        badge.updateCountBadge(count, themeColors.badgeRed)
     }
 
     private fun updateMemberCount() {

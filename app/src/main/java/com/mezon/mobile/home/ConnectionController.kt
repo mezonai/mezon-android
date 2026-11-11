@@ -10,6 +10,7 @@ import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.home.call.CallController
 import com.mezon.mobile.home.call.CallState
+import com.mezon.mobile.home.clans.ClanEventController
 import com.mezon.mobile.home.clans.ClansController
 import com.mezon.mobile.home.messages.MessageActivitiesController
 import com.mezon.mobile.network.ApiCacheTracker
@@ -44,6 +45,7 @@ class ConnectionController @Inject constructor(
     private val dialogsController: DialogsController,
     private val messageActivitiesController: MessageActivitiesController,
     private val clansController: ClansController,
+    private val clanEventController: dagger.Lazy<ClanEventController>,
     private val channelController: dagger.Lazy<com.mezon.mobile.home.clans.ChannelController>,
     private val callController: dagger.Lazy<CallController>,
     private val badgeCoordinator: dagger.Lazy<BadgeCoordinator>,
@@ -147,6 +149,7 @@ class ConnectionController @Inject constructor(
 
         badgeCoordinator.get().onReconnect()
         topicBadgeTracker.get().onReconnect()
+        clanEventController.get().markInFlightLoadsStale()
         cacheTracker.invalidateAll()
 
         notificationCenter.postNotificationOnMainThread(NotificationCenter.appDidReconnect)

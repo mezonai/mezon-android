@@ -337,6 +337,8 @@ class MainActivity : BasePermissionsActivity(),
             streamingRoomFragment?.rebindSessionUi()
         }
         if (StartupCache.hasSession) {
+            EntryPointAccessors.fromApplication(applicationContext, FragmentEntryPoint::class.java)
+                .clanEventController().refreshEventExpiry()
             connectionController.handleAppForeground()
             maybePromptFullScreenIntentForIncomingCalls()
         }
@@ -1059,6 +1061,7 @@ class MainActivity : BasePermissionsActivity(),
         entryPoint.dialogsController().cleanup()
         entryPoint.chatController().cleanup()
         entryPoint.clansController().cleanup()
+        entryPoint.clanEventController().cleanup()
         entryPoint.channelController().cleanup()
         entryPoint.channelAppController().cleanup()
         entryPoint.channelPermissionController().cleanup()
@@ -1098,6 +1101,7 @@ class MainActivity : BasePermissionsActivity(),
         entryPoint.dialogsController().cleanup()
         entryPoint.chatController().cleanup()
         entryPoint.clansController().cleanup()
+        entryPoint.clanEventController().cleanup()
         entryPoint.channelController().cleanup()
         entryPoint.channelAppController().cleanup()
         entryPoint.channelPermissionController().cleanup()
