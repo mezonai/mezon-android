@@ -229,11 +229,19 @@ class ClanMemberManageFragment : BaseFragment() {
                     roleCells[role.roleId]?.second?.setChecked(!add)
                 }
                 updateRoleCellsEnabled()
-                MezonToast.show(
-                    this@ClanMemberManageFragment,
-                    if (result.isSuccess) ToastOverlay.ToastType.SUCCESS else ToastOverlay.ToastType.ERROR,
-                    getString(if (result.isSuccess) R.string.clan_roles_changes_saved else R.string.clan_roles_failed)
-                )
+                if (result.isSuccess) {
+                    MezonToast.show(
+                        this@ClanMemberManageFragment,
+                        ToastOverlay.ToastType.SUCCESS,
+                        getString(R.string.clan_roles_changes_saved)
+                    )
+                } else {
+                    RoleErrorToast.show(
+                        this@ClanMemberManageFragment,
+                        getString(R.string.clan_roles_error_update_member_roles),
+                        result.exceptionOrNull()
+                    )
+                }
             }
         }
     }

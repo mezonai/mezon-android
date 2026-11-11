@@ -17,9 +17,13 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
+import android.content.Context
+import com.mezon.mobile.util.NetworkErrorMessages
+import dagger.hilt.android.qualifiers.ApplicationContext
 
 @Singleton
 class SoundEffectSettingsController @Inject constructor(
+    @ApplicationContext private val appContext: Context,
     private val api: MezonApi,
     private val sessionManager: SessionManager,
     private val emojiController: EmojiController,
@@ -70,7 +74,7 @@ class SoundEffectSettingsController @Inject constructor(
                 load(clanId)
                 onDone(true, null)
             } catch (e: Exception) {
-                onDone(false, e.message)
+                onDone(false, NetworkErrorMessages.userMessageOrNull(appContext, e))
             }
         }
     }
@@ -101,7 +105,7 @@ class SoundEffectSettingsController @Inject constructor(
                 load(clanId)
                 onDone(true, null)
             } catch (e: Exception) {
-                onDone(false, e.message)
+                onDone(false, NetworkErrorMessages.userMessageOrNull(appContext, e))
             }
         }
     }
@@ -128,7 +132,7 @@ class SoundEffectSettingsController @Inject constructor(
                 load(clanId)
                 onDone(true, null)
             } catch (e: Exception) {
-                onDone(false, e.message)
+                onDone(false, NetworkErrorMessages.userMessageOrNull(appContext, e))
             }
         }
     }
@@ -152,7 +156,7 @@ class SoundEffectSettingsController @Inject constructor(
                 load(clanId)
                 onDone(true, null)
             } catch (e: Exception) {
-                onDone(false, e.message)
+                onDone(false, NetworkErrorMessages.userMessageOrNull(appContext, e))
             }
         }
     }

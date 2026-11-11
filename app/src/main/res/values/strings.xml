@@ -582,6 +582,23 @@
     <string name="clan_roles_members_search">Search Members</string>
     <string name="clan_roles_members_finish">Finish</string>
     <string name="clan_roles_members_added">Add member successfully</string>
+    <string name="clan_roles_members_add">Add member</string>
+    <string name="clan_roles_member_added_one">Added %1$s to the role</string>
+    <string name="clan_roles_members_added_many">Added %1$d members to the role</string>
+    <string name="clan_roles_member_removed">Removed %1$s from the role</string>
+    <string name="clan_roles_error_save">Couldn\'t save changes</string>
+    <string name="clan_roles_error_delete">Couldn\'t delete role</string>
+    <string name="clan_roles_error_create">Couldn\'t create role</string>
+    <string name="clan_roles_error_add_members">Couldn\'t add members</string>
+    <string name="clan_roles_error_remove_member">Couldn\'t remove %1$s</string>
+    <string name="clan_roles_error_update_member_roles">Couldn\'t update roles</string>
+    <string name="clan_roles_error_icon_upload">Couldn\'t upload icon</string>
+    <string name="clan_roles_error_reason_permission">You don\'t have permission. Your role must be higher than the one you\'re editing.</string>
+    <string name="clan_roles_error_reason_exists">A role with this name already exists.</string>
+    <string name="clan_roles_error_reason_throttled">Too many requests. Wait a moment and try again.</string>
+    <string name="clan_roles_error_reason_network">Check your connection and try again.</string>
+    <string name="clan_roles_error_reason_image">The selected image is empty or can\'t be read.</string>
+    <string name="clan_roles_error_reason_generic">Something went wrong. Please try again.</string>
     <string name="clan_roles_members_none">No members found</string>
     <string name="clan_member_edit_title">Edit Member</string>
     <string name="clan_member_roles">Roles</string>
@@ -615,7 +632,6 @@
     <string name="clan_roles_icon_picker_title">Select image</string>
     <string name="clan_roles_icon_too_large">Image must be at most 256 KB</string>
     <string name="clan_roles_changes_saved">Changes Saved</string>
-    <string name="clan_roles_failed">Failed</string>
     <string name="clan_roles_back_content_desc">Back</string>
     <string name="clan_roles_confirm_save_title">Save changes?</string>
     <string name="clan_roles_confirm_save_message">You\'ve made changes. Do you want to save them?</string>
@@ -928,6 +944,7 @@
     <string name="send_token_error_balance_parse">Could not read wallet balance</string>
     <string name="send_token_wallet_not_available">Wallet is not available. Sign in again (with OpenID) or check network so ZK proof can be loaded, then retry.</string>
     <string name="send_token_send_error">Send failed: %1$s</string>
+    <string name="send_token_send_failed">Transfer failed. Please try again.</string>
     <string name="send_token_send_success">Transfer sent</string>
     <string name="send_token_sending">Sending…</string>
     <string name="profile_history_transaction">Transaction History</string>
@@ -1364,7 +1381,12 @@
     <string name="location_card_your_location">Your location</string>
     <string name="location_card_location_of">%1$s\'s location</string>
     <string name="feature_coming_soon">Coming soon</string>
+    <string name="voice_switch_room_title">Switch voice room</string>
+    <string name="voice_switch_room_message">You are in \"%1$s\". Leave and join \"%2$s\"?</string>
+    <string name="voice_switch_room_current">the current voice room</string>
+    <string name="voice_switch_room_confirm">Switch</string>
     <string name="file_too_large">File exceeds the %s limit</string>
+    <string name="attachment_max_items">You can select up to %1$d items.</string>
 
     <!-- Voice recording -->
     <string name="voice_record_hint">Press &amp; hold to record.</string>

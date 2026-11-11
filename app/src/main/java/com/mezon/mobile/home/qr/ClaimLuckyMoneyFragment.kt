@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.qr
 
+import com.mezon.mobile.util.NetworkErrorMessages
 import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
@@ -255,13 +256,9 @@ class ClaimLuckyMoneyFragment : BaseFragment() {
                     getString(R.string.lucky_money_wallet_not_ready)
                 LuckyMoneyException.Reason.INVALID_PAYLOAD ->
                     getString(R.string.lucky_money_invalid_payload)
-                LuckyMoneyException.Reason.HTTP ->
-                    error.message?.takeIf { it.isNotBlank() }
-                        ?: getString(R.string.lucky_money_claim_failed)
             }
         }
-        return error.message?.takeIf { it.isNotBlank() }
-            ?: getString(R.string.lucky_money_claim_failed)
+        return NetworkErrorMessages.userMessage(requireContext(), error, getString(R.string.lucky_money_claim_failed))
     }
 
     private fun createCard(context: Context): LinearLayout = LinearLayout(context).apply {

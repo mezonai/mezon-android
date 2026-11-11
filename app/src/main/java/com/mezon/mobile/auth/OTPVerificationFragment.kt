@@ -398,7 +398,7 @@ class OTPVerificationFragment : AuthFragment() {
                         NetworkErrorMessages.userMessage(
                             ctx,
                             err,
-                            err.message ?: getString(R.string.otp_resend_failed)
+                            getString(R.string.otp_resend_failed)
                         )
                     )
                 }

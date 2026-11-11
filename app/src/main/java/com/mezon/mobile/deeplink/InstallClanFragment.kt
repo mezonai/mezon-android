@@ -574,10 +574,6 @@ class InstallClanFragment : BaseFragment() {
             if (body.isEmpty() || body == "(empty)") {
                 return getString(R.string.channel_creator_channel_name_duplicate_error)
             }
-            val parsed = body.removePrefix("RPC CreateChannelDesc failed (400): ").trim()
-            if (parsed.isNotEmpty() && parsed != body) {
-                return NetworkErrorMessages.userMessage(ctx, error, parsed)
-            }
         }
         return NetworkErrorMessages.userMessage(ctx, error, fallback)
     }

@@ -446,47 +446,12 @@ fun restoreInputFromContent(content: String): RestoredInputContent {
         cleanText = ""
     }
 
-    val inserts = HashMap<Int, StringBuilder>()
-    obj.optJSONArray("mk")?.let { arr ->
-        for (i in 0 until arr.length()) {
-            val j = arr.optJSONObject(i) ?: continue
-            val s = j.optInt("s", -1)
-            val e = j.optInt("e", -1)
-            if (s < 0 || e < s || e > cleanText.length) continue
-            val type = j.optString("type", "")
-            val (open, close) = when (type) {
-                "c" -> "`" to "`"
-                "b" -> "**" to "**"
-                "pre", "t" -> "```" to "```"
-                else -> continue
-            }
-            inserts.getOrPut(s) { StringBuilder() }.append(open)
-            inserts.getOrPut(e) { StringBuilder() }.append(close)
-        }
+    val protectedRanges = listOf("mentions", "hg", "ej").flatMap { key ->
+        contentRanges(obj.optJSONArray(key), cleanText.length)
     }
+    val source = buildMarkdownEditSource(cleanText, obj.optJSONArray("mk"), protectedRanges)
 
-    val rawStart = IntArray(cleanText.length + 1)
-    val sb = StringBuilder()
-    var rawPos = 0
-    for (cleanPos in 0..cleanText.length) {
-        inserts[cleanPos]?.let {
-            sb.append(it)
-            rawPos += it.length
-        }
-        rawStart[cleanPos] = rawPos
-        if (cleanPos < cleanText.length) {
-            sb.append(cleanText[cleanPos])
-            rawPos++
-        }
-    }
-
-    fun rangeToRaw(s: Int, e: Int): Pair<Int, Int> {
-        val cs = s.coerceIn(0, cleanText.length)
-        val ce = e.coerceIn(cs, cleanText.length)
-        val rawS = rawStart[cs]
-        val rawE = if (ce > 0) rawStart[ce - 1] + 1 else rawS
-        return rawS to rawE
-    }
+    fun rangeToRaw(s: Int, e: Int): Pair<Int, Int> = source.rawStart(s) to source.rawEnd(e)
 
     val mentions = mutableListOf<MentionData>()
     obj.optJSONArray("mentions")?.let { arr ->
@@ -546,7 +511,153 @@ fun restoreInputFromContent(content: String): RestoredInputContent {
         }
     }
 
-    return RestoredInputContent(sb.toString(), mentions, hashtags, emojis)
+    return RestoredInputContent(source.text, mentions, hashtags, emojis)
+}
+
+private fun contentRanges(arr: JSONArray?, textLength: Int): List<IntRange> {
+    if (arr == null) return emptyList()
+    val out = ArrayList<IntRange>(arr.length())
+    for (i in 0 until arr.length()) {
+        val j = arr.optJSONObject(i) ?: continue
+        val s = j.optInt("s", -1)
+        val e = j.optInt("e", -1)
+        if (s < 0 || e <= s || e > textLength) continue
+        out.add(s until e)
+    }
+    return out
+}
+
+private class MarkdownEditSource(val text: String, private val insertions: List<Pair<Int, Int>>) {
+    fun rawStart(cleanOffset: Int): Int =
+        cleanOffset + insertions.sumOf { (at, length) -> if (at <= cleanOffset) length else 0 }
+
+    fun rawEnd(cleanOffset: Int): Int =
+        cleanOffset + insertions.sumOf { (at, length) -> if (at < cleanOffset) length else 0 }
+}
+
+private data class MarkdownFormatKey(val type: String, val start: Int, val end: Int)
+
+private class MarkdownEditMarker(val start: Int, val end: Int, val marker: String, val rank: Int)
+
+private class StyledEditRange(val start: Int, val end: Int) {
+    var bold = false
+    var italic = false
+    var strike = false
+
+    fun keys(): List<MarkdownFormatKey> = buildList {
+        if (bold) add(MarkdownFormatKey(MARKDOWN_BOLD, start, end))
+        if (italic) add(MarkdownFormatKey(MARKDOWN_ITALIC, start, end))
+        if (strike) add(MarkdownFormatKey(MARKDOWN_STRIKE, start, end))
+    }
+
+    fun keeping(allowed: Set<MarkdownFormatKey>): StyledEditRange? {
+        val kept = StyledEditRange(start, end)
+        kept.bold = bold && MarkdownFormatKey(MARKDOWN_BOLD, start, end) in allowed
+        kept.italic = italic && MarkdownFormatKey(MARKDOWN_ITALIC, start, end) in allowed
+        kept.strike = strike && MarkdownFormatKey(MARKDOWN_STRIKE, start, end) in allowed
+        return if (kept.bold || kept.italic || kept.strike) kept else null
+    }
+
+    fun markers(italicMarker: String): List<MarkdownEditMarker> = buildList {
+        if (strike) add(MarkdownEditMarker(start, end, "~~", 5))
+        when {
+            bold && italic -> add(MarkdownEditMarker(start, end, "***", 4))
+            bold -> add(MarkdownEditMarker(start, end, "**", 3))
+            italic -> add(MarkdownEditMarker(start, end, italicMarker, 2))
+        }
+    }
+}
+
+private val EDIT_FORMAT_TYPES = setOf(MARKDOWN_BOLD, MARKDOWN_ITALIC, MARKDOWN_STRIKE, MARKDOWN_CODE, MARKDOWN_PRE)
+
+private fun MutableList<StyledEditRange>.rangeAt(start: Int, end: Int): StyledEditRange =
+    firstOrNull { it.start == start && it.end == end } ?: StyledEditRange(start, end).also { add(it) }
+
+private fun buildMarkdownEditSource(
+    text: String,
+    mk: JSONArray?,
+    protectedRanges: List<IntRange>
+): MarkdownEditSource {
+    val codeMarkers = mutableListOf<MarkdownEditMarker>()
+    val codeKeys = mutableSetOf<MarkdownFormatKey>()
+    val styled = mutableListOf<StyledEditRange>()
+    if (mk != null) {
+        for (i in 0 until mk.length()) {
+            val j = mk.optJSONObject(i) ?: continue
+            val s = j.optInt("s", -1)
+            val e = j.optInt("e", -1)
+            if (s < 0 || e <= s || e > text.length) continue
+            when (j.optString("type", "")) {
+                MARKDOWN_CODE, "s" -> {
+                    codeMarkers.add(MarkdownEditMarker(s, e, "`", 0))
+                    codeKeys.add(MarkdownFormatKey(MARKDOWN_CODE, s, e))
+                }
+                MARKDOWN_PRE, "t" -> {
+                    codeMarkers.add(MarkdownEditMarker(s, e, "```", 1))
+                    codeKeys.add(MarkdownFormatKey(MARKDOWN_PRE, s, e))
+                }
+                MARKDOWN_BOLD -> styled.rangeAt(s, e).bold = true
+                MARKDOWN_ITALIC -> styled.rangeAt(s, e).italic = true
+                MARKDOWN_STRIKE -> styled.rangeAt(s, e).strike = true
+            }
+        }
+    }
+
+    val codeOnly = assembleMarkdownEditSource(text, codeMarkers)
+    var candidates: List<StyledEditRange> = styled
+    repeat(2) {
+        if (candidates.isEmpty()) return codeOnly
+        val candidateKeys = candidates.flatMap { it.keys() }
+        val expected = codeKeys + candidateKeys
+        val reproduced = mutableSetOf<MarkdownFormatKey>()
+        for (italicMarker in listOf("*", "_")) {
+            val source = assembleMarkdownEditSource(
+                text,
+                codeMarkers + candidates.flatMap { it.markers(italicMarker) }
+            )
+            val parsed = parseMarkdownAndStrip(
+                source.text,
+                protectedRanges.map { source.rawStart(it.first) until source.rawEnd(it.last + 1) }
+            )
+            if (parsed.cleanedText != text) continue
+            val formats = parsed.markers
+                .filter { it.type in EDIT_FORMAT_TYPES }
+                .mapTo(mutableSetOf<MarkdownFormatKey>()) { MarkdownFormatKey(it.type, it.s, it.e) }
+            if (formats == expected) return source
+            reproduced += formats
+        }
+        val reduced = candidates.mapNotNull { it.keeping(reproduced) }
+        if (reduced.flatMap { it.keys() } == candidateKeys) return codeOnly
+        candidates = reduced
+    }
+    return codeOnly
+}
+
+private fun assembleMarkdownEditSource(text: String, markers: List<MarkdownEditMarker>): MarkdownEditSource {
+    val sorted = markers.sortedWith(compareBy({ it.start }, { -it.end }, { -it.rank }))
+    val points = sortedSetOf(0, text.length).apply {
+        for (m in sorted) {
+            add(m.start)
+            add(m.end)
+        }
+    }.toList()
+    val out = StringBuilder(text.length + sorted.size * 6)
+    val insertions = mutableListOf<Pair<Int, Int>>()
+    for ((index, cursor) in points.withIndex()) {
+        for (m in sorted.asReversed()) {
+            if (m.end != cursor) continue
+            out.append(m.marker)
+            insertions.add(cursor to m.marker.length)
+        }
+        if (index + 1 >= points.size) break
+        for (m in sorted) {
+            if (m.start != cursor) continue
+            out.append(m.marker)
+            insertions.add(cursor to m.marker.length)
+        }
+        out.append(text, cursor, points[index + 1])
+    }
+    return MarkdownEditSource(out.toString(), insertions)
 }
 
 fun parseMentionsFromContent(content: String): List<MentionData> {
@@ -607,148 +718,290 @@ class MarkdownParseResult(
     }
 }
 
-fun parseMarkdownAndStrip(rawText: String): MarkdownParseResult {
+fun parseMarkdownAndStrip(
+    rawText: String,
+    protectedRanges: List<IntRange> = emptyList(),
+    protectedTokens: Collection<String> = emptyList()
+): MarkdownParseResult {
     if (rawText.isBlank()) return MarkdownParseResult(rawText, emptyList(), emptyList())
-    val markers = mutableListOf<MarkdownMarker>()
-    val removals = mutableListOf<IntRange>()
-    val cleaned = StringBuilder()
-    var i = 0
-    var shift = 0
+    val n = rawText.length
+    val spans = scanMarkdownStructure(rawText)
 
-    while (i < rawText.length) {
-
-        if (i + 2 < rawText.length &&
-            rawText[i] == '`' && rawText[i + 1] == '`' && rawText[i + 2] == '`'
-        ) {
-            var j = i + 3
-            while (j + 2 < rawText.length) {
-                if (rawText[j] == '`' && rawText[j + 1] == '`' && rawText[j + 2] == '`') break
-                j++
-            }
-            if (j + 2 < rawText.length &&
-                rawText[j] == '`' && rawText[j + 1] == '`' && rawText[j + 2] == '`'
-            ) {
-                val content = rawText.substring(i + 3, j)
-                if (content.isNotEmpty()) {
-                    val cleanContent = stripBoldFromContent(content, i + 3, removals)
-                    val s = i - shift
-                    markers.add(MarkdownMarker(MARKDOWN_PRE, s, s + cleanContent.length))
-                    cleaned.append(cleanContent)
-                    removals.add(i..i + 2)
-                    removals.add(j..j + 2)
-                    shift += 6 + (content.length - cleanContent.length)
-                    i = j + 3
-                    continue
-                }
-            }
+    val protectedEnd = IntArray(n)
+    fun protect(start: Int, end: Int) {
+        val lo = start.coerceAtLeast(0)
+        val hi = end.coerceAtMost(n)
+        for (k in lo until hi) {
+            if (protectedEnd[k] < hi) protectedEnd[k] = hi
         }
-
-        if (rawText.startsWith("http://", i) || rawText.startsWith("https://", i)) {
-            val linkStart = i
-            val schemeLen = if (rawText.startsWith("https://", i)) 8 else 7
-            var j = i + schemeLen
-            while (j < rawText.length && rawText[j] != ' ' && rawText[j] != '\n'
-                && rawText[j] != '\r' && rawText[j] != '\t'
-            ) j++
-            var linkEnd = j
-            while (linkEnd > linkStart + schemeLen && rawText[linkEnd - 1] in TRAILING_PUNCTUATION) linkEnd--
-            if (linkEnd > linkStart + schemeLen) {
-                val s = linkStart - shift
-                markers.add(MarkdownMarker(MARKDOWN_LINK, s, s + (linkEnd - linkStart)))
-                cleaned.append(rawText, linkStart, linkEnd)
-                i = linkEnd
-                continue
-            }
+    }
+    for (span in spans) protect(span.start, span.end)
+    for (range in protectedRanges) protect(range.first, range.last + 1)
+    for (token in protectedTokens) {
+        if (token.isEmpty()) continue
+        var from = 0
+        while (true) {
+            val idx = rawText.indexOf(token, from)
+            if (idx < 0) break
+            protect(idx, idx + token.length)
+            from = idx + token.length
         }
-
-        if (rawText[i] == '`' &&
-            !(i + 2 < rawText.length && rawText[i + 1] == '`' && rawText[i + 2] == '`')
-        ) {
-            var j = i + 1
-            while (j < rawText.length && rawText[j] != '`') j++
-            if (j < rawText.length && rawText[j] == '`') {
-                var allow = true
-                if (j + 2 < rawText.length && rawText[j + 1] == '`' && rawText[j + 2] == '`') {
-                    var k = j + 3
-                    var hasClosingTriple = false
-                    while (k + 2 < rawText.length) {
-                        if (rawText[k] == '`' && rawText[k + 1] == '`' && rawText[k + 2] == '`') {
-                            hasClosingTriple = true
-                            break
-                        }
-                        k++
-                    }
-                    if (hasClosingTriple) allow = false
-                }
-                val content = rawText.substring(i + 1, j)
-                if (allow && !content.contains("``") && content.trim().isNotEmpty()) {
-                    val cleanContent = stripBoldFromContent(content, i + 1, removals)
-                    val s = i - shift
-                    markers.add(MarkdownMarker(MARKDOWN_CODE, s, s + cleanContent.length))
-                    cleaned.append(cleanContent)
-                    removals.add(i..i)
-                    removals.add(j..j)
-                    shift += 2 + (content.length - cleanContent.length)
-                    i = j + 1
-                    continue
-                }
-            }
-        }
-
-        if (i + 1 < rawText.length && rawText[i] == '*' && rawText[i + 1] == '*') {
-            val closeIdx = rawText.indexOf("**", i + 2)
-            if (closeIdx >= 0) {
-                val content = rawText.substring(i + 2, closeIdx)
-                if (content.trim().isNotEmpty()) {
-                    val s = i - shift
-                    markers.add(MarkdownMarker(MARKDOWN_BOLD, s, s + content.length))
-                    cleaned.append(content)
-                    removals.add(i..i + 1)
-                    removals.add(closeIdx..closeIdx + 1)
-                    shift += 4
-                    i = closeIdx + 2
-                    continue
-                }
-            }
-        }
-
-        cleaned.append(rawText[i])
-        i++
     }
 
-    removals.sortBy { it.first }
+    var lineStart = 0
+    while (lineStart < n) {
+        val newline = rawText.indexOf('\n', lineStart)
+        val lineEnd = if (newline < 0) n else newline
+        if (lineEnd > lineStart && lineEnd - lineStart <= MAX_STYLED_LINE_LENGTH) {
+            scanMarkdownStyles(rawText, lineStart, lineEnd, protectedEnd, 0, spans)
+        }
+        lineStart = lineEnd + 1
+    }
+
+    val removed = BooleanArray(n)
+    for (span in spans) {
+        if (span.marker == 0) continue
+        for (k in span.start until span.start + span.marker) removed[k] = true
+        for (k in span.end - span.marker until span.end) removed[k] = true
+    }
+
+    val cleaned = StringBuilder(n)
+    val cleanedOffset = IntArray(n + 1)
+    val removals = mutableListOf<IntRange>()
+    var removedRunStart = -1
+    for (k in 0 until n) {
+        cleanedOffset[k] = cleaned.length
+        if (removed[k]) {
+            if (removedRunStart < 0) removedRunStart = k
+            continue
+        }
+        if (removedRunStart >= 0) {
+            removals.add(removedRunStart until k)
+            removedRunStart = -1
+        }
+        cleaned.append(rawText[k])
+    }
+    if (removedRunStart >= 0) removals.add(removedRunStart until n)
+    cleanedOffset[n] = cleaned.length
+
+    val markers = spans
+        .map { MarkdownMarker(it.type, cleanedOffset[it.start], cleanedOffset[it.end]) }
+        .sortedBy { it.s }
     return MarkdownParseResult(cleaned.toString(), markers, removals)
 }
 
-private fun stripBoldFromContent(
-    content: String,
-    originalBase: Int,
-    removals: MutableList<IntRange>
-): String {
-    val sb = StringBuilder()
-    var ci = 0
-    while (ci < content.length) {
-        if (ci + 1 < content.length && content[ci] == '*' && content[ci + 1] == '*') {
-            val closeIdx = content.indexOf("**", ci + 2)
-            if (closeIdx >= 0 && content.substring(ci + 2, closeIdx).trim().isNotEmpty()) {
-                removals.add((originalBase + ci)..(originalBase + ci + 1))
-                removals.add((originalBase + closeIdx)..(originalBase + closeIdx + 1))
-                sb.append(content, ci + 2, closeIdx)
-                ci = closeIdx + 2
-                continue
-            }
+private class MarkdownSpan(val type: String, val start: Int, val end: Int, val marker: Int)
+
+private const val MAX_STYLED_LINE_LENGTH = 10_000
+private const val MAX_STYLE_DEPTH = 16
+
+private fun isTripleBacktick(text: String, k: Int): Boolean =
+    k >= 0 && k + 2 < text.length && text[k] == '`' && text[k + 1] == '`' && text[k + 2] == '`'
+
+private fun scanMarkdownStructure(text: String): MutableList<MarkdownSpan> {
+    val out = mutableListOf<MarkdownSpan>()
+    var i = 0
+    while (i < text.length) {
+        val hit = codeBlockHit(text, i) ?: linkHit(text, i) ?: inlineCodeHit(text, i)
+        if (hit != null) {
+            out.add(hit.first)
+            i = hit.second
+            continue
         }
-        sb.append(content[ci])
-        ci++
+        i++
     }
-    return sb.toString()
+    return out
 }
 
-private val TRAILING_PUNCTUATION = charArrayOf(',', '.', '!', '?', ';', ':')
+private fun codeBlockHit(text: String, i: Int): Pair<MarkdownSpan, Int>? {
+    if (!isTripleBacktick(text, i)) return null
+    var j = i + 3
+    while (j + 2 < text.length && !isTripleBacktick(text, j)) j++
+    if (!isTripleBacktick(text, j) || j == i + 3) return null
+    return MarkdownSpan(MARKDOWN_PRE, i, j + 3, 3) to j + 3
+}
+
+private fun linkHit(text: String, i: Int): Pair<MarkdownSpan, Int>? {
+    val schemeLen = when {
+        text.startsWith("https://", i) -> 8
+        text.startsWith("http://", i) -> 7
+        else -> return null
+    }
+    var j = i + schemeLen
+    while (j < text.length && text[j] != ' ' && text[j] != '\n' && text[j] != '\r' && text[j] != '\t') j++
+    if (i >= 2 && text[i - 2] == ']' && text[i - 1] == '(') {
+        val close = text.indexOf(')', i + schemeLen)
+        if (close in (i + schemeLen) until j) j = close
+    }
+    var linkEnd = j
+    while (linkEnd > i + schemeLen && text[linkEnd - 1] in TRAILING_PUNCTUATION) linkEnd--
+    if (linkEnd <= i + schemeLen) return null
+    return MarkdownSpan(MARKDOWN_LINK, i, linkEnd, 0) to linkEnd
+}
+
+private fun inlineCodeHit(text: String, i: Int): Pair<MarkdownSpan, Int>? {
+    if (text[i] != '`' || isTripleBacktick(text, i)) return null
+    var j = i + 1
+    while (j < text.length && text[j] != '`') j++
+    if (j >= text.length) return null
+    if (isTripleBacktick(text, j)) {
+        var k = j + 3
+        while (k + 2 < text.length) {
+            if (isTripleBacktick(text, k)) return null
+            k++
+        }
+    }
+    if (text.substring(i + 1, j).isBlank()) return null
+    return MarkdownSpan(MARKDOWN_CODE, i, j + 1, 1) to j + 1
+}
+
+private fun isWordCodePoint(codePoint: Int): Boolean {
+    if (Character.isLetterOrDigit(codePoint)) return true
+    return when (Character.getType(codePoint)) {
+        Character.NON_SPACING_MARK.toInt(),
+        Character.COMBINING_SPACING_MARK.toInt(),
+        Character.ENCLOSING_MARK.toInt() -> true
+        else -> false
+    }
+}
+
+private fun isWordCharBefore(text: String, pos: Int): Boolean =
+    pos > 0 && pos <= text.length && isWordCodePoint(Character.codePointBefore(text, pos))
+
+private fun isWordCharAt(text: String, pos: Int): Boolean =
+    pos >= 0 && pos < text.length && isWordCodePoint(Character.codePointAt(text, pos))
+
+private fun styleRunEnd(text: String, pos: Int, end: Int, protectedEnd: IntArray): Int {
+    val ch = text[pos]
+    var k = pos
+    while (k < end && text[k] == ch && protectedEnd[k] == 0) k++
+    return k
+}
+
+private fun isValidStyleMarker(ch: Char, length: Int): Boolean = when (ch) {
+    '*' -> length in 1..3
+    '_' -> length == 1
+    '~' -> length == 2
+    else -> false
+}
+
+private fun needsWordBoundary(ch: Char, length: Int): Boolean =
+    length == 1 && (ch == '*' || ch == '_')
+
+private fun canOpenStyle(text: String, pos: Int, runEnd: Int, end: Int): Boolean {
+    val ch = text[pos]
+    val length = runEnd - pos
+    if (!isValidStyleMarker(ch, length)) return false
+    if (runEnd >= end || text[runEnd].isWhitespace()) return false
+    return !(needsWordBoundary(ch, length) && isWordCharBefore(text, pos))
+}
+
+private fun canCloseStyle(text: String, openEnd: Int, close: Int, closeEnd: Int): Boolean {
+    if (close <= openEnd || text[close - 1].isWhitespace()) return false
+    if ((openEnd until close).all { text[it].isWhitespace() }) return false
+    return !(needsWordBoundary(text[close], closeEnd - close) && isWordCharAt(text, closeEnd))
+}
+
+private fun mayCloseStyle(text: String, pos: Int, runEnd: Int): Boolean {
+    if (pos <= 0 || text[pos - 1].isWhitespace()) return false
+    return !(needsWordBoundary(text[pos], runEnd - pos) && isWordCharAt(text, runEnd))
+}
+
+private fun findStyleClose(
+    text: String,
+    open: Int,
+    length: Int,
+    end: Int,
+    protectedEnd: IntArray,
+    depth: Int
+): Int? {
+    if (depth >= MAX_STYLE_DEPTH) return null
+    val ch = text[open]
+    val openEnd = open + length
+    var j = openEnd
+    while (j < end) {
+        if (protectedEnd[j] != 0) {
+            j = minOf(protectedEnd[j], end)
+            continue
+        }
+        if (text[j] != ch) {
+            j++
+            continue
+        }
+        val runEnd = styleRunEnd(text, j, end, protectedEnd)
+        val runLength = runEnd - j
+        if (runLength == length) {
+            if (canCloseStyle(text, openEnd, j, runEnd)) return j
+            if (canOpenStyle(text, j, runEnd, end)) return null
+            j = runEnd
+        } else if (ch == '*') {
+            if (canOpenStyle(text, j, runEnd, end)) {
+                val nestedClose = findStyleClose(text, j, runLength, end, protectedEnd, depth + 1) ?: return null
+                j = nestedClose + runLength
+                continue
+            }
+            if (mayCloseStyle(text, j, runEnd)) return null
+            j = runEnd
+        } else {
+            j = runEnd
+        }
+    }
+    return null
+}
+
+private fun scanMarkdownStyles(
+    text: String,
+    start: Int,
+    end: Int,
+    protectedEnd: IntArray,
+    depth: Int,
+    out: MutableList<MarkdownSpan>
+) {
+    if (depth >= MAX_STYLE_DEPTH) return
+    var i = start
+    while (i < end) {
+        if (protectedEnd[i] != 0) {
+            i = minOf(protectedEnd[i], end)
+            continue
+        }
+        val ch = text[i]
+        if (ch != '*' && ch != '_' && ch != '~') {
+            i++
+            continue
+        }
+        val runEnd = styleRunEnd(text, i, end, protectedEnd)
+        val length = runEnd - i
+        val close = if (canOpenStyle(text, i, runEnd, end)) {
+            findStyleClose(text, i, length, end, protectedEnd, depth)
+        } else {
+            null
+        }
+        if (close == null) {
+            i = runEnd
+            continue
+        }
+        val matchEnd = close + length
+        when {
+            ch == '*' && length == 3 -> {
+                out.add(MarkdownSpan(MARKDOWN_BOLD, i, matchEnd, 3))
+                out.add(MarkdownSpan(MARKDOWN_ITALIC, i, matchEnd, 3))
+            }
+            ch == '*' && length == 2 -> out.add(MarkdownSpan(MARKDOWN_BOLD, i, matchEnd, 2))
+            ch == '~' -> out.add(MarkdownSpan(MARKDOWN_STRIKE, i, matchEnd, 2))
+            else -> out.add(MarkdownSpan(MARKDOWN_ITALIC, i, matchEnd, 1))
+        }
+        scanMarkdownStyles(text, runEnd, close, protectedEnd, depth + 1, out)
+        i = matchEnd
+    }
+}
+
+private val TRAILING_PUNCTUATION = charArrayOf(',', '.', '!', '?', ';', ':', '*', '_', '~')
 
 const val MARKDOWN_PRE = "pre"
 const val MARKDOWN_CODE = "c"
 const val MARKDOWN_BOLD = "b"
+const val MARKDOWN_ITALIC = "i"
+const val MARKDOWN_STRIKE = "st"
 const val MARKDOWN_LINK = "lk"
 
 fun buildTextContentWithEmojis(

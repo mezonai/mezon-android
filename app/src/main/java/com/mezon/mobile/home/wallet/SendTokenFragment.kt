@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.wallet
 
+import com.mezon.mobile.util.NetworkErrorMessages
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -873,10 +874,12 @@ class SendTokenFragment : BaseFragment() {
                         requireContext(),
                         jsonWalletAddress!!
                     )
-                    showToast(
-                        getString(R.string.send_token_address_copied),
-                        ToastOverlay.ToastType.INFO
-                    )
+                    if (AndroidUtilities.shouldShowClipboardToast) {
+                        showToast(
+                            getString(R.string.send_token_address_copied),
+                            ToastOverlay.ToastType.INFO
+                        )
+                    }
                 }
             }
             row.addView(
@@ -1609,53 +1612,43 @@ class SendTokenFragment : BaseFragment() {
                 )
                 val parent = getLayoutContainer() ?: (fragmentView as? ViewGroup) ?: return@launch
                 result.fold(
-                    onSuccess = { r ->
-                        if (r.ok) {
-                            walletController.reduceBalanceLocally(amountInChainUnits)
-                            val timeStr = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
-                                .format(Date())
-                            val amountShow = amountField?.text?.toString().orEmpty()
-                            val sym = getString(R.string.send_token_currency_symbol)
-                            val recipientDisplay = buildRecipientDisplay()
-                            val successFrag = TransferSuccessFragment.newInstance(
-                                amount = amountShow,
-                                symbol = sym,
-                                recipient = recipientDisplay,
-                                note = note,
-                                time = timeStr
-                            )
-                  
-                            successFrag.onDone = { removeSelfFromStack() }
-                            successFrag.onNewTransfer = { removeSelfFromStack() }
-                            successFrag.onNewTransferAfterClose = {
-                                parentLayout?.presentFragment(newInstance())
+                    onSuccess = {
+                        walletController.reduceBalanceLocally(amountInChainUnits)
+                        val timeStr = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
+                            .format(Date())
+                        val amountShow = amountField?.text?.toString().orEmpty()
+                        val sym = getString(R.string.send_token_currency_symbol)
+                        val recipientDisplay = buildRecipientDisplay()
+                        val successFrag = TransferSuccessFragment.newInstance(
+                            amount = amountShow,
+                            symbol = sym,
+                            recipient = recipientDisplay,
+                            note = note,
+                            time = timeStr
+                        )
+
+                        successFrag.onDone = { removeSelfFromStack() }
+                        successFrag.onNewTransfer = { removeSelfFromStack() }
+                        successFrag.onNewTransferAfterClose = {
+                            parentLayout?.presentFragment(newInstance())
+                        }
+                        presentFragment(successFrag)
+                        if (!toUserId.isNullOrBlank()) {
+                            fragmentScope.launch(Dispatchers.IO) {
+                                sendTransferDmNotification(
+                                    receiverId = toUserId,
+                                    amountDisplay = amountShow,
+                                    symbol = sym,
+                                    note = note
+                                )
                             }
-                            presentFragment(successFrag)
-                            if (!toUserId.isNullOrBlank()) {
-                                fragmentScope.launch(Dispatchers.IO) {
-                                    sendTransferDmNotification(
-                                        receiverId = toUserId,
-                                        amountDisplay = amountShow,
-                                        symbol = sym,
-                                        note = note
-                                    )
-                                }
-                            }
-              
-                            return@launch
-                        } else {
-                            ToastOverlay(requireContext(), themeColors).show(
-                                parent,
-                                ToastOverlay.ToastType.ERROR,
-                                r.error.ifEmpty { getString(R.string.send_token_send_error, "") }
-                            )
                         }
                     },
                     onFailure = { e ->
                         ToastOverlay(requireContext(), themeColors).show(
                             parent,
                             ToastOverlay.ToastType.ERROR,
-                            getString(R.string.send_token_send_error, e.message.orEmpty())
+                            NetworkErrorMessages.userMessage(requireContext(), e, getString(R.string.send_token_send_failed))
                         )
                     }
                 )

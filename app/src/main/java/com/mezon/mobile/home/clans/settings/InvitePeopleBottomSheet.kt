@@ -477,7 +477,9 @@ class InvitePeopleBottomSheet(
         if (url.isBlank()) return
         val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         cm.setPrimaryClip(ClipData.newPlainText("invite", url))
-        showToast(ToastOverlay.ToastType.SUCCESS, context.getString(R.string.invite_link_copied))
+        if (AndroidUtilities.shouldShowClipboardToast) {
+            showToast(ToastOverlay.ToastType.SUCCESS, context.getString(R.string.invite_link_copied))
+        }
     }
 
     private fun shareInviteLink() {

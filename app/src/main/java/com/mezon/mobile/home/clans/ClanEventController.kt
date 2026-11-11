@@ -1,7 +1,9 @@
 package com.mezon.mobile.home.clans
 
+import android.content.Context
 import android.util.Log
 import com.mezon.mezon.api.CreateEventRequest
+import com.mezon.mobile.R
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
@@ -13,6 +15,8 @@ import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.network.apiCacheKey
 import com.mezon.mobile.session.SessionManager
+import com.mezon.mobile.util.NetworkErrorMessages
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -31,6 +35,7 @@ import javax.inject.Singleton
 
 @Singleton
 class ClanEventController @Inject constructor(
+    @ApplicationContext private val appContext: Context,
     private val api: MezonApi,
     private val sessionManager: SessionManager,
     private val channelController: ChannelController,
@@ -419,8 +424,11 @@ class ClanEventController @Inject constructor(
                     ensureActive()
                     if (clanId in staleLoadingClanIds) return@synchronized
                     Log.w(TAG, "loadEvents failed clanId=$clanId", e)
-                    loadErrorsByClan[clanId] = e.message?.takeIf { it.isNotBlank() }
-                        ?: "Failed to load events"
+                    loadErrorsByClan[clanId] = NetworkErrorMessages.userMessage(
+                        appContext,
+                        e,
+                        appContext.getString(R.string.clan_event_load_failed)
+                    )
                 }
             } finally {
                 synchronized(cacheLock) {
@@ -476,7 +484,7 @@ class ClanEventController @Inject constructor(
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 withContext(Dispatchers.Main.immediate) {
-                    onDone(false, e.message)
+                    onDone(false, NetworkErrorMessages.userMessageOrNull(appContext, e))
                 }
             }
         }
@@ -520,7 +528,7 @@ class ClanEventController @Inject constructor(
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 withContext(Dispatchers.Main.immediate) {
-                    onDone(false, e.message)
+                    onDone(false, NetworkErrorMessages.userMessageOrNull(appContext, e))
                 }
             }
         }
@@ -563,7 +571,7 @@ class ClanEventController @Inject constructor(
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 withContext(Dispatchers.Main.immediate) {
-                    onDone(false, e.message)
+                    onDone(false, NetworkErrorMessages.userMessageOrNull(appContext, e))
                 }
             }
         }
@@ -610,7 +618,7 @@ class ClanEventController @Inject constructor(
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 withContext(Dispatchers.Main.immediate) {
-                    onDone(false, e.message)
+                    onDone(false, NetworkErrorMessages.userMessageOrNull(appContext, e))
                 }
             }
         }
