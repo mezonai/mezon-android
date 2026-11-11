@@ -1841,6 +1841,18 @@ class CreateThreadFragment : BaseFragment() {
         return m.copy(startOffset = s - leading, endOffset = e - leading)
     }
 
+    private fun markdownProtectedRanges(
+        rawInput: String,
+        text: String,
+        mentions: List<MentionData>,
+        hashtags: List<HashtagData>
+    ): List<IntRange> =
+        mentions.mapNotNull { m ->
+            mentionOffsetsForTrimmed(rawInput, text, m)?.let { it.startOffset until it.endOffset }
+        } + hashtags.mapNotNull { h ->
+            hashtagOffsetsForTrimmed(rawInput, h)?.let { it.startOffset until it.endOffset }
+        }
+
     private fun buildEmojiMarkers(text: String, emojiSource: Map<String, String> = emojiObjPicked): List<com.mezon.mobile.util.EmojiMarker>? {
         if (emojiSource.isEmpty()) return null
         val markers = ArrayList<com.mezon.mobile.util.EmojiMarker>()
@@ -1876,7 +1888,11 @@ class CreateThreadFragment : BaseFragment() {
             }
             return
         }
-        val mdResult = parseMarkdownAndStrip(text)
+        val mdResult = parseMarkdownAndStrip(
+            text,
+            protectedRanges = markdownProtectedRanges(rawInput, text, mentionTrackers, hashtagTrackers),
+            protectedTokens = emojiObjPicked.keys
+        )
         val cleanedText = mdResult.cleanedText
         val mdMarkers = mdResult.markers.ifEmpty { null }
         val fromTrackers = mentionTrackers.mapNotNull { m ->
@@ -1957,7 +1973,11 @@ class CreateThreadFragment : BaseFragment() {
             }
             return
         }
-        val mdResult = parseMarkdownAndStrip(text)
+        val mdResult = parseMarkdownAndStrip(
+            text,
+            protectedRanges = markdownProtectedRanges(rawInput, text, captured.mentions, captured.hashtags),
+            protectedTokens = captured.emojiEntries.keys
+        )
         val cleanedText = mdResult.cleanedText
         val mdMarkers = mdResult.markers.ifEmpty { null }
         val fromTrackers = captured.mentions.mapNotNull { m ->

@@ -30,6 +30,9 @@ class RoleAddMembersBottomSheet(
     override val sheetBackgroundColor: Int
         get() = theme.background
 
+    override val limitHeightToVisibleArea: Boolean
+        get() = true
+
     private val selectedIds = LinkedHashSet<Long>()
     private var filtered: List<ClanMember> = candidates
     private lateinit var saveButton: TextView
@@ -38,12 +41,17 @@ class RoleAddMembersBottomSheet(
     private val listAdapter = CandidatesAdapter()
 
     init {
-        containerHeight = (AndroidUtilities.displaySize.y * 0.72f).toInt()
         setCustomView(buildContent(context))
     }
 
     private fun buildContent(context: Context): View {
-        val root = LinearLayout(context).apply {
+        val preferredHeight = (AndroidUtilities.displaySize.y * 0.72f).toInt()
+        val root = object : LinearLayout(context) {
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                val height = resolveSize(preferredHeight, heightMeasureSpec)
+                super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY))
+            }
+        }.apply {
             orientation = LinearLayout.VERTICAL
         }
 

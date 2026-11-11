@@ -5222,6 +5222,13 @@ open class ChatFragment : BaseFragment() {
         return m.copy(startOffset = s - leading, endOffset = e - leading)
     }
 
+    private fun markdownProtectedRanges(rawInput: String, text: String): List<IntRange> =
+        mentionTrackers.mapNotNull { m ->
+            mentionOffsetsForTrimmed(rawInput, text, m)?.let { it.startOffset until it.endOffset }
+        } + hashtagTrackers.mapNotNull { h ->
+            hashtagOffsetsForTrimmed(rawInput, h)?.let { it.startOffset until it.endOffset }
+        }
+
     private fun sendMessage(attachmentOverride: List<AttachmentPickerItem>? = null) {
         dismissPasteImagePopup()
         val outgoingAttachments = attachmentOverride ?: pendingAttachments
@@ -5278,7 +5285,11 @@ open class ChatFragment : BaseFragment() {
         val isPrivate = resolveChannelPrivate()
         val references = buildReplyReferences()
 
-        val mdResult = parseMarkdownAndStrip(text)
+        val mdResult = parseMarkdownAndStrip(
+            text,
+            protectedRanges = markdownProtectedRanges(rawInput, text),
+            protectedTokens = emojiObjPicked.keys
+        )
         val cleanedText = mdResult.cleanedText
         val mdMarkers = mdResult.markers.ifEmpty { null }
         val ogpPreview = inputOgpPreviewData
