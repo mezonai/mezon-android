@@ -924,7 +924,10 @@ class ClanEventEditorDialog private constructor(
         val tip = getString(R.string.event_creator_private_voice_channel_tip, channelLabel)
         val channelStart = tip.lastIndexOf(channelLabel)
         val icon = ChannelItemCell.resolveChannelIcon(channel.type, channel.isPrivate, channel.isAgeRestricted)
-        val iconSpan = ColoredImageSpan(icon.getDrawable(context), ColoredImageSpan.ALIGN_CENTER).apply {
+        val iconSpan = ColoredImageSpan(
+            MezonIcon.loadDrawable(context, icon),
+            ColoredImageSpan.ALIGN_CENTER,
+        ).apply {
             setSize(privateVoiceChannelTip.textSize.toInt())
             overrideColor = themeColors.primary
         }

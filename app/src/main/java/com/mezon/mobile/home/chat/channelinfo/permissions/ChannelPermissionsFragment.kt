@@ -36,6 +36,7 @@ import com.mezon.mobile.home.profile.UserController
 import com.mezon.mobile.ui.MezonToast
 import com.mezon.mobile.ui.cells.ActionBarView
 import com.mezon.mobile.ui.cells.AvatarView
+import com.mezon.mobile.ui.cells.CdnIconView
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.SwitchView
 import com.mezon.mobile.ui.cells.ToastOverlay
@@ -350,7 +351,19 @@ class ChannelPermissionsFragment : BaseFragment() {
             }
         }
         if (!advanced) {
-            row.addView(iconCircle(context, R.drawable.mz_role_20, role.color.takeIf { it != 0 } ?: themeColors.blurple))
+            val roleIcon = if (role.iconUrl.isNotBlank()) {
+                CdnIconView(context, themeColors).apply {
+                    setSizeDp(32)
+                    setImageUrl(role.iconUrl)
+                }
+            } else {
+                ImageView(context).apply {
+                    val tint = role.color.takeIf { it != 0 } ?: themeColors.textDisabled
+                    setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_role_20, tint))
+                    scaleType = ImageView.ScaleType.FIT_CENTER
+                }
+            }
+            row.addView(roleIcon, LayoutHelper.createLinear(32, 32, 0f, Gravity.CENTER_VERTICAL))
         }
         row.addView(
             TextView(context).apply {
@@ -741,9 +754,7 @@ class ChannelPermissionsFragment : BaseFragment() {
 
     private fun deleteIcon(context: Context, onClick: () -> Unit): ImageView =
         ImageView(context).apply {
-            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_close_20, ThemeColors.defaultIconTint).apply {
-                colorFilter = PorterDuffColorFilter(themeColors.colorText, PorterDuff.Mode.SRC_IN)
-            })
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_close_20, themeColors.iconTint))
             isClickable = true
             setOnClickListener { onClick() }
         }

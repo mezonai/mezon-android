@@ -3588,12 +3588,11 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     }
 
     private fun drawSendingIndicator(canvas: Canvas) {
-        val x = (PAD_H + AVATAR_SIZE + GAP_AVATAR).toFloat()
+        val x = PAD_H + AVATAR_SIZE + GAP_AVATAR
         val topPad = if (isCombined) COMBINE_PAD_V else PAD_V
-        val y = (measuredHeight - topPad - SENDING_ICON_SIZE).toFloat()
-        val cx = x + SENDING_ICON_SIZE / 2f
-        val cy = y + SENDING_ICON_SIZE / 2f
-        sendingIcon.drawCenteredIcon(canvas, cx.toInt(), cy.toInt())
+        val y = measuredHeight - topPad - SENDING_ICON_SIZE
+        sendingIcon.setIconColor(theme.iconTint)
+        MezonIcon.drawIcon(canvas, sendingIcon, x, y, x + SENDING_ICON_SIZE, y + SENDING_ICON_SIZE)
     }
 
     private fun drawPresignPendingPlaceholder(
@@ -3906,6 +3905,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
         val cx = x + iconSize / 2
         val cy = y + layout.height / 2f
+        forwardIcon.setIconColor(layout.paint.color)
         forwardIcon.drawCenteredIcon(canvas, cx.toInt(), cy.toInt())
     }
 
@@ -4330,6 +4330,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 brokenImageDrawable = it
                 brokenImageResId = resId
             }
+        icon.setIconColor(theme.iconTint)
         icon.drawCenteredIcon(canvas, (x + w / 2f).toInt(), (y + h / 2f).toInt())
     }
 

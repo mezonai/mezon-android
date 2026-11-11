@@ -219,9 +219,7 @@ object ClanSettingsUiHelpers {
         }
         val iconIv = ImageView(context).apply {
             scaleType = ImageView.ScaleType.FIT_CENTER
-            val d = MezonIcon.loadDrawable(context, icon).withDefaultIconTint(context, icon, ThemeColors.defaultIconTint)
-            d.mutate()
-            d.colorFilter = PorterDuffColorFilter(theme.colorText, PorterDuff.Mode.SRC_IN)
+            val d = MezonIcon.loadDrawable(context, icon, theme.iconTint)
             d.applyActionLabelColor(textColor ?: theme.textStrong, theme)
             setImageDrawable(d)
         }
@@ -236,8 +234,7 @@ object ClanSettingsUiHelpers {
         row.addView(text, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.CENTER_VERTICAL))
 
         val chev = ImageView(context).apply {
-            val d = MezonIcon.loadDrawable(context, R.drawable.mz_chevron_right_16, ThemeColors.defaultIconTint)
-            d.colorFilter = PorterDuffColorFilter(theme.colorText, PorterDuff.Mode.SRC_IN)
+            val d = MezonIcon.loadDrawable(context, R.drawable.mz_chevron_right_16, theme.onSurface)
             d.applyActionLabelColor(textColor ?: theme.textStrong, theme)
             setImageDrawable(d)
             scaleType = ImageView.ScaleType.CENTER_INSIDE

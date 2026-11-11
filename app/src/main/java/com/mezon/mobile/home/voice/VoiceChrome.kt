@@ -7,9 +7,7 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.widget.FrameLayout
 import android.widget.ImageView
-import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.ui.cells.MezonIcon
-import com.mezon.mobile.ui.cells.isPackagedIcon
 import kotlin.math.roundToInt
 
 object VoiceChrome {
@@ -23,8 +21,7 @@ class VoiceStyleCircleButton(
     borderColor: Int,
     initialTint: Int,
     private val iconSize: Int,
-    private val fixedIconLoader: ((Context, Int) -> Drawable)? = null,
-    private val useSemanticTint: Boolean = false
+    private val fixedIconLoader: ((Context, Int) -> Drawable)? = null
 ) : FrameLayout(context) {
 
     companion object {
@@ -74,13 +71,11 @@ class VoiceStyleCircleButton(
 
     private fun loadIcon(): Drawable {
         fixedIconLoader?.let { return it(context, icon) }
-        val tint = when {
-            applyTint && useSemanticTint -> iconTint
-            context.isPackagedIcon(icon) -> ThemeColors.defaultIconTint
-            applyTint -> iconTint
-            else -> return MezonIcon.loadDrawable(context, icon)
+        return if (applyTint) {
+            MezonIcon.loadDrawable(context, icon, iconTint)
+        } else {
+            MezonIcon.loadDrawable(context, icon)
         }
-        return MezonIcon.loadDrawable(context, icon, tint)
     }
 
     fun updateIcon(newIcon: Int) {

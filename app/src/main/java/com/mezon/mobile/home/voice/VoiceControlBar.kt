@@ -205,8 +205,7 @@ class VoiceControlBar(
             themeColors.tertiary,
             btnBorder,
             defaultTint,
-            iconSize,
-            useSemanticTint = true
+            iconSize
         ).apply {
             setOnClickListener { onScreenShareClick?.invoke() }
         }

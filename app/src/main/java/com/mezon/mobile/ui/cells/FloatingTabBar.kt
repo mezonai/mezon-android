@@ -12,6 +12,7 @@ import com.mezon.mobile.R
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.SharedConfig
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.ui.theme.MezonIconColors
 
 class FloatingTabBar(context: Context, private val themeColors: ThemeColors) : View(context) {
 
@@ -128,11 +129,16 @@ class FloatingTabBar(context: Context, private val themeColors: ThemeColors) : V
         val indicatorRadius = (indicatorBottom - indicatorTop) / 2f
         canvas.drawRoundRect(indicatorRect, indicatorRadius, indicatorRadius, indicatorPaint)
 
+        val (normalIconColor, selectedIconColor) = if (themeColors.resolvedMode.isLight) {
+            MezonIconColors.LIGHT
+        } else {
+            MezonIconColors.DARK
+        }
         for (i in tabs.indices) {
             val centerX = (tabW * i + tabW / 2f).toInt()
             val centerY = (h / 2f).toInt()
             val icon = icons[i]
-            icon.setTint(themeColors.iconTint)
+            icon.setTint(if (i == selectedIndex) selectedIconColor else normalIconColor)
             icon.drawCenteredIcon(canvas, centerX, centerY)
         }
     }

@@ -34,6 +34,8 @@ class AdvancedMenuView(
     interface AdvancedMenuViewDelegate {
         fun onLocationSelected()
         fun onFilesSelected()
+        fun onThreadsSelected()
+        fun onTransferFundsSelected()
         fun onBuzzSelected()
         fun onAnonymousToggled()
         fun onCreatePollRequested() {}
@@ -141,6 +143,8 @@ class AdvancedMenuView(
         when (item.id) {
             "location" -> del?.onLocationSelected()
             "files" -> del?.onFilesSelected()
+            "create_thread" -> del?.onThreadsSelected()
+            "transfer_funds" -> del?.onTransferFundsSelected()
             "buzz" -> del?.onBuzzSelected()
             "anonymous" -> {
                 del?.onAnonymousToggled()

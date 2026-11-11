@@ -1,7 +1,6 @@
 package com.mezon.mobile.home.chat.channelinfo
 
 import com.mezon.mobile.ui.cells.withDefaultIconTint
-import com.mezon.mobile.R
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context

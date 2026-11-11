@@ -332,7 +332,7 @@ class ChannelQuickActionFragment : BaseFragment() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(LayoutHelper.dp(14f), LayoutHelper.dp(14f), LayoutHelper.dp(14f), LayoutHelper.dp(14f))
-            background = rounded(themeColors.channelPanelBg, 14f)
+            background = rounded(themeColors.surface, 14f)
         }
 
         val textCol = LinearLayout(context).apply {

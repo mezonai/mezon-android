@@ -237,7 +237,10 @@ class ChannelChangeCategoryFragment : BaseFragment() {
             buildCategoryRow(ctx, category.categoryName) { onCategorySelected(category) }
         }
         listHost.addView(
-            ClanSettingsUiHelpers.buildMezonSection(ctx, themeColors, null, rows),
+            ClanSettingsUiHelpers.buildMezonSection(
+                ctx, themeColors, null, rows,
+                cardColor = themeColors.surface, separatorColor = themeColors.border,
+            ),
             LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT),
         )
     }

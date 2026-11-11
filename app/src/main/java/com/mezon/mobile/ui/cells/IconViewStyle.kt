@@ -5,13 +5,20 @@ import android.graphics.Canvas
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.Drawable
+import android.util.LruCache
 import android.widget.ImageView
 import androidx.annotation.ColorInt
 import androidx.annotation.DrawableRes
 import com.mezon.mobile.core.ThemeColors
 
+private val iconColorFilters = object : LruCache<Int, PorterDuffColorFilter>(32) {
+    override fun create(color: Int): PorterDuffColorFilter =
+        PorterDuffColorFilter(color, PorterDuff.Mode.SRC_IN)
+}
+
 internal fun Drawable.setIconColor(@ColorInt color: Int) {
-    colorFilter = PorterDuffColorFilter(color, PorterDuff.Mode.SRC_IN)
+    val filter = iconColorFilters.get(color)
+    if (colorFilter !== filter) colorFilter = filter
 }
 
 internal fun Drawable.drawCenteredIcon(canvas: Canvas, cx: Int, cy: Int) {

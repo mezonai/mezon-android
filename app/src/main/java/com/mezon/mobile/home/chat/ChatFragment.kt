@@ -5902,6 +5902,13 @@ open class ChatFragment : BaseFragment() {
                         if (!ensureCanSendMessageOrNotify()) return
                         launchDocumentPicker()
                     }
+                    override fun onThreadsSelected() {
+                        presentFragment(ThreadListFragment.newInstance(channelId, channelName, clanId))
+                    }
+                    override fun onTransferFundsSelected() {
+                        if (!ensureCanSendMessageOrNotify()) return
+                        presentFragment(SendTokenFragment.newInstance())
+                    }
                     override fun onBuzzSelected() {
                         if (!ensureCanSendMessageOrNotify()) return
                         showBuzzConfirmDialog()

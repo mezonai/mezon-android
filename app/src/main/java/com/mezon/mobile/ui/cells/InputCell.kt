@@ -36,6 +36,7 @@ class InputCell(context: Context, private val theme: ThemeColors) : LinearLayout
     private val bgDrawable: GradientDrawable
     private var strokeWhenValid: Int? = null
     private var captionColorOverride: Int? = null
+    private var clearIconColorOverride: Int? = null
     private var maxCharacter = 200
     private var isTextarea = false
     private var showCharacterCount = false
@@ -286,11 +287,13 @@ class InputCell(context: Context, private val theme: ThemeColors) : LinearLayout
         bgDrawable.setStroke(LayoutHelper.dp(1), border)
         editText.setTextColor(text)
         editText.setHintTextColor(hint)
-        clearButton.drawable.setIconColor(clearIcon)
+        clearIconColorOverride = clearIcon
+        clearButton.setColorFilter(clearIcon)
     }
 
     fun useDarkClearIcon() {
-        clearButton.setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_close_16, ThemeMode.LIGHT.iconTint))
+        clearIconColorOverride = ThemeMode.LIGHT.iconTint
+        clearButton.setColorFilter(ThemeMode.LIGHT.iconTint)
     }
 
     fun refreshThemeColors() {
@@ -302,7 +305,7 @@ class InputCell(context: Context, private val theme: ThemeColors) : LinearLayout
         bgDrawable.setStroke(LayoutHelper.dp(1), stroke)
         editText.setTextColor(theme.onSurface)
         editText.setHintTextColor(theme.onSurfaceVariant and 0x80FFFFFF.toInt())
-        clearButton.setColorFilter(theme.onSurfaceVariant)
+        clearButton.setColorFilter(clearIconColorOverride ?: theme.onSurfaceVariant)
         charCountView.setTextColor(captionColorOverride ?: theme.onSurfaceVariant)
         errorView.setTextColor(theme.error)
         invalidate()

@@ -277,7 +277,7 @@ class RoleSetupMembersFragment : BaseFragment() {
         )
         row.addView(
             ImageView(context).apply {
-                setImageResource(R.drawable.ic_chevron_right_24)
+                setImageResource(R.drawable.mz_chevron_right_20)
                 setColorFilter(themeColors.textDisabled)
             },
             LayoutHelper.createLinear(20, 20, 0f, Gravity.CENTER_VERTICAL)

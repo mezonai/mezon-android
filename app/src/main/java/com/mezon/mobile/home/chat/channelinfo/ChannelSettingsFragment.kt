@@ -226,6 +226,8 @@ class ChannelSettingsFragment : BaseFragment() {
                     themeColors,
                     null,
                     listOf(buildAgeRestrictedRow(context)),
+                    cardColor = themeColors.surface,
+                    separatorColor = themeColors.border,
                 ),
                 LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 0f, 0f, 28f),
             )

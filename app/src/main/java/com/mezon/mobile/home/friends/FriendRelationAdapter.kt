@@ -272,6 +272,7 @@ class FriendRowCell(
         displayNameText.setTextColor(themeColors.onSurface)
         callButton.setColorFilter(themeColors.onSurface)
         messageButton.setColorFilter(themeColors.onSurface)
+        deleteButton.setColorFilter(themeColors.iconTint)
         drawDivider = divider
         val user = friend.user
         val state = friend.state
@@ -319,7 +320,7 @@ class FriendRowCell(
 
     private fun createPendingDeleteButton(): ImageView {
         return ImageView(context).apply {
-            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_close_20, 0xFFC7C7C7.toInt()))
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_close_20, themeColors.iconTint))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             background = null
             val pad = LayoutHelper.dp(8)

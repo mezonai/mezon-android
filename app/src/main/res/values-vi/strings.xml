@@ -1627,7 +1627,7 @@
     <string name="embed_form_error_select_min">Chọn ít nhất %1$d mục.</string>
     <string name="embed_form_error_select_max">Chọn tối đa %1$d mục.</string>
     <string name="embed_form_submit_failed">Không thể gửi biểu mẫu</string>
-    <string name="advanced_ephemeral">Ephemeral</string>
+    <string name="advanced_ephemeral">Tin nhắn tạm thời</string>
     <string name="ephemeral_only_visible_to_recipient">Chỉ người nhận mới thấy được</string>
     <string name="slash_command_ephemeral_description">Gửi tin nhắn tạm thời (chỉ hiển thị cho người dùng được chọn)</string>
     <string name="slash_command_ephemeral_placeholder">Tin nhắn tạm thời cho %1$s...</string>
@@ -1725,6 +1725,13 @@
     <string name="call_full_screen_intent_incoming_hint">Đang tắt toàn màn hình khi khóa — chạm để bật</string>
     <string name="call_ongoing_banner_title">Cuộc gọi đang diễn ra</string>
 
+    <string name="advanced_location">Vị trí</string>
+    <string name="advanced_files">Tệp tin</string>
+    <string name="advanced_threads">Chủ đề</string>
+    <string name="advanced_anonymous">Ẩn danh</string>
+    <string name="advanced_buzz">Rung</string>
+    <string name="advanced_transfer_funds">Chuyển khoản</string>
+    <string name="advanced_poll">Bình chọn</string>
     <string name="advanced_share_contact">Chia sẻ danh thiếp</string>
     <string name="share_contact_title">Chia sẻ danh thiếp</string>
     <string name="share_contact_message">Nhắn tin</string>
