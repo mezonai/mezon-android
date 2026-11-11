@@ -35,7 +35,7 @@ object VideoPrefetcher {
         var started = false
     }
 
-    private class Fetched(val prefix: ByteArray, val contentLength: Long)
+    private class Fetched(val prefix: ByteArray, val contentLength: Long, val acceptsRanges: Boolean)
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val permits = Semaphore(MAX_ACTIVE_JOBS)
@@ -131,6 +131,7 @@ object VideoPrefetcher {
         }
         val contentLength = if (knownLength > 0L) knownLength else head.contentLength
         if (contentLength <= 0L) return
+        if (!head.acceptsRanges) return
         val tailStart = moovTailStart(head.prefix) ?: return
         val tailLength = contentLength - tailStart
         if (tailStart < HEAD_BYTES || tailLength <= 0L || tailLength > TAIL_LIMIT_BYTES) return
@@ -148,25 +149,32 @@ object VideoPrefetcher {
         val source = factory.createDataSource()
         val prefix = ByteArray(keepBytes)
         var kept = 0
-        var contentLength = C.LENGTH_UNSET.toLong()
+        var remaining = length
         try {
-            source.open(DataSpec.Builder().setUri(uri).setPosition(position).setLength(length).build())
+            // A normal GET gives the cache the actual length even for files smaller than HEAD_BYTES.
+            val requestedLength = if (position == 0L) C.LENGTH_UNSET.toLong() else length
+            source.open(DataSpec.Builder().setUri(uri).setPosition(position).setLength(requestedLength).build())
+            val headers = source.responseHeaders
+            val contentLength = contentRangeTotal(headers)
+            val acceptsRanges = contentLength > 0L || headers.any { (name, values) ->
+                name.equals("Accept-Ranges", ignoreCase = true) && values.any { it.equals("bytes", true) }
+            }
             val buffer = ByteArray(READ_BUFFER_BYTES)
-            while (true) {
+            while (remaining > 0L) {
                 currentCoroutineContext().ensureActive()
-                if (contentLength == C.LENGTH_UNSET.toLong()) contentLength = contentRangeTotal(source.responseHeaders)
-                val read = source.read(buffer, 0, buffer.size)
+                val read = source.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
                 if (read == C.RESULT_END_OF_INPUT) break
+                remaining -= read
                 if (kept < keepBytes) {
                     val count = minOf(read, keepBytes - kept)
                     System.arraycopy(buffer, 0, prefix, kept, count)
                     kept += count
                 }
             }
+            return Fetched(prefix.copyOf(kept), contentLength, acceptsRanges)
         } finally {
             runCatching { source.close() }
         }
-        return Fetched(prefix.copyOf(kept), contentLength)
     }
 
     private fun storeContentLength(cache: SimpleCache, key: String, contentLength: Long) {

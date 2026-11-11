@@ -1142,7 +1142,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             applyMediaCornerRadius(receiver)
             receiver.setRequestedSize(pw, ph)
             val isLocalUri = att.url.startsWith("content://") || att.url.startsWith("file://")
-            val isVideo = isVideoAttachmentType(att.filetype)
+            val isVideo = isVideoAttachmentType(att.filetype, att.filename, att.url)
             slotIsVideo[i] = isVideo
             val presignPending = msg.isPresignAttachmentPending(att.url, filter, snapshot.allPresignFinished)
             val ingestLive = presignPending && isVideo && filter.isIngestLive(att.url)

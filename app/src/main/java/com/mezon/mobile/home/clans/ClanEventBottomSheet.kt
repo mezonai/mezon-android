@@ -30,7 +30,6 @@ import com.mezon.mobile.core.BottomSheet
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
-import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.home.voice.ExternalMeetingLinkBottomSheet
@@ -72,8 +71,22 @@ class ClanEventBottomSheet(
     private val eventBorderColor: Int
         get() = ColorUtils.setAlphaComponent(theme.border, 0x66)
 
+    private data class EventRow(
+        val event: ClanEventEntity,
+        val creatorAvatar: String,
+        val voiceChannelLabel: String?,
+        val linkedChannelLabel: String?,
+        val status: Int,
+        val statusText: String,
+        val startsToday: Boolean,
+        val interested: Boolean,
+        val canEnd: Boolean,
+        val canEdit: Boolean,
+    )
+
     var onJoinExternalMeeting: ((ExternalMeetingRoom) -> Unit)? = null
     private val logoLoadTokens = ArrayList<MezonImageLoader.Cancellable>()
+    private var renderedRows: List<EventRow>? = null
     private val contentObserver = object : NotificationCenter.NotificationCenterDelegate {
         override fun didReceivedNotification(id: Int, account: Int, vararg args: Any?) {
             val idArg = args.firstOrNull() as? Long ?: return
@@ -156,49 +169,61 @@ class ClanEventBottomSheet(
     }
 
     fun loadClanEvent() {
-        dismissEventMenu()
-        logoLoadTokens.forEach { it.cancel() }
-        logoLoadTokens.clear()
-        val userId = clanEventController.currentUserId()
         val events = clanEventController.visibleEvents(clanId)
         val loading = clanEventController.isLoading(clanId)
         val loadError = clanEventController.getLoadError(clanId)
         loadingView.visibility = if (loading && events.isEmpty()) View.VISIBLE else View.GONE
         errorView.visibility = if (!loading && loadError != null && events.isEmpty()) View.VISIBLE else View.GONE
-        listContainer.removeAllViews()
-        listContainer.visibility = if (events.isNotEmpty()) View.VISIBLE else View.GONE
         emptyView.visibility = if (!loading && loadError == null && events.isEmpty()) View.VISIBLE else View.GONE
-        updateHeaderCount(events.size)
-        events.forEachIndexed { index, event ->
-            val creator = userClanController.getClanMembers(clanId).firstOrNull { it.userId == event.creatorId }
-            val voiceChannel = clanEventController.getChannel(clanId, event.channelVoiceId)
-            val linkedChannel = clanEventController.getChannel(clanId, event.channelId)
+
+        val userId = clanEventController.currentUserId()
+        val members = userClanController.getClanMembers(clanId)
+        val rows = events.map { event ->
+            val creator = members.firstOrNull { it.userId == event.creatorId }
+            val status = event.displayStatus()
+            val statusText = when (status) {
+                ClanEventStatus.UPCOMING -> context.getString(R.string.clan_event_status_upcoming, event.minutesUntilStart())
+                ClanEventStatus.ONGOING -> context.getString(R.string.clan_event_status_ongoing)
+                else -> formatEventStartTime(context, event.startTimeSeconds)
+            }
+            EventRow(
+                event = event,
+                creatorAvatar = creator?.let { it.clanAvatar.ifBlank { it.avatarUrl } }.orEmpty(),
+                voiceChannelLabel = clanEventController.getChannel(clanId, event.channelVoiceId)?.channelLabel,
+                linkedChannelLabel = clanEventController.getChannel(clanId, event.channelId)?.channelLabel,
+                status = status,
+                statusText = statusText,
+                startsToday = event.isStartToday(),
+                interested = event.isInterested(userId),
+                canEnd = clanEventController.canEndEvent(event),
+                canEdit = clanEventController.canModifyEvent(event),
+            )
+        }
+        if (rows == renderedRows) return
+
+        dismissEventMenu()
+        logoLoadTokens.forEach { it.cancel() }
+        logoLoadTokens.clear()
+        listContainer.removeAllViews()
+        listContainer.visibility = if (rows.isNotEmpty()) View.VISIBLE else View.GONE
+        updateHeaderCount(rows.size)
+        rows.forEachIndexed { index, row ->
+            val event = row.event
             listContainer.addView(
                 buildEventRow(
                     context,
                     theme,
-                    event,
-                    creator,
-                    userId,
-                    voiceChannel,
-                    linkedChannel,
+                    row,
                     onOpen = {
                         onOpenEventDetail(event)
                     },
-                    onOpenChannel = { channel ->
-                        clanEventController.getChannel(clanId, channel.channelId)?.let { currentChannel ->
-                            dismiss()
-                            onOpenChannel(currentChannel)
-                        }
-                    },
                     onToggleInterest = {
-                        val interested = !event.isInterested(userId)
-                        clanEventController.setInterested(clanId, event.id, interested) { _, _ -> }
+                        clanEventController.setInterested(clanId, event.id, !row.interested) { _, _ -> }
                     },
-                    onEndEvent = if (clanEventController.canEndEvent(event)) {
+                    onEndEvent = if (row.canEnd) {
                         { confirmEndEvent(event) }
                     } else null,
-                    onEdit = if (clanEventController.canModifyEvent(event)) {
+                    onEdit = if (row.canEdit) {
                         {
                             val latest = clanEventController.getEvent(clanId, event.id)
                             if (latest != null && clanEventController.canModifyEvent(latest)) {
@@ -217,10 +242,17 @@ class ClanEventBottomSheet(
                     0f,
                     0f,
                     0f,
-                    if (index < events.lastIndex) 10f else 0f,
+                    if (index < rows.lastIndex) 10f else 0f,
                 ),
             )
         }
+        renderedRows = rows
+    }
+
+    private fun openEventChannel(channelId: Long) {
+        val channel = clanEventController.getChannel(clanId, channelId) ?: return
+        dismiss()
+        onOpenChannel(channel)
     }
 
     private fun confirmEndEvent(event: ClanEventEntity) {
@@ -492,9 +524,8 @@ class ClanEventBottomSheet(
         context: Context,
         theme: ThemeColors,
         event: ClanEventEntity,
-        voiceChannel: ClanChannelEntity?,
+        voiceChannelLabel: String?,
         topMarginDp: Float = 4f,
-        onChannelClick: ((ClanChannelEntity) -> Unit)? = null,
     ): View {
         return if (event.isOfflineEvent()) {
             buildInlineInfoRow(
@@ -507,7 +538,7 @@ class ClanEventBottomSheet(
                 topMarginDp = topMarginDp,
             )
         } else {
-            val label = voiceChannel?.channelLabel?.takeIf { it.isNotBlank() }
+            val label = voiceChannelLabel?.takeIf { it.isNotBlank() }
                 ?: context.getString(
                     if (event.channelVoiceId != 0L) R.string.clan_event_private_room
                     else R.string.clan_event_external_meeting_room,
@@ -521,10 +552,10 @@ class ClanEventBottomSheet(
                 textColor = theme.textStrong,
                 topMarginDp = topMarginDp,
             )
-            if (voiceChannel != null && onChannelClick != null) {
+            if (voiceChannelLabel != null) {
                 row.isClickable = true
                 row.isFocusable = true
-                row.setOnClickListener { onChannelClick(voiceChannel) }
+                row.setOnClickListener { openEventChannel(event.channelVoiceId) }
             }
             row
         }
@@ -533,20 +564,18 @@ class ClanEventBottomSheet(
     private fun buildEventLinkedChannelRow(
         context: Context,
         theme: ThemeColors,
-        linkedChannel: ClanChannelEntity?,
+        channelId: Long,
+        channelLabel: String?,
         topMarginDp: Float = 4f,
-        onChannelClick: ((ClanChannelEntity) -> Unit)? = null,
     ): View? {
-        if (linkedChannel == null) return null
+        if (channelLabel == null) return null
         return TextView(context).apply {
-            text = context.getString(R.string.clan_event_channel_in, linkedChannel.channelLabel)
+            text = context.getString(R.string.clan_event_channel_in, channelLabel)
             textSize = 12f
             setTextColor(theme.textDisabled)
-            if (onChannelClick != null) {
-                isClickable = true
-                isFocusable = true
-                setOnClickListener { onChannelClick(linkedChannel) }
-            }
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { openEventChannel(channelId) }
             layoutParams = LayoutHelper.createLinear(
                 LayoutHelper.MATCH_PARENT,
                 LayoutHelper.WRAP_CONTENT,
@@ -748,19 +777,15 @@ class ClanEventBottomSheet(
     private fun buildEventRow(
         context: Context,
         theme: ThemeColors,
-        event: ClanEventEntity,
-        creator: ClanMember?,
-        currentUserId: Long,
-        voiceChannel: ClanChannelEntity?,
-        linkedChannel: ClanChannelEntity?,
+        row: EventRow,
         onOpen: () -> Unit,
-        onOpenChannel: (ClanChannelEntity) -> Unit,
         onToggleInterest: () -> Unit,
         onEndEvent: (() -> Unit)?,
         onEdit: (() -> Unit)?,
         onInviteExternalEvent: (String) -> Unit,
         onLogoLoadToken: (MezonImageLoader.Cancellable) -> Unit,
     ): View {
+        val event = row.event
         val pad = LayoutHelper.dp(16)
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -783,18 +808,13 @@ class ClanEventBottomSheet(
             isFocusable = true
             setOnClickListener(openClick)
         }
-        val status = event.displayStatus()
+        val status = row.status
         val statusColor = when (status) {
             ClanEventStatus.UPCOMING -> UPCOMING_EVENT_COLOR
             ClanEventStatus.ONGOING -> ACTIVE_EVENT_COLOR
             else -> theme.textStrong
         }
-        val statusText = when (status) {
-            ClanEventStatus.UPCOMING -> context.getString(R.string.clan_event_status_upcoming, event.minutesUntilStart())
-            ClanEventStatus.ONGOING -> context.getString(R.string.clan_event_status_ongoing)
-            else -> formatEventStartTime(context, event.startTimeSeconds)
-        }
-        if (event.isStartToday()) {
+        if (row.startsToday) {
             topRow.addView(
                 TextView(context).apply {
                     text = context.getString(R.string.clan_event_badge_new)
@@ -823,7 +843,7 @@ class ClanEventBottomSheet(
         )
         topRow.addView(
             TextView(context).apply {
-                text = statusText
+                text = row.statusText
                 textSize = 12f
                 maxLines = 1
                 ellipsize = TextUtils.TruncateAt.END
@@ -842,8 +862,7 @@ class ClanEventBottomSheet(
             AvatarView(context).apply {
                 setSizeDp(24)
                 setRoundRadius(12f)
-                val avatar = creator?.clanAvatar?.ifBlank { creator.avatarUrl }.orEmpty()
-                if (avatar.isNotEmpty()) setImageUrl(avatar)
+                if (row.creatorAvatar.isNotEmpty()) setImageUrl(row.creatorAvatar)
             },
         )
         rightMeta.addView(
@@ -923,9 +942,9 @@ class ClanEventBottomSheet(
         }
         textCol.addView(titleBlock)
         textCol.addView(
-            buildEventLocationRow(context, theme, event, voiceChannel, 4f, onOpenChannel),
+            buildEventLocationRow(context, theme, event, row.voiceChannelLabel),
         )
-        buildEventLinkedChannelRow(context, theme, linkedChannel, 4f, onOpenChannel)?.let {
+        buildEventLinkedChannelRow(context, theme, event.channelId, row.linkedChannelLabel)?.let {
             textCol.addView(it)
         }
         mainRow.addView(textCol)
@@ -1025,7 +1044,7 @@ class ClanEventBottomSheet(
             }
         }
 
-        val interested = event.isInterested(currentUserId)
+        val interested = row.interested
         val actions = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL

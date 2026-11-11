@@ -583,6 +583,8 @@ class ClansFragment : BaseFragment() {
 
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
+            clipChildren = false
+            clipToPadding = false
             setPadding(LayoutHelper.dp(12), LayoutHelper.dp(14), LayoutHelper.dp(12), LayoutHelper.dp(14))
         }
 
@@ -650,6 +652,8 @@ class ClansFragment : BaseFragment() {
         val navBar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
+            clipChildren = false
+            clipToPadding = false
             setPadding(0, LayoutHelper.dp(10), 0, 0)
         }
 
@@ -750,6 +754,7 @@ class ClansFragment : BaseFragment() {
             setOnClickListener { openClanEventsSheet() }
         }
         val eventButtonContainer = FrameLayout(context).apply {
+            clipChildren = false
             addView(eventButton, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
         }
         eventCountBadge = createCountBadgeView(
@@ -760,7 +765,10 @@ class ClansFragment : BaseFragment() {
         }.also { badge ->
             eventButtonContainer.addView(badge, FrameLayout.LayoutParams(
                 LayoutHelper.WRAP_CONTENT, LayoutHelper.dp(16), Gravity.TOP or Gravity.END
-            ))
+            ).apply {
+                topMargin = -LayoutHelper.dp(2)
+                marginEnd = -LayoutHelper.dp(5)
+            })
         }
         navBar.addView(eventButtonContainer, LinearLayout.LayoutParams(
             LayoutHelper.dp(32), LayoutHelper.dp(32)

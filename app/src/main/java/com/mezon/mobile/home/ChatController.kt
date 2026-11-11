@@ -62,6 +62,7 @@ import com.mezon.mobile.util.PresignFinishContent
 import com.mezon.mobile.util.FileIngestException
 import com.mezon.mobile.util.FileIngestJob
 import com.mezon.mobile.util.FileIngestJobStore
+import com.mezon.mobile.util.FileIngestPlaylist
 import com.mezon.mobile.util.FileIngestUploader
 import com.mezon.mobile.util.MENTION_HERE_USER_ID
 import com.mezon.mobile.util.MezonSnowflake
@@ -2537,7 +2538,11 @@ class ChatController @Inject constructor(
             !markdownMarkers.isNullOrEmpty() -> buildTextContentWithEmojis(text, null, null, markdownMarkers)
             else -> buildTextContent(text)
         }
-        val messageFiletype = if (isVideoAttachmentType(attachment.filetype)) "video" else attachment.filetype
+        val messageFiletype = if (isVideoAttachmentType(attachment.filetype, attachment.filename, attachment.url)) {
+            "video"
+        } else {
+            attachment.filetype
+        }
         val protoAttachment = messageAttachment {
             url = attachment.url
             filename = attachment.filename
@@ -3433,7 +3438,7 @@ class ChatController @Inject constructor(
         return when {
             isGifAttachment(attachment.filetype, attachment.filename, attachment.url) -> MessageEntity.TYPE_GIF
             isImageAttachmentType(attachment.filetype) -> MessageEntity.TYPE_PHOTO
-            isVideoAttachmentType(attachment.filetype) -> MessageEntity.TYPE_VIDEO
+            isVideoAttachmentType(attachment.filetype, attachment.filename, attachment.url) -> MessageEntity.TYPE_VIDEO
             else -> MessageEntity.TYPE_FILE
         }
     }
@@ -4639,29 +4644,33 @@ class ChatController @Inject constructor(
                                 dest.channelType,
                                 mentionsData
                             )
-                            val attProtos = linkedForwardAttachments(
-                                session.apiUrl,
-                                session.token,
-                                attachmentsFromEntity(msg),
-                                dest.channelId
-                            )
+                            val attProtos = attachmentsFromEntity(msg)
                             try {
+                                val linked = linkedForwardAttachments(
+                                    session.apiUrl,
+                                    session.token,
+                                    attProtos,
+                                    PresignFinishContent.parseIngestKeys(msg.content),
+                                    dest.channelId,
+                                )
                                 val request = channelMessageSend {
                                     clanId = dest.clanId
                                     channelId = dest.channelId
                                     this.mode = mode
                                     this.isPublic = isPublic
-                                    content = wire
+                                    content = PresignFinishContent.injectIngestKeys(wire, linked.mapNotNull { it.ingestKey })
                                     this.code = if (msg.code == MessageEntity.CODE_MESSAGE_BUZZ) {
                                         MessageEntity.CODE_CHAT
                                     } else msg.code
                                     mentionsProto?.let { if (it.isNotEmpty()) mentions.addAll(it) }
-                                    if (attProtos.isNotEmpty()) attachments.addAll(attProtos)
+                                    attachments.addAll(linked.map { it.attachment })
                                     mentionEveryone = extractMentionEveryoneFromForwardContent(wire)
                                     if (anon) anonymousMessage = true
                                 }
                                 channelSend(session.apiUrl, session.token, request)
                                 sentToDestination = true
+                            } catch (e: CancellationException) {
+                                throw e
                             } catch (e: Exception) {
                                 allOk = false
                                 val everyone = extractMentionEveryoneFromForwardContent(wire)
@@ -4670,7 +4679,7 @@ class ChatController @Inject constructor(
                                     "forward REST chunk failed ch=${dest.channelId} msg=${msg.id} msgCode=${msg.code} " +
                                         "srcCh=$sourceChannelId clan=${dest.clanId} chType=${dest.channelType} mode=$mode " +
                                         "isPublic=$isPublic anon=$anon att=${attProtos.size} mentions=${mentionsProto?.size ?: 0} " +
-                                        "mentionEveryone=$everyone contentLen=${wire.length} contentHead=${wire.take(500)}",
+                                        "mentionEveryone=$everyone contentLen=${wire.length}",
                                     e
                                 )
                             }
@@ -4698,6 +4707,8 @@ class ChatController @Inject constructor(
                         }
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 allOk = false
                 Log.e(TAG, "forwardMessages failed", e)
@@ -4873,6 +4884,8 @@ class ChatController @Inject constructor(
 
     private class ForwardCdnLink(val src: String, val dst: String, val url: String)
 
+    private class LinkedForwardAttachment(val attachment: MessageAttachment, val ingestKey: String?)
+
     private fun forwardCdnLink(url: String, channelId: Long): ForwardCdnLink? {
         val origin = BuildConfig.MEZON_CDN_URL.trim().trimEnd('/')
         if (channelId == 0L || origin.isEmpty() || !url.startsWith("$origin/")) return null
@@ -4886,24 +4899,26 @@ class ChatController @Inject constructor(
         val separator = file.indexOf('_')
         if (separator <= 0 || !file.substring(0, separator).all { it in '0'..'9' }) return null
         val destinationFolder = java.lang.Long.toHexString(channelId).padStart(16, '0')
-        if (folder == destinationFolder) return null
         val dst = "$destinationFolder/$file"
         return ForwardCdnLink(src, dst, "$origin/$dst")
     }
 
-    private suspend fun linkedForwardUrl(apiUrl: String, token: String, url: String, channelId: Long): String {
-        val link = forwardCdnLink(url, channelId) ?: return url
+    private suspend fun linkForwardObject(apiUrl: String, token: String, link: ForwardCdnLink): Boolean {
+        if (link.src == link.dst) return true
         return try {
             api.linkCDNFile(apiUrl, token, link.src, link.dst)
-            link.url
+            true
         } catch (e: CancellationException) {
             throw e
         } catch (e: SocketRpcServerException) {
-            if (e.code == 6) link.url else url
+            if (e.code != 6) Log.w(TAG, "LinkCDNFile failed for forward: RPC code=${e.code}")
+            e.code == 6
         } catch (e: HttpRpcStatusException) {
-            if (e.code == 409) link.url else url
-        } catch (_: Exception) {
-            url
+            if (e.code != 409) Log.w(TAG, "LinkCDNFile failed for forward: HTTP status=${e.code}")
+            e.code == 409
+        } catch (e: Exception) {
+            Log.w(TAG, "LinkCDNFile failed for forward: ${e.javaClass.simpleName}")
+            false
         }
     }
 
@@ -4911,17 +4926,42 @@ class ChatController @Inject constructor(
         apiUrl: String,
         token: String,
         attachments: List<MessageAttachment>,
+        sourceIngestKeys: List<String>,
         channelId: Long
-    ): List<MessageAttachment> = coroutineScope {
+    ): List<LinkedForwardAttachment> = coroutineScope {
         attachments.map { attachment ->
             async {
-                val url = linkedForwardUrl(apiUrl, token, attachment.url, channelId)
-                val thumbnail = linkedForwardUrl(apiUrl, token, attachment.thumbnail, channelId)
-                if (url == attachment.url && thumbnail == attachment.thumbnail) {
-                    attachment
+                val sourceUrl = attachment.url
+                val link = forwardCdnLink(sourceUrl, channelId)
+                val isVideo = isVideoAttachmentType(attachment.filetype, attachment.filename, sourceUrl)
+                val linkedUrl = if (link != null && linkForwardObject(apiUrl, token, link) &&
+                    (!isVideo || FileIngestPlaylist.isOriginalAvailable(link.url))
+                ) {
+                    link.url
                 } else {
-                    attachment.toBuilder().setUrl(url).setThumbnail(thumbnail).build()
+                    null
                 }
+                val useSourceHls = isVideo && link != null && linkedUrl == null
+                if (useSourceHls && FileIngestPlaylist.finishedParts(sourceUrl) !is FileIngestPlaylist.FinishedParts.Parts) {
+                    throw IllegalStateException("Forwarded video has no readable destination or finished source HLS")
+                }
+                val url = linkedUrl ?: sourceUrl
+                val ingestKey = if (useSourceHls ||
+                    (url == sourceUrl && PresignFinishContent.isIngestAttachment(url, sourceIngestKeys))
+                ) {
+                    PresignFinishContent.presignKey(url).takeIf { it.isNotEmpty() }
+                } else {
+                    null
+                }
+                val thumbLink = forwardCdnLink(attachment.thumbnail, channelId)
+                val thumbnail = if (thumbLink != null && linkForwardObject(apiUrl, token, thumbLink)) {
+                    thumbLink.url
+                } else {
+                    attachment.thumbnail
+                }
+                val forwarded = if (url == sourceUrl && thumbnail == attachment.thumbnail) attachment
+                    else attachment.toBuilder().setUrl(url).setThumbnail(thumbnail).build()
+                LinkedForwardAttachment(forwarded, ingestKey)
             }
         }.awaitAll()
     }

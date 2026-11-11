@@ -742,9 +742,27 @@ internal fun isImageAttachmentType(filetype: String): Boolean {
     return type == "image" || type.startsWith("image/")
 }
 
-internal fun isVideoAttachmentType(filetype: String): Boolean {
+internal fun isVideoAttachmentType(filetype: String, filename: String, url: String): Boolean {
     val type = normalizedAttachmentType(filetype)
-    return type == "video" || type.startsWith("video/")
+    return type == "video" || type.startsWith("video/") || isWebmWithGenericType(type, filename, url)
+}
+
+internal fun resolveWebmVideoMimeType(filetype: String, filename: String, url: String): String {
+    return if (isWebmWithGenericType(normalizedAttachmentType(filetype), filename, url)) {
+        "video/webm"
+    } else {
+        filetype
+    }
+}
+
+private fun isWebmWithGenericType(type: String, filename: String, url: String): Boolean {
+    return when (type) {
+        "", "doc", "application/octet-stream", "*/*" ->
+            filename.endsWith(".webm", ignoreCase = true) ||
+                url.substringBefore('?').substringBefore('#').substringAfter("://")
+                    .substringAfter('/', "").endsWith(".webm", ignoreCase = true)
+        else -> false
+    }
 }
 
 internal fun isAudioAttachmentType(filetype: String): Boolean {
@@ -761,7 +779,7 @@ internal fun isGifAttachment(filetype: String, filename: String = "", url: Strin
         url.contains("tenor.com", ignoreCase = true)
 
 internal fun isMediaAttachment(filetype: String, url: String, filename: String = ""): Boolean =
-    isImageAttachmentType(filetype) || isVideoAttachmentType(filetype) ||
+    isImageAttachmentType(filetype) || isVideoAttachmentType(filetype, filename, url) ||
         isGifAttachment(filetype, filename, url) || filetype.equals("sticker", true) ||
         url.contains("/stickers/", true)
 
@@ -773,7 +791,7 @@ private fun resolveMessageType(attachment: ParsedAttachment?): Int {
         attachment.filetype.equals("sticker", ignoreCase = true) -> MessageEntity.TYPE_GIF
         url.contains("/stickers/") -> MessageEntity.TYPE_GIF
         isImageAttachmentType(attachment.filetype) -> MessageEntity.TYPE_PHOTO
-        isVideoAttachmentType(attachment.filetype) -> MessageEntity.TYPE_VIDEO
+        isVideoAttachmentType(attachment.filetype, attachment.filename, attachment.url) -> MessageEntity.TYPE_VIDEO
         else -> MessageEntity.TYPE_FILE
     }
 }

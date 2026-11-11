@@ -59,10 +59,9 @@ android {
                 arguments += "-DONNXRUNTIME_ROOT=${layout.buildDirectory.get().asFile}/onnxruntime-native"
             }
         }
-        versionCode = 1251
-        versionName = "2.1.1"
+        versionCode = 1259
+        versionName = "2.1.3"
 
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
         }
@@ -234,9 +233,6 @@ android {
             version = "3.22.1"
         }
     }
-    testOptions {
-        unitTests.isReturnDefaultValues = true
-    }
 }
 
 kotlin {
@@ -330,11 +326,4 @@ dependencies {
     implementation(libs.firebase.messaging)
 
     implementation(libs.sentry.android)
-
-    // Test
-    testImplementation(libs.junit)
-    testImplementation(libs.mockk)
-    testImplementation("org.json:json:20240303")
-    androidTestImplementation(libs.androidx.junit)
-    androidTestImplementation(libs.androidx.espresso.core)
 }

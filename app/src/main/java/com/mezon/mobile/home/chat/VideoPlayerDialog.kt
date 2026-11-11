@@ -2,6 +2,7 @@ package com.mezon.mobile.home.chat
 
 import android.animation.ObjectAnimator
 import android.app.DownloadManager
+import android.content.ClipData
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.ContextWrapper
@@ -11,8 +12,10 @@ import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
+import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Environment
+import android.os.SystemClock
 import android.util.Log
 import android.view.Gravity
 import android.view.View
@@ -20,26 +23,35 @@ import android.view.ViewGroup
 import android.view.Window
 import android.view.WindowManager
 import android.widget.FrameLayout
+import android.widget.Button
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.MediaController
 import android.widget.ProgressBar
 import android.widget.TextView
+import android.widget.VideoView
 import androidx.activity.ComponentDialog
 import androidx.activity.OnBackPressedCallback
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.media3.common.MediaItem
+import androidx.media3.common.C
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.ExoPlaybackException
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import com.mezon.mobile.network.CdnRequestUrl
 import com.mezon.mobile.network.CdnSigner
-import com.mezon.mobile.network.CdnSigningDataSource
 import androidx.media3.ui.PlayerView
 import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.MainActivity
@@ -58,10 +70,14 @@ import com.mezon.mobile.util.avatarImgproxyUrl
 import com.mezon.mobile.util.FileIngestPlaylist
 import com.mezon.mobile.util.HlsVideoCopy
 import com.mezon.mobile.util.VideoCache
+import com.mezon.mobile.util.VideoPlaybackDownload
 import com.mezon.mobile.util.VideoPrefetcher
 import dagger.hilt.android.EntryPointAccessors
+import java.io.File
 import java.util.Locale
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -72,6 +88,10 @@ private const val VIDEO_CONTROLLER_TIMEOUT_MS = 6_000
 private const val VIDEO_SEEK_TOUCH_HEIGHT_DP = 72
 private const val VIDEO_PLAYER_LOG_TAG = "VideoPlayerDebug"
 private const val VIDEO_SAVE_PROGRESS_POLL_INTERVAL_MS = 300L
+private const val VIDEO_STALL_TIMEOUT_MS = 15_000L
+private const val VIDEO_DIRECT_STALL_TIMEOUT_MS = 8_000L
+private const val VIDEO_START_TIMEOUT_MS = 30_000L
+private const val VIDEO_REBUFFER_TIMEOUT_MS = 45_000L
 private const val NO_PENDING_DOWNLOAD_ID = -1L
 private val VIDEO_ANONYMOUS_USER_ID = BuildConfig.MEZON_ANONYMOUS_USER_ID.toLongOrNull() ?: -1L
 
@@ -127,13 +147,30 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
     private val saveProgressOverlay: FrameLayout
     private val saveProgressLabel: TextView
     private val saveProgressBar: ProgressBar
+    private val nativeContainer: FrameLayout
+    private val playbackOverlay: LinearLayout
+    private val playbackLabel: TextView
+    private val playbackSpinner: ProgressBar
+    private val retryPlaybackButton: Button
+    private val externalPlaybackButton: Button
 
+    private enum class PlaybackSource { CACHED, DIRECT, HLS, DOWNLOAD, LOCAL, NATIVE, FAILED }
+
+    private var playbackSource = PlaybackSource.CACHED
+    private val triedStreams = mutableSetOf<PlaybackSource>()
     private var player: ExoPlayer? = null
+    private var nativeView: VideoView? = null
+    private var nativeControls: MediaController? = null
+    private var nativePrepared = false
+    private var watchdogJob: Job? = null
     private var durationProbeJob: Job? = null
-    private var ingestResolveJob: Job? = null
-    private var ingestPlaylistUrl: String? = null
-    private var ingestFallbackDone = false
-    private var hlsFallbackTried = false
+    private var playbackDownloadJob: Job? = null
+    private var playbackFile: File? = null
+    private var playbackFileMimeType: String? = null
+    private var playbackFileShared = false
+    private var hlsPlaylistUrl: String? = null
+    private var isHlsUrl = false
+    private var isRemoteVideo = false
     private lateinit var currentItem: VideoItem
     private var senderInfoJob: Job? = null
     private var resolvedSender: MediaViewerSender? = null
@@ -151,39 +188,53 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
     private var playbackPositionMs = 0L
     private var resumePlaybackOnForeground = false
     private var stoppedForLifecycle = false
+    private var pausedForLifecycle = false
 
     private val lifecycleObserver = object : DefaultLifecycleObserver {
         override fun onPause(owner: LifecycleOwner) {
             if (!isShowing) return
+            pausedForLifecycle = true
             player?.let { currentPlayer ->
                 playbackPositionMs = currentPlayer.currentPosition
                 resumePlaybackOnForeground = currentPlayer.playWhenReady &&
                     currentPlayer.playbackState != Player.STATE_ENDED
                 currentPlayer.pause()
             }
+            nativeView?.let { view ->
+                if (nativePrepared) {
+                    playbackPositionMs = view.currentPosition.toLong()
+                    resumePlaybackOnForeground = view.isPlaying
+                }
+                view.pause()
+                nativeControls?.hide()
+            }
         }
 
         override fun onStop(owner: LifecycleOwner) {
             if (!isShowing) return
             player?.let { playbackPositionMs = it.currentPosition }
-            releasePlayer()
-            stopSaveProgress()
             stoppedForLifecycle = true
+            releasePlaybackEngines()
+            stopSaveProgress()
         }
 
         override fun onStart(owner: LifecycleOwner) {
             if (!isShowing) return
             if (stoppedForLifecycle && ::currentItem.isInitialized) {
-                initializePlayer(playbackPositionMs, playWhenReady = false)
                 stoppedForLifecycle = false
+                if (playbackSource != PlaybackSource.DOWNLOAD && playbackSource != PlaybackSource.FAILED) {
+                    startPlayback(playbackSource, playbackPositionMs, resumePlaybackOnForeground)
+                }
             }
             pendingDownloadId.takeIf { it != NO_PENDING_DOWNLOAD_ID }?.let(::startSaveProgress)
         }
 
         override fun onResume(owner: LifecycleOwner) {
-            if (!isShowing || !resumePlaybackOnForeground) return
+            if (!isShowing) return
+            pausedForLifecycle = false
+            if (!resumePlaybackOnForeground) return
             player?.play()
-            resumePlaybackOnForeground = false
+            nativeView?.start()
         }
 
         override fun onDestroy(owner: LifecycleOwner) {
@@ -191,7 +242,7 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
                 dismiss()
             } else {
                 unregisterLifecycleObserver()
-                releasePlayer()
+                releasePlaybackEngines()
             }
         }
     }
@@ -256,6 +307,38 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
                 FrameLayout.LayoutParams.MATCH_PARENT
             )
         )
+
+        nativeContainer = FrameLayout(context).apply { visibility = View.GONE }
+        root.addView(nativeContainer, FrameLayout.LayoutParams(-1, -1))
+
+        playbackOverlay = LinearLayout(context).apply {
+            visibility = View.GONE
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(LayoutHelper.dp(16), LayoutHelper.dp(12), LayoutHelper.dp(16), LayoutHelper.dp(12))
+        }
+        playbackSpinner = ProgressBar(context).apply {
+            indeterminateTintList = ColorStateList.valueOf(Color.WHITE)
+        }
+        playbackOverlay.addView(playbackSpinner, LinearLayout.LayoutParams(LayoutHelper.dp(36), LayoutHelper.dp(36)))
+        playbackLabel = TextView(context).apply {
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            textSize = 16f
+            setPadding(0, LayoutHelper.dp(8), 0, LayoutHelper.dp(8))
+        }
+        playbackOverlay.addView(playbackLabel)
+        retryPlaybackButton = Button(context).apply {
+            setText(R.string.common_retry)
+            setOnClickListener { retryPlayback() }
+        }
+        playbackOverlay.addView(retryPlaybackButton)
+        externalPlaybackButton = Button(context).apply {
+            setText(R.string.video_playback_open_external)
+            setOnClickListener { openInExternalPlayer() }
+        }
+        playbackOverlay.addView(externalPlaybackButton)
+        root.addView(playbackOverlay, FrameLayout.LayoutParams(-1, -2, Gravity.CENTER))
 
         topBar = FrameLayout(context).apply {
             setBackgroundColor(0x99000000.toInt())
@@ -351,7 +434,7 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
 
         playerView.setControllerVisibilityListener(
             PlayerView.ControllerVisibilityListener { visibility ->
-                setHeaderVisible(visibility == View.VISIBLE)
+                if (player != null) setHeaderVisible(visibility == View.VISIBLE)
             }
         )
 
@@ -434,33 +517,32 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
             cancelPendingDownload()
             hlsCopyJob?.cancel()
             hlsCopyJob = null
-            releasePlayer()
+            releasePlaybackEngines()
         }
     }
 
     fun play(item: VideoItem) {
+        activeInstance?.get()?.takeIf { it !== this && it.isShowing }?.dismiss()
+        playbackDownloadJob?.cancel()
+        playbackDownloadJob = null
+        releasePlaybackEngines()
+        clearPlaybackFile()
         VideoPrefetcher.onPlaybackStarted(item.url)
         currentItem = item
+        resolvedSender = null
         updateHeader()
         playbackPositionMs = 0L
         resumePlaybackOnForeground = false
         stoppedForLifecycle = false
-        ingestResolveJob?.cancel()
-        ingestResolveJob = null
-        ingestPlaylistUrl = null
-        ingestFallbackDone = false
-        hlsFallbackTried = false
-        if (item.isIngest) {
-            ingestResolveJob = entryPoint.applicationScope().launch(entryPoint.mainDispatcher()) {
-                val playlist = FileIngestPlaylist.resolve(item.url)
-                ingestResolveJob = null
-                if (currentItem !== item || !isShowing) return@launch
-                ingestPlaylistUrl = playlist
-                initializePlayer(startPositionMs = 0L, playWhenReady = true)
-            }
-        } else {
-            initializePlayer(startPositionMs = 0L, playWhenReady = true)
-        }
+        pausedForLifecycle = false
+        triedStreams.clear()
+
+        val uri = Uri.parse(item.url)
+        isRemoteVideo = uri.scheme.equals("http", true) || uri.scheme.equals("https", true)
+        isHlsUrl = uri.lastPathSegment?.endsWith(".m3u8", ignoreCase = true) == true ||
+            item.mimeType.equals(MimeTypes.APPLICATION_M3U8, ignoreCase = true) ||
+            item.mimeType.equals("application/vnd.apple.mpegurl", ignoreCase = true)
+        hlsPlaylistUrl = if (isHlsUrl) item.url else FileIngestPlaylist.indexPlaylistUrl(item.url)
 
         playerView.alpha = 1f
         topBar.alpha = 0f
@@ -471,14 +553,17 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
         InAppOverlayHost.register(this, dismissOnOverlayTap = true)
         registerLifecycleObserver()
         ObjectAnimator.ofInt(backgroundDrawable, "alpha", 0, 255).setDuration(200).start()
+        startPlayback(initialPlaybackSource(), startPositionMs = 0L, playWhenReady = true)
         playerView.hideController()
     }
 
     override fun dismiss() {
         senderInfoJob?.cancel()
         senderInfoJob = null
-        ingestResolveJob?.cancel()
-        ingestResolveJob = null
+        playbackDownloadJob?.cancel()
+        playbackDownloadJob = null
+        releasePlaybackEngines()
+        clearPlaybackFile()
         VideoPrefetcher.onPlaybackStopped()
         InAppOverlayHost.unregister(this)
         resumePlaybackOnForeground = false
@@ -490,123 +575,197 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
         super.dismiss()
     }
 
-    private fun initializePlayer(startPositionMs: Long, playWhenReady: Boolean) {
-        releasePlayer()
-        val ingestPlaylist = ingestPlaylistUrl
-        val dataSourceFactory = if (ingestPlaylist != null) {
-            CdnSigningDataSource.Factory(DefaultDataSource.Factory(context))
-        } else {
-            VideoCache.dataSourceFactory(context)
+    private fun initialPlaybackSource(): PlaybackSource = when {
+        playbackFile != null -> PlaybackSource.LOCAL
+        hlsPlaylistUrl != null &&
+            (isHlsUrl || currentItem.isIngest || FileIngestPlaylist.isPlayable(currentItem.url)) -> PlaybackSource.HLS
+        isRemoteVideo -> PlaybackSource.CACHED
+        else -> PlaybackSource.LOCAL
+    }
+
+    private fun startPlayback(source: PlaybackSource, startPositionMs: Long, playWhenReady: Boolean) {
+        releasePlaybackEngines()
+        playbackSource = source
+        playbackPositionMs = startPositionMs
+        resumePlaybackOnForeground = playWhenReady
+        if (stoppedForLifecycle) return
+
+        val autoPlay = playWhenReady && !pausedForLifecycle
+        when (source) {
+            PlaybackSource.DOWNLOAD -> downloadForPlayback()
+            PlaybackSource.NATIVE -> startNativePlayer(startPositionMs)
+            PlaybackSource.FAILED -> showPlaybackFailure()
+            else -> {
+                try {
+                    startExoPlayer(source, startPositionMs, autoPlay)
+                } catch (e: Exception) {
+                    if (BuildConfig.DEBUG) Log.d(VIDEO_PLAYER_LOG_TAG, "source=$source setup failed: ${e.javaClass.simpleName}")
+                    val failedPlayer = player
+                    if (failedPlayer != null) recoverPlayback(failedPlayer, source) else showPlaybackFailure()
+                }
+            }
         }
-        player = ExoPlayer.Builder(context)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
+    }
+
+    private fun startExoPlayer(source: PlaybackSource, startPositionMs: Long, playWhenReady: Boolean) {
+        triedStreams += source
+        val uri = when (source) {
+            PlaybackSource.HLS -> Uri.parse(requireNotNull(hlsPlaylistUrl))
+            PlaybackSource.LOCAL -> localPlaybackUri()
+            else -> Uri.parse(currentItem.url)
+        }
+        val dataSourceFactory = when (source) {
+            PlaybackSource.CACHED -> VideoCache.dataSourceFactory(context)
+            PlaybackSource.LOCAL -> DefaultDataSource.Factory(context.applicationContext)
+            else -> VideoCache.upstreamDataSourceFactory(context)
+        }
+        val item = if (source == PlaybackSource.HLS) {
+            MediaItem.Builder().setUri(uri).setMimeType(MimeTypes.APPLICATION_M3U8)
+                .setLiveConfiguration(
+                    MediaItem.LiveConfiguration.Builder().setMinPlaybackSpeed(1f).setMaxPlaybackSpeed(1f).build()
+                ).build()
+        } else {
+            MediaItem.fromUri(uri)
+        }
+        val sourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
+            .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(1))
+        val loadControl = DefaultLoadControl.Builder().setBufferDurationsMsForStreaming(
+            DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
+            DefaultLoadControl.DEFAULT_MAX_BUFFER_MS,
+            1_000,
+            DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS,
+        ).build()
+        val renderers = DefaultRenderersFactory(context).setEnableDecoderFallback(true)
+        val exo = ExoPlayer.Builder(context, renderers)
+            .setMediaSourceFactory(sourceFactory)
+            .setLoadControl(loadControl)
             .setSeekBackIncrementMs(VIDEO_SEEK_INCREMENT_MS)
             .setSeekForwardIncrementMs(VIDEO_SEEK_INCREMENT_MS)
             .build()
-            .also { exoPlayer ->
-                playerView.player = exoPlayer
-                exoPlayer.addListener(object : Player.Listener {
-                    private var previousPlaybackState = exoPlayer.playbackState
-                    private var durationProbeStarted = false
+        player = exo
+        playerView.visibility = View.VISIBLE
+        playbackOverlay.visibility = View.GONE
+        playerView.player = exo
+        var renderedFrame = false
+        exo.addListener(object : Player.Listener {
+            private var previousState = Player.STATE_IDLE
+            private var durationProbeStarted = false
 
-                    override fun onPlaybackStateChanged(playbackState: Int) {
-                        logPlayerState(exoPlayer, "state=$playbackState")
-                        if (previousPlaybackState == Player.STATE_ENDED && exoPlayer.playWhenReady) {
-                            playerView.hideController()
-                        }
-                        previousPlaybackState = playbackState
-                    }
-
-                    override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
-                        logPlayerState(exoPlayer, "timeline=$reason")
-                        if (ingestPlaylist == null && !durationProbeStarted &&
-                            exoPlayer.isCurrentMediaItemSeekable && exoPlayer.duration <= 0L
-                        ) {
-                            durationProbeStarted = true
-                            val url = currentItem.url
-                            durationProbeJob = entryPoint.applicationScope().launch(entryPoint.mainDispatcher()) {
-                                val durationUs = try {
-                                    withContext(entryPoint.ioDispatcher()) {
-                                        probeFragmentedVideoDurationUs(Uri.parse(url), dataSourceFactory)
-                                    }
-                                } catch (e: kotlinx.coroutines.CancellationException) {
-                                    throw e
-                                } catch (e: Exception) {
-                                    if (BuildConfig.DEBUG) Log.d(VIDEO_PLAYER_LOG_TAG, "duration probe failed: ${e.javaClass.simpleName}")
-                                    null
-                                }
-                                if (durationUs != null && player === exoPlayer && isShowing &&
-                                    currentItem.url == url && exoPlayer.duration <= 0L
-                                ) {
-                                    val position = exoPlayer.currentPosition
-                                    val wasPlaying = exoPlayer.playWhenReady
-                                    val sourceFactory = DefaultMediaSourceFactory(
-                                        dataSourceFactory, durationAwareExtractorsFactory(durationUs)
-                                    )
-                                    exoPlayer.setMediaSource(sourceFactory.createMediaSource(MediaItem.fromUri(url)), position)
-                                    exoPlayer.prepare()
-                                    exoPlayer.playWhenReady = wasPlaying
-                                }
-                                durationProbeJob = null
-                            }
-                        }
-                    }
-
-                    override fun onPositionDiscontinuity(
-                        oldPosition: Player.PositionInfo,
-                        newPosition: Player.PositionInfo,
-                        reason: Int
-                    ) {
-                        logPlayerState(exoPlayer, "discontinuity=$reason")
-                    }
-
-                    override fun onPlayerError(error: PlaybackException) {
-                        if (player !== exoPlayer || !isShowing) return
-                        if (ingestPlaylist == null) {
-                            if (!hlsFallbackTried && isOriginalMissing(error)) {
-                                hlsFallbackTried = true
-                                ingestFallbackDone = true
-                                playFinishedHlsInstead(exoPlayer)
-                                return
-                            }
-                            showToast(ToastOverlay.ToastType.ERROR, R.string.video_playback_failed)
-                            return
-                        }
-                        if (ingestFallbackDone) {
-                            showToast(ToastOverlay.ToastType.ERROR, R.string.video_playback_failed)
-                            return
-                        }
-                        ingestFallbackDone = true
-                        val position = exoPlayer.currentPosition
-                        playerView.post {
-                            if (player !== exoPlayer || !isShowing) return@post
-                            ingestPlaylistUrl = null
-                            initializePlayer(startPositionMs = position, playWhenReady = true)
-                        }
-                    }
-                })
-                if (ingestPlaylist != null) {
-                    exoPlayer.setMediaItem(
-                        MediaItem.Builder()
-                            .setUri(ingestPlaylist)
-                            .setMimeType(MimeTypes.APPLICATION_M3U8)
-                            .setLiveConfiguration(
-                                MediaItem.LiveConfiguration.Builder()
-                                    .setMinPlaybackSpeed(1f)
-                                    .setMaxPlaybackSpeed(1f)
-                                    .build()
-                            )
-                            .build(),
-                        startPositionMs,
-                    )
-                } else {
-                    exoPlayer.setMediaItem(MediaItem.fromUri(currentItem.url))
-                }
-                exoPlayer.repeatMode = Player.REPEAT_MODE_OFF
-                if (ingestPlaylist == null && startPositionMs > 0L) exoPlayer.seekTo(startPositionMs)
-                exoPlayer.prepare()
-                exoPlayer.playWhenReady = playWhenReady
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                logPlayerState(exo, "source=$source state=$playbackState")
+                if (previousState == Player.STATE_ENDED && exo.playWhenReady) playerView.hideController()
+                previousState = playbackState
             }
+
+            override fun onRenderedFirstFrame() {
+                if (renderedFrame || player !== exo) return
+                renderedFrame = true
+                maybeProbeDuration()
+            }
+
+            override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
+                maybeProbeDuration()
+            }
+
+            private fun maybeProbeDuration() {
+                if (!renderedFrame || durationProbeStarted || source == PlaybackSource.HLS ||
+                    player !== exo || !exo.isCurrentMediaItemSeekable || exo.duration > 0L
+                ) return
+                durationProbeStarted = true
+                probeDurationAfterStart(exo, uri, dataSourceFactory)
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                // Releasing a player during its listener dispatch can trigger further callbacks.
+                playerView.post { recoverPlayback(exo, source, error) }
+            }
+        })
+        exo.setMediaItem(item, startPositionMs.takeIf { it > 0L } ?: C.TIME_UNSET)
+        exo.playWhenReady = playWhenReady
+        exo.prepare()
+        watchExoPlayback(exo, source) { renderedFrame }
+    }
+
+    private fun watchExoPlayback(exo: ExoPlayer, source: PlaybackSource, hasFrame: () -> Boolean) {
+        val stallTimeout = if (source == PlaybackSource.DIRECT) VIDEO_DIRECT_STALL_TIMEOUT_MS else VIDEO_STALL_TIMEOUT_MS
+        watchdogJob = entryPoint.applicationScope().launch(entryPoint.mainDispatcher()) {
+            var waitingSince = 0L
+            var lastProgressAt = 0L
+            var bufferedMs = C.TIME_UNSET
+            while (player === exo && isShowing) {
+                delay(1_000)
+                if (player !== exo || !isShowing) break
+                val audioOnly = !exo.currentTracks.isEmpty &&
+                    !exo.currentTracks.containsType(C.TRACK_TYPE_VIDEO)
+                val wantsPlayback = !pausedForLifecycle && exo.playWhenReady &&
+                    exo.playbackSuppressionReason == Player.PLAYBACK_SUPPRESSION_REASON_NONE
+                if (wantsPlayback && exo.playbackState == Player.STATE_ENDED && !hasFrame() && !audioOnly) {
+                    recoverPlayback(exo, source)
+                    return@launch
+                }
+                val waiting = wantsPlayback &&
+                    (exo.playbackState == Player.STATE_BUFFERING ||
+                        (exo.playbackState == Player.STATE_READY && !hasFrame() && !(audioOnly && exo.isPlaying)))
+                if (!waiting) {
+                    waitingSince = 0L
+                    continue
+                }
+
+                val now = SystemClock.elapsedRealtime()
+                if (waitingSince == 0L) {
+                    waitingSince = now
+                    lastProgressAt = now
+                    bufferedMs = exo.bufferedPosition
+                } else if (exo.bufferedPosition > bufferedMs) {
+                    bufferedMs = exo.bufferedPosition
+                    lastProgressAt = now
+                }
+                val maxWait = if (hasFrame() || audioOnly) VIDEO_REBUFFER_TIMEOUT_MS else VIDEO_START_TIMEOUT_MS
+                if (now - lastProgressAt >= stallTimeout || now - waitingSince >= maxWait) {
+                    logPlayerState(exo, "source=$source playback timeout")
+                    recoverPlayback(exo, source)
+                    return@launch
+                }
+            }
+        }
+    }
+
+    private fun probeDurationAfterStart(exo: ExoPlayer, uri: Uri, factory: DataSource.Factory) {
+        durationProbeJob = entryPoint.applicationScope().launch(entryPoint.mainDispatcher()) {
+            val durationUs = try {
+                withContext(entryPoint.ioDispatcher()) { probeFragmentedVideoDurationUs(uri, factory) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (BuildConfig.DEBUG) Log.d(VIDEO_PLAYER_LOG_TAG, "duration probe failed: ${e.javaClass.simpleName}")
+                null
+            }
+            if (durationUs == null || player !== exo || !isShowing || exo.duration > 0L ||
+                exo.playbackState != Player.STATE_READY
+            ) return@launch
+            val sourceFactory = DefaultMediaSourceFactory(factory, durationAwareExtractorsFactory(durationUs))
+                .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(1))
+            exo.setMediaSource(sourceFactory.createMediaSource(MediaItem.fromUri(uri)), exo.currentPosition)
+            exo.prepare()
+        }
+    }
+
+    private fun recoverPlayback(exo: ExoPlayer, source: PlaybackSource, error: PlaybackException? = null) {
+        if (player !== exo || !isShowing || stoppedForLifecycle) return
+        if (error != null) logPlayerState(exo, "source=$source error=${error.errorCodeName}")
+        val rendererFailure = error is ExoPlaybackException && error.type == ExoPlaybackException.TYPE_RENDERER
+        val originalMissing = error != null && isOriginalMissing(error)
+        val next = when {
+            source == PlaybackSource.LOCAL -> PlaybackSource.NATIVE
+            source == PlaybackSource.HLS && isHlsUrl -> PlaybackSource.NATIVE
+            source == PlaybackSource.HLS && PlaybackSource.CACHED !in triedStreams -> PlaybackSource.CACHED
+            PlaybackSource.HLS !in triedStreams && hlsPlaylistUrl != null &&
+                (originalMissing || currentItem.isIngest || FileIngestPlaylist.isPlayable(currentItem.url)) -> PlaybackSource.HLS
+            source == PlaybackSource.CACHED && !originalMissing && !rendererFailure -> PlaybackSource.DIRECT
+            else -> PlaybackSource.DOWNLOAD
+        }
+        val playWhenReady = if (pausedForLifecycle) resumePlaybackOnForeground else exo.playWhenReady
+        startPlayback(next, exo.currentPosition.coerceAtLeast(0L), playWhenReady)
     }
 
     private fun isOriginalMissing(error: PlaybackException): Boolean {
@@ -620,21 +779,176 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
         return false
     }
 
-    private fun playFinishedHlsInstead(failedPlayer: ExoPlayer) {
+    private fun downloadForPlayback() {
         val item = currentItem
-        val position = failedPlayer.currentPosition
-        ingestResolveJob?.cancel()
-        ingestResolveJob = entryPoint.applicationScope().launch(entryPoint.mainDispatcher()) {
-            val playlist = FileIngestPlaylist.resolve(item.url)
-            ingestResolveJob = null
-            if (currentItem !== item || !isShowing || player !== failedPlayer) return@launch
-            if (playlist == null) {
-                showToast(ToastOverlay.ToastType.ERROR, R.string.video_playback_failed)
+        val mimeType = videoMimeType(item)
+        val target = VideoPlaybackDownload.destination(context, VideoShareRefinementContract.extensionForMimeType(mimeType))
+        showPlaybackStatus(R.string.video_save_downloading)
+        playbackDownloadJob = entryPoint.applicationScope().launch(entryPoint.mainDispatcher()) {
+            val job = coroutineContext[Job]
+            try {
+                val resultMimeType = VideoPlaybackDownload.copy(
+                    context.applicationContext, item.url, target, mimeType,
+                    tryHls = PlaybackSource.HLS in triedStreams,
+                ) { percent ->
+                    playbackOverlay.post {
+                        if (playbackDownloadJob === job && playbackSource == PlaybackSource.DOWNLOAD && isShowing) {
+                            playbackLabel.text = context.getString(R.string.video_save_downloading_progress, percent)
+                        }
+                    }
+                }
+                if (!isShowing || playbackDownloadJob !== job || currentItem !== item) return@launch
+                playbackFile = target
+                playbackFileMimeType = resultMimeType
+                startPlayback(PlaybackSource.LOCAL, playbackPositionMs, resumePlaybackOnForeground)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (!isShowing || playbackDownloadJob !== job || currentItem !== item) return@launch
+                if (BuildConfig.DEBUG) Log.d(VIDEO_PLAYER_LOG_TAG, "local download failed: ${e.javaClass.simpleName}")
+                showPlaybackFailure(
+                    if (HlsVideoCopy.isOutOfSpace(e)) R.string.video_save_no_space else R.string.video_playback_failed
+                )
+            } finally {
+                if (playbackDownloadJob === job) playbackDownloadJob = null
+                if (playbackFile != target) {
+                    withContext(NonCancellable + entryPoint.ioDispatcher()) { target.delete() }
+                }
+            }
+        }
+    }
+
+    private fun startNativePlayer(startPositionMs: Long) {
+        showPlaybackStatus(R.string.video_playback_preparing)
+        nativeContainer.visibility = View.VISIBLE
+        val view = VideoView(context)
+        nativeView = view
+        nativeContainer.addView(view, FrameLayout.LayoutParams(-1, -1, Gravity.CENTER))
+        val controls = MediaController(context)
+        nativeControls = controls
+        view.setMediaController(controls)
+        var needsFirstFrame = false
+        var hasFrame = false
+        var buffering = false
+        view.setOnPreparedListener { mediaPlayer ->
+            if (nativeView !== view) return@setOnPreparedListener
+            nativePrepared = true
+            needsFirstFrame = mediaPlayer.videoWidth > 0
+            playbackOverlay.visibility = View.GONE
+            if (startPositionMs > 0L) view.seekTo(startPositionMs.coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
+        }
+        view.setOnInfoListener { _, what, _ ->
+            when (what) {
+                MediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START -> hasFrame = true
+                MediaPlayer.MEDIA_INFO_BUFFERING_START -> buffering = true
+                MediaPlayer.MEDIA_INFO_BUFFERING_END -> buffering = false
+            }
+            false
+        }
+        view.setOnErrorListener { _, what, extra ->
+            if (BuildConfig.DEBUG) Log.d(VIDEO_PLAYER_LOG_TAG, "native playback error=$what extra=$extra")
+            playerView.post { if (nativeView === view && isShowing) showPlaybackFailure() }
+            true
+        }
+        watchdogJob = entryPoint.applicationScope().launch(entryPoint.mainDispatcher()) {
+            try {
+                val uri = if (isHlsUrl && isRemoteVideo && playbackFile == null) {
+                    Uri.parse(CdnSigner.requestUrl(currentItem.url).url)
+                } else {
+                    localPlaybackUri()
+                }
+                if (nativeView !== view || !isShowing) return@launch
+                view.setVideoURI(uri)
+                if (!pausedForLifecycle && resumePlaybackOnForeground) view.start()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (nativeView !== view || !isShowing) return@launch
+                if (BuildConfig.DEBUG) Log.d(VIDEO_PLAYER_LOG_TAG, "native playback failed: ${e.javaClass.simpleName}")
+                showPlaybackFailure()
                 return@launch
             }
-            ingestPlaylistUrl = playlist
-            initializePlayer(startPositionMs = position, playWhenReady = true)
+
+            var waitingSince = SystemClock.elapsedRealtime()
+            while (nativeView === view && isShowing) {
+                delay(1_000)
+                if (nativeView !== view || !isShowing) break
+                val now = SystemClock.elapsedRealtime()
+                val waiting = !nativePrepared ||
+                    (view.isPlaying && (buffering || (needsFirstFrame && !hasFrame)))
+                if (pausedForLifecycle || !waiting) waitingSince = now
+                if (now - waitingSince >= VIDEO_STALL_TIMEOUT_MS) {
+                    showPlaybackFailure()
+                    return@launch
+                }
+            }
         }
+    }
+
+    private fun localPlaybackUri(): Uri = playbackFile?.let(Uri::fromFile) ?: Uri.parse(currentItem.url)
+
+    private fun showPlaybackStatus(message: Int, failed: Boolean = false) {
+        playerView.visibility = View.GONE
+        playbackLabel.setText(message)
+        playbackSpinner.visibility = if (failed) View.GONE else View.VISIBLE
+        retryPlaybackButton.visibility = if (failed) View.VISIBLE else View.GONE
+        externalPlaybackButton.visibility = if (failed && (playbackFile != null || !isRemoteVideo || isHlsUrl)) {
+            View.VISIBLE
+        } else {
+            View.GONE
+        }
+        playbackOverlay.visibility = View.VISIBLE
+        setHeaderVisible(true)
+    }
+
+    private fun showPlaybackFailure(message: Int = R.string.video_playback_failed) {
+        releasePlaybackEngines()
+        playbackSource = PlaybackSource.FAILED
+        showPlaybackStatus(message, failed = true)
+    }
+
+    private fun retryPlayback() {
+        if (playbackDownloadJob != null) return
+        triedStreams.clear()
+        startPlayback(initialPlaybackSource(), playbackPositionMs, playWhenReady = true)
+    }
+
+    private fun openInExternalPlayer() {
+        try {
+            val file = playbackFile
+            val uri = when {
+                file != null -> FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                isHlsUrl && isRemoteVideo -> Uri.parse(currentItem.url)
+                else -> localPlaybackUri()
+            }
+            val readableUri = if (uri.scheme == "file") {
+                FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", File(requireNotNull(uri.path)))
+            } else {
+                uri
+            }
+            val mimeType = playbackFileMimeType ?: if (isHlsUrl) MimeTypes.APPLICATION_M3U8 else videoMimeType(currentItem)
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(readableUri, mimeType)
+                if (readableUri.scheme == "content") {
+                    clipData = ClipData.newRawUri("video", readableUri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+            }
+            context.startActivity(Intent.createChooser(intent, context.getString(R.string.video_playback_open_external)))
+            if (file != null) playbackFileShared = true
+        } catch (_: Exception) {
+            showToast(ToastOverlay.ToastType.ERROR, R.string.common_file_open_failed)
+        }
+    }
+
+    private fun clearPlaybackFile() {
+        val file = playbackFile
+        playbackFile = null
+        playbackFileMimeType = null
+        if (file != null && !playbackFileShared) {
+            entryPoint.applicationScope().launch(entryPoint.ioDispatcher()) { file.delete() }
+        }
+        playbackFileShared = false
     }
 
     private fun logPlayerState(exoPlayer: ExoPlayer, event: String) {
@@ -658,12 +972,24 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
         isLifecycleObserverRegistered = false
     }
 
-    private fun releasePlayer() {
+    private fun releasePlaybackEngines() {
+        watchdogJob?.cancel()
+        watchdogJob = null
         durationProbeJob?.cancel()
         durationProbeJob = null
-        player?.release()
+        val exo = player
         player = null
         playerView.player = null
+        exo?.release()
+
+        nativeControls?.hide()
+        nativeControls = null
+        val view = nativeView
+        nativeView = null
+        nativePrepared = false
+        view?.stopPlayback()
+        nativeContainer.removeAllViews()
+        nativeContainer.visibility = View.GONE
     }
 
     private fun setHeaderVisible(visible: Boolean) {
@@ -967,8 +1293,7 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
                 ?.coerceAtMost(Int.MAX_VALUE.toLong())
                 ?.toInt()
             ?: 0
-        val mimeType = item.mimeType.trim().lowercase(Locale.US).takeIf { it.startsWith("video/") }
-            ?: VideoShareRefinementContract.mimeTypeFromUrl(item.url)
+        val mimeType = videoMimeType(item)
         val filename = item.filename.takeIf { it.isNotBlank() }
             ?: VideoShareRefinementContract.filenameFromUrl(item.url, mimeType)
         return AttachmentInfo(
@@ -982,6 +1307,11 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
             duration = resolvedDuration
         )
     }
+
+    private fun videoMimeType(item: VideoItem): String =
+        resolveWebmVideoMimeType(item.mimeType, item.filename, item.url)
+            .substringBefore(';').trim().lowercase(Locale.US).takeIf { it.startsWith("video/") && it != "video/*" }
+            ?: VideoShareRefinementContract.mimeTypeFromUrl(item.filename.ifBlank { item.url })
 
     private fun shareVideoToMezon() {
         val attachment = buildShareAttachment() ?: return
