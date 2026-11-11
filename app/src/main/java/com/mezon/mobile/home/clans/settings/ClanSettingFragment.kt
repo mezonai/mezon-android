@@ -122,7 +122,6 @@ class ClanSettingFragment : BaseFragment() {
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             background = CreateClanRnUiTokens.clanSettingDiagonalGradient(themeColors)
-            clipChildren = false
         }
 
         val headerTop = AndroidUtilities.statusBarHeight + LayoutHelper.dp(10f)
@@ -183,13 +182,9 @@ class ClanSettingFragment : BaseFragment() {
             orientation = LinearLayout.VERTICAL
             clipChildren = false
         }
-        root.addView(logoContainer, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
-
         val scroll = ScrollView(context).apply {
             isFillViewport = true
             overScrollMode = View.OVER_SCROLL_NEVER
-            clipChildren = false
-            clipToPadding = false
         }
         scrollInner = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -197,9 +192,15 @@ class ClanSettingFragment : BaseFragment() {
             clipChildren = false
             clipToPadding = false
         }
-        scroll.addView(scrollInner, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            LinearLayout.LayoutParams.WRAP_CONTENT
+        val scrollContent = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            clipChildren = false
+        }
+        scrollContent.addView(logoContainer, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+        scrollContent.addView(scrollInner, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+        scroll.addView(scrollContent, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT
         ))
 
         root.addView(scroll, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
@@ -270,7 +271,7 @@ class ClanSettingFragment : BaseFragment() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             clipChildren = false
-            setPadding(0, LayoutHelper.dp(40f), 0, LayoutHelper.dp(40f))
+            setPadding(0, LayoutHelper.dp(12f), 0, LayoutHelper.dp(4f))
         }
         val tileDp = 76
         val logoInsetDpInt = 4

@@ -1436,14 +1436,14 @@ class ClansFragment : BaseFragment() {
             val currentVoice = voiceController.currentVoiceInfo
             if (inRoom && currentVoice != null && currentVoice.channelId != channel.channelId) {
                 val activity = getParentActivity() ?: return
-                val currentName = currentVoice.channelLabel.ifEmpty { "current voice room" }
+                val currentName = currentVoice.channelLabel.ifEmpty { getString(R.string.voice_switch_room_current) }
                 AlertDialog.Builder(activity)
-                    .setTitle("Switch Voice Room")
-                    .setMessage("You are in \"$currentName\". Leave and join \"${channel.channelLabel}\"?")
-                    .setPositiveButton("Switch") { _, _ ->
+                    .setTitle(getString(R.string.voice_switch_room_title))
+                    .setMessage(getString(R.string.voice_switch_room_message, currentName, channel.channelLabel))
+                    .setPositiveButton(getString(R.string.voice_switch_room_confirm)) { _, _ ->
                         showJoinVoiceBottomSheet(channel, clanIdForJoin)
                     }
-                    .setNegativeButton("Cancel", null)
+                    .setNegativeButton(getString(R.string.common_cancel), null)
                     .show()
                 return
             }

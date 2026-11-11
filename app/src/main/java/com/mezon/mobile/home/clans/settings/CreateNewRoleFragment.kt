@@ -289,7 +289,7 @@ class CreateNewRoleFragment : BaseFragment() {
                         removeLast = true
                     )
                 } else {
-                    MezonToast.show(this@CreateNewRoleFragment, ToastOverlay.ToastType.ERROR, getString(R.string.clan_roles_failed))
+                    RoleErrorToast.show(this@CreateNewRoleFragment, getString(R.string.clan_roles_error_create), result.exceptionOrNull())
                 }
             }
         }
