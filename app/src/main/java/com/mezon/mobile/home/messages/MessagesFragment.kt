@@ -314,7 +314,6 @@ class MessagesFragment : BaseFragment() {
             setPadding(LayoutHelper.dp(16), 0, LayoutHelper.dp(16), 0)
         }
 
-        // Purple circle avatar with chat icon inside
         val messagesIcon = FrameLayout(context).apply {
             val circleBg = android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.OVAL
@@ -322,11 +321,11 @@ class MessagesFragment : BaseFragment() {
             }
             background = circleBg
         }
-        val chatIconView = ImageView(context).apply {
-            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_chat_20, ThemeMode.DARK.iconTint))
+        val iconView = ImageView(context).apply {
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_messages_24, ThemeMode.DARK.iconTint))
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
-        messagesIcon.addView(chatIconView, LayoutHelper.createFrame(
+        messagesIcon.addView(iconView, LayoutHelper.createFrame(
             20, 20, Gravity.CENTER
         ))
         titleRow.addView(messagesIcon, LayoutHelper.createLinear(34, 34))

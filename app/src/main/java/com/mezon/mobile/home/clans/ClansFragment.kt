@@ -655,7 +655,7 @@ class ClansFragment : BaseFragment() {
             }
         }
         val searchIcon = ImageView(context).apply {
-            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_search_20, ThemeColors.defaultIconTint))
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_search_20, themeColors.onSurfaceVariant))
             scaleType = ImageView.ScaleType.FIT_CENTER
             isClickable = false
             isFocusable = false

@@ -4,7 +4,6 @@ import com.mezon.mobile.ui.cells.withDefaultIconTint
 import com.mezon.mobile.ui.cells.setIconColor
 import com.mezon.mobile.core.theme.MobileThemeColors
 import android.content.Context
-import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
@@ -74,7 +73,7 @@ class NotificationsFragment : BaseFragment() {
 
     private val tabs = listOf(
         TabDef(NOTIF_CATEGORY_MENTIONS, R.string.notif_tab_mentions, R.drawable.mz_mention_24),
-        TabDef(NOTIF_CATEGORY_MESSAGES, R.string.notif_tab_messages, R.drawable.mz_chat_24),
+        TabDef(NOTIF_CATEGORY_MESSAGES, R.string.notif_tab_messages, R.drawable.mz_messages_24),
         TabDef(NOTIF_TAB_TOPICS_UI, R.string.notif_tab_topics, R.drawable.mz_topic_24),
         TabDef(NOTIF_CATEGORY_FOR_YOU, R.string.notif_tab_for_you, R.drawable.mz_bell_24)
     )
@@ -208,7 +207,7 @@ class NotificationsFragment : BaseFragment() {
         }
         tabScrollView.addView(
             tabContainer,
-            LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT)
+            LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT)
         )
         root.addView(
             tabScrollView,
@@ -638,7 +637,7 @@ class NotificationsFragment : BaseFragment() {
                 NOTIF_CATEGORY_MENTIONS -> 1.12f
                 else -> 1f
             }
-            val lp = LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, rowWeight).apply {
+            val lp = LinearLayout.LayoutParams(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, rowWeight).apply {
                 gravity = Gravity.CENTER_VERTICAL
                 if (index < tabs.size - 1) {
                     marginEnd = LayoutHelper.dp(6)
@@ -668,10 +667,9 @@ class NotificationsFragment : BaseFragment() {
                 text = label
                 textSize = 12f
                 maxLines = 1
-                ellipsize = TextUtils.TruncateAt.END
                 gravity = Gravity.CENTER_VERTICAL
                 includeFontPadding = false
-            }, LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1f))
+            }, LinearLayout.LayoutParams(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT))
             applyTabChipColors(this, active)
         }
     }
@@ -761,12 +759,13 @@ class NotificationsFragment : BaseFragment() {
 
     private fun applyTabChipColors(chip: LinearLayout, active: Boolean) {
         chip.background = buildChipBackground(active)
+        val labelColor = if (active) android.graphics.Color.WHITE else themeColors.onSurfaceVariant
         val iconView = chip.getChildAt(0) as ImageView
-        val iconColor = if (active) ThemeMode.DARK.iconTint else themeColors.iconTint
+        val iconColor = if (active) ThemeMode.DARK.iconTint else labelColor
         iconView.drawable.setIconColor(iconColor)
 
         val labelView = chip.getChildAt(1) as TextView
-        labelView.setTextColor(if (active) android.graphics.Color.WHITE else themeColors.textDisabled)
+        labelView.setTextColor(labelColor)
     }
 
     private fun updateVisibleRows(mask: Int) {

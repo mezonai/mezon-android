@@ -301,7 +301,7 @@ class MessageActionBottomSheet(
             actions.add(ActionItem(
                 ActionType.GiveACoffee,
                 context.getString(R.string.action_give_coffee),
-                R.drawable.mz_gift_24,
+                R.drawable.mz_send_money_24,
                 applyIconTint = false
             ))
         }

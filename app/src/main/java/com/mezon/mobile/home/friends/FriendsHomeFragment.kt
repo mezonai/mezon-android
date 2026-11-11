@@ -266,7 +266,7 @@ class FriendsHomeFragment : BaseFragment() {
             setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_send_24, ThemeColors.defaultIconTint))
             colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
         }
-        row.addView(icon, LayoutHelper.createLinear(22, 22, gravity = Gravity.CENTER_VERTICAL, rightMargin = 10f))
+        row.addView(icon, LayoutHelper.createLinear(30, 30, gravity = Gravity.CENTER_VERTICAL, rightMargin = 10f))
 
         val textWrap = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
         row.addView(textWrap, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f))

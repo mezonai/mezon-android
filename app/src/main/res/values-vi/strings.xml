@@ -394,16 +394,16 @@
     <!-- notification -->
     <string name="notif_tab_mentions">Nhắc đến</string>
     <string name="notif_tab_messages">Tin nhắn</string>
-    <string name="notif_tab_topics">Chủ đề</string>
-    <string name="notif_tab_topics_empty">Không có hoạt động chủ đề</string>
-    <string name="notif_topic_discussion">THẢO LUẬN CHỦ ĐỀ</string>
+    <string name="notif_tab_topics">Thảo luận ngắn</string>
+    <string name="notif_tab_topics_empty">Chưa có hoạt động thảo luận ngắn</string>
+    <string name="notif_topic_discussion">THẢO LUẬN NGẮN</string>
     <string name="notif_original_message">Tin nhắn gốc:</string>
     <string name="notif_topic_original_attachment">[Tệp đính kèm]</string>
     <string name="notif_topic_original_contact">[Liên hệ]</string>
     <string name="notif_topic_original_interactive_message">[Tin nhắn tương tác]</string>
-    <string name="topic_discussion">Thảo luận chủ đề</string>
+    <string name="topic_discussion">Thảo luận ngắn</string>
     <string name="topic_creator">Người tạo</string>
-    <string name="topic_view">Xem chủ đề</string>
+    <string name="topic_view">Xem thảo luận ngắn</string>
     <string name="topic_reply_one">Trả lời</string>
     <string name="topic_replies">Trả lời</string>
     <string name="notif_tab_for_you">Dành cho bạn</string>
@@ -573,8 +573,8 @@
     <string name="clan_roles_perm_desc_manage_channel">Cho phép tạo, sửa hoặc xóa kênh.</string>
     <string name="clan_roles_perm_desc_manage_clan">Cho phép điều khiển cài đặt clan, quản lý vai trò và kênh.</string>
     <string name="clan_roles_perm_desc_manage_thread">Cho phép tạo, sửa, xóa chủ đề trong kênh (kể cả chủ đề riêng).</string>
-    <string name="clan_roles_perm_desc_send_message">Cho phép gửi tin trong kênh công khai (kể cả chủ đề).</string>
-    <string name="clan_roles_perm_desc_delete_message">Cho phép xóa tin trong kênh công khai (kể cả chủ đề).</string>
+    <string name="clan_roles_perm_desc_send_message">Cho phép gửi tin trong kênh công khai, kể cả trong chủ đề và thảo luận ngắn của kênh.</string>
+    <string name="clan_roles_perm_desc_delete_message">Cho phép xóa tin trong kênh công khai, kể cả trong chủ đề và thảo luận ngắn của kênh.</string>
     <string name="clan_settings_change_logo">Đổi biểu tượng clan</string>
     <string name="image_crop_choose">Chọn</string>
     <string name="image_crop_rotate_left_cd">Xoay trái</string>
