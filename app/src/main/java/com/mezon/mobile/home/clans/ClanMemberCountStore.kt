@@ -22,6 +22,17 @@ class ClanMemberCountStore @Inject constructor(
         prefs.edit().putInt(key(clanId), count).apply()
     }
 
+    fun getTotalMembers(clanId: Long): Int {
+        if (clanId == 0L) return 0
+        return prefs.getInt(totalMembersKey(clanId), 0)
+    }
+
+    fun saveTotalMembers(clanId: Long, totalMembers: Int) {
+        if (clanId == 0L || totalMembers < 0) return
+        if (prefs.getInt(totalMembersKey(clanId), -1) == totalMembers) return
+        prefs.edit().putInt(totalMembersKey(clanId), totalMembers).apply()
+    }
+
     fun clear() {
         prefs.edit().clear().apply()
     }
@@ -29,5 +40,6 @@ class ClanMemberCountStore @Inject constructor(
     companion object {
         private const val PREFS_NAME = "clan_member_count"
         private fun key(clanId: Long) = "count_$clanId"
+        private fun totalMembersKey(clanId: Long) = "total_members_$clanId"
     }
 }

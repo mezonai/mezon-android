@@ -153,8 +153,14 @@ class UserClanController @Inject constructor(
     }
 
     fun getClanMemberCount(clanId: Long): Int {
+        val totalMembers = clanMemberCountStore.getTotalMembers(clanId)
+        if (totalMembers > 0) return totalMembers
         val loadedCount = synchronized(this) { membersByClan[clanId]?.size }
         return loadedCount ?: clanMemberCountStore.get(clanId)
+    }
+
+    fun saveClanTotalMembers(clanId: Long, totalMembers: Int) {
+        clanMemberCountStore.saveTotalMembers(clanId, totalMembers)
     }
 
     fun hasClanMembersCache(clanId: Long): Boolean {
@@ -166,7 +172,9 @@ class UserClanController @Inject constructor(
     }
 
     fun hasClanMemberCount(clanId: Long): Boolean {
-        return hasClanMembersCache(clanId) || clanMemberCountStore.get(clanId) > 0
+        return clanMemberCountStore.getTotalMembers(clanId) > 0 ||
+            hasClanMembersCache(clanId) ||
+            clanMemberCountStore.get(clanId) > 0
     }
 
     private fun rememberClanMemberCount(clanId: Long) {
