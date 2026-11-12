@@ -1174,7 +1174,7 @@ class ClanEventEditorDialog private constructor(
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
                 addView(ImageView(context).apply {
-                    setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_calendar_20, themeColors.textStrong))
+                    setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_event_20, themeColors.textStrong))
                 }, LayoutHelper.createLinear(18, 18))
                 addView(TextView(context).apply {
                     text = timeLabel
