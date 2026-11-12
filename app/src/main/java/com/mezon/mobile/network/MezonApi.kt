@@ -3441,7 +3441,7 @@ class MezonApi @Inject constructor(
             this.startTimeSeconds = startTimeSeconds
             this.endTimeSeconds = endTimeSeconds
             this.repeatType = repeatType
-            this.isPrivate = isPrivate
+            this.isExternal = isPrivate
             this.creatorId = creatorId
         }
         rpc(apiUrl, token, "CreateEvent", request.toByteArray())

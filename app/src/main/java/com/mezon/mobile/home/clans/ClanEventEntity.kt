@@ -93,6 +93,6 @@ fun EventManagement.toClanEventEntity(): ClanEventEntity = ClanEventEntity(
     maxPermission = maxPermission,
     eventStatus = eventStatus,
     repeatType = repeatType,
-    isPrivate = isPrivate,
+    isPrivate = isExternal,
     externalLink = meetRoom.externalLink,
 )
