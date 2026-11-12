@@ -180,7 +180,6 @@ class ChatController @Inject constructor(
     private val buzzController: BuzzController,
     private val badgeCoordinator: BadgeCoordinator,
     private val topicBadgeTracker: TopicBadgeTracker,
-    private val forwardTargetUsageStore: ForwardTargetUsageStore,
     private val channelController: dagger.Lazy<com.mezon.mobile.home.clans.ChannelController>,
     private val searchController: dagger.Lazy<com.mezon.mobile.search.SearchController>,
     private val userController: dagger.Lazy<UserController>,
@@ -1566,7 +1565,6 @@ class ChatController @Inject constructor(
                                 if (topicId != 0L) this.topicId = topicId
                             }
                             val ack = channelSend(session.apiUrl, session.token, request)
-                            markForwardTargetUsed(channelId, channelType)
                             notificationCenter.postNotificationOnMainThread(
                                 NotificationCenter.pendingMessageSent, cacheKey, tempId, ack.messageId
                             )
@@ -1693,7 +1691,6 @@ class ChatController @Inject constructor(
                             initialDelayMs = 0L
                         )
                     ) ?: channelSend(session.apiUrl, session.token, request)
-                    markForwardTargetUsed(channelId, channelType)
                     notificationCenter.postNotificationOnMainThread(
                         NotificationCenter.pendingMessageSent, cacheKey, tempId, ack.messageId
                     )
@@ -1757,7 +1754,6 @@ class ChatController @Inject constructor(
                 val ack = retryOnTransientSendFailure(retryDelaysMs) {
                     channelSend(session.apiUrl, session.token, request, httpOnly)
                 }
-                markForwardTargetUsed(channelId, channelType)
                 notificationCenter.postNotificationOnMainThread(
                     NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
                 )
@@ -1949,7 +1945,6 @@ class ChatController @Inject constructor(
                         if (topicId != 0L) this.topicId = topicId
                     }
                     val ack = channelSend(session.apiUrl, session.token, request)
-                    markForwardTargetUsed(channelId, channelType)
                     notificationCenter.postNotificationOnMainThread(
                         NotificationCenter.pendingMessageSent, cacheKey, tempId, ack.messageId
                     )
@@ -2011,7 +2006,6 @@ class ChatController @Inject constructor(
                         if (anon) this.anonymousMessage = true
                     }
                     val ack = channelSend(session.apiUrl, session.token, request)
-                    markForwardTargetUsed(channelId, channelType)
                     notificationCenter.postNotificationOnMainThread(
                         NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
                     )
@@ -2071,7 +2065,6 @@ class ChatController @Inject constructor(
                         if (anon) this.anonymousMessage = true
                     }
                     val ack = channelSend(session.apiUrl, session.token, request)
-                    markForwardTargetUsed(channelId, channelType)
                     notificationCenter.postNotificationOnMainThread(
                         NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
                     )
@@ -2136,7 +2129,6 @@ class ChatController @Inject constructor(
                         if (topicId != 0L) this.topicId = topicId
                     }
                     val ack = channelSend(session.apiUrl, session.token, request)
-                    markForwardTargetUsed(channelId, channelType)
                     notificationCenter.postNotificationOnMainThread(
                         NotificationCenter.pendingMessageSent, cacheKey, tempId, ack.messageId
                     )
@@ -2199,10 +2191,6 @@ class ChatController @Inject constructor(
             pendingTempMessageByChannel.put(channelId, tempId)
             return tempId
         }
-    }
-
-    private fun markForwardTargetUsed(channelId: Long, channelType: Int) {
-        forwardTargetUsageStore.markLastSent(channelId, channelType)
     }
 
     private suspend fun ensureActiveArchivedThreadIfNeeded(
@@ -2571,7 +2559,6 @@ class ChatController @Inject constructor(
                         if (anon) anonymousMessage = true
                     }
                     val ack = channelSend(session.apiUrl, session.token, request)
-                    markForwardTargetUsed(channelId, channelType)
                     if (ack.messageId != 0L) {
                         val user = userController.get()
                         val (senderName, senderAvatar) = optimisticSenderPresentation(user, clanId, channelType, anon)
@@ -2739,7 +2726,6 @@ class ChatController @Inject constructor(
                 synchronized(this) {
                     attachmentJobsByRealId.put(realMessageId, job)
                 }
-                markForwardTargetUsed(params.channelId, params.channelType)
 
                 val allFailedIndices = HashSet<Int>(presignFailedIndices).apply { addAll(uploadFailedIndices) }
                 val uploadedByIndexFirst: List<MessageAttachment?> = items.indices.map { idx ->
@@ -2785,7 +2771,6 @@ class ChatController @Inject constructor(
             synchronized(this) {
                 attachmentJobsByRealId.put(realMessageId, job)
             }
-            markForwardTargetUsed(params.channelId, params.channelType)
 
             val uploadedByIndex: List<MessageAttachment?> = items.indices.map { preparedByIndex[it]?.attachment }
             val updatedEntity = applyLocalAfterFirstSendOrdered(
@@ -4585,7 +4570,6 @@ class ChatController @Inject constructor(
                     mentionEveryone = extractMentionEveryoneFromForwardContent(wire)
                 }
                 channelSend(session.apiUrl, session.token, request)
-                markForwardTargetUsed(channelId, channelType)
             }
             true
         } catch (e: Exception) {
@@ -4627,7 +4611,6 @@ class ChatController @Inject constructor(
                             dest.clanId,
                             dest.channelType
                         )
-                        var sentToDestination = false
                         for (msg in messages) {
                             val wire = mergeFwdIntoContent(msg.content)
                             val mentionsProto: List<MessageMention>? =
@@ -4668,7 +4651,6 @@ class ChatController @Inject constructor(
                                     if (anon) anonymousMessage = true
                                 }
                                 channelSend(session.apiUrl, session.token, request)
-                                sentToDestination = true
                             } catch (e: CancellationException) {
                                 throw e
                             } catch (e: Exception) {
@@ -4696,14 +4678,10 @@ class ChatController @Inject constructor(
                                     if (anon) anonymousMessage = true
                                 }
                                 channelSend(session.apiUrl, session.token, requestExtra)
-                                sentToDestination = true
                             } catch (e: Exception) {
                                 allOk = false
                                 Log.e(TAG, "forward REST extra comment failed channel=${dest.channelId}", e)
                             }
-                        }
-                        if (sentToDestination) {
-                            markForwardTargetUsed(dest.channelId, dest.channelType)
                         }
                     }
                 }
