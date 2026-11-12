@@ -261,7 +261,7 @@ class ClanEventController @Inject constructor(
         maxPermission = existing?.maxPermission ?: 0,
         eventStatus = eventStatus,
         repeatType = repeatType,
-        isPrivate = isPrivate,
+        isPrivate = isExternal,
         externalLink = meetRoom.externalLink.ifBlank { existing?.externalLink.orEmpty() },
     )
 

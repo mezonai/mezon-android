@@ -323,6 +323,9 @@ class ClansController @Inject constructor(
                         api.listClanDescs(session.apiUrl, session.token)
                     }
                 }
+                result.clandescList.forEach { desc ->
+                    userClanController.saveClanTotalMembers(desc.clanId, desc.totalMembers)
+                }
                 val apiEntities = result.clandescList.mapIndexed { index, desc ->
                     desc.toClanEntity().let { entity ->
                         if (entity.clanOrder == 0) entity.copy(clanOrder = index) else entity
