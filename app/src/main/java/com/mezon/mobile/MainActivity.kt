@@ -18,6 +18,7 @@ import android.view.Menu
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.FrameLayout
+import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -61,6 +62,7 @@ import com.mezon.mobile.home.call.CallController
 import com.mezon.mobile.home.call.CallFragment
 import com.mezon.mobile.home.call.CallManager
 import com.mezon.mobile.home.call.CallInfo
+import com.mezon.mobile.home.call.CallPermissionUi
 import com.mezon.mobile.home.call.CallState
 import com.mezon.mobile.home.call.CallingOverlay
 import com.mezon.mobile.home.call.IncomingCallActivity
@@ -189,6 +191,7 @@ class MainActivity : BasePermissionsActivity(),
     private var splashContentObserver: NotificationCenter.NotificationCenterDelegate? = null
     private var appUpdateGateRunnable: Runnable? = null
     private var callingOverlay: CallingOverlay? = null
+    private var incomingAcceptPendingMicGrant = false
     private var ongoingCallBanner: OngoingCallBanner? = null
     private var offlineNetworkBanner: OfflineNetworkBannerView? = null
     private var sessionExpiredDialog: AlertDialog? = null
@@ -555,6 +558,10 @@ class MainActivity : BasePermissionsActivity(),
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQUEST_INCOMING_CALL_PERMISSIONS) {
+            onIncomingCallMicPermissionResult(permissions, grantResults)
+            return
+        }
         if (!checkPermissionsResult(requestCode, permissions, grantResults)) return
         if (voiceOverlayManager?.isVisible() == true) {
             voiceRoomFragment?.onRequestPermissionsResult(requestCode, permissions, grantResults)
@@ -644,22 +651,40 @@ class MainActivity : BasePermissionsActivity(),
         }
     }
 
-    private fun requestIncomingCallPermissionsEagerly() {
-        val needed = mutableListOf<String>()
+    private fun requestMicPermissionForIncomingCall() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            needed.add(Manifest.permission.RECORD_AUDIO)
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_INCOMING_CALL_PERMISSIONS)
         }
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-            needed.add(Manifest.permission.CAMERA)
+    }
+
+    private fun onIncomingCallMicPermissionResult(permissions: Array<out String>, grantResults: IntArray) {
+        if (permissions.isEmpty()) return
+        val acceptWasPending = incomingAcceptPendingMicGrant
+        incomingAcceptPendingMicGrant = false
+        if (CallPermissionUi.permissionGrantedInResult(permissions, grantResults, Manifest.permission.RECORD_AUDIO)) {
+            if (acceptWasPending && callController.callState is CallState.Incoming) {
+                acceptIncomingCallFromOverlay()
+            }
+            return
         }
-        if (needed.isNotEmpty()) {
-            ActivityCompat.requestPermissions(this, needed.toTypedArray(), REQUEST_INCOMING_CALL_PERMISSIONS)
+        Toast.makeText(this, getString(R.string.permission_no_audio), Toast.LENGTH_LONG).show()
+        CallPermissionUi.showMicOrCameraDeniedFeedback(this, Manifest.permission.RECORD_AUDIO, R.string.permission_no_audio)
+    }
+
+    private fun acceptIncomingCallFromOverlay() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            incomingAcceptPendingMicGrant = true
+            requestMicPermissionForIncomingCall()
+            return
         }
+        incomingAcceptPendingMicGrant = false
+        dismissIncomingCallOverlay(removeView = false)
+        callController.acceptCall()
+        actionBarLayout.presentFragment(CallFragment())
     }
 
     private fun showIncomingCallingOverlay(callInfo: CallInfo) {
         if (!StartupCache.hasSession) return
-        requestIncomingCallPermissionsEagerly()
         var overlay = callingOverlay
         if (overlay == null) {
             overlay = CallingOverlay(this)
@@ -668,9 +693,7 @@ class MainActivity : BasePermissionsActivity(),
         overlay.setCallerInfo(callInfo.peerName, callInfo.peerAvatar)
         overlay.delegate = object : CallingOverlay.Delegate {
             override fun onAcceptClicked() {
-                dismissIncomingCallOverlay(removeView = false)
-                callController.acceptCall()
-                actionBarLayout.presentFragment(CallFragment())
+                acceptIncomingCallFromOverlay()
             }
 
             override fun onDeclineClicked() {

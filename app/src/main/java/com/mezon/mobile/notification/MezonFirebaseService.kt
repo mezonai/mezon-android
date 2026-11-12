@@ -1,6 +1,5 @@
 package com.mezon.mobile.notification
 
-import android.app.ActivityManager
 import android.provider.Settings
 import android.util.Log
 import com.google.firebase.messaging.FirebaseMessagingService
@@ -280,15 +279,7 @@ class MezonFirebaseService : FirebaseMessagingService() {
         return normalized.contains("voice call started") || normalized.contains("video call started")
     }
 
-    private fun isAppInForeground(): Boolean {
-        if (MainActivity.instance?.isInPictureInPictureMode == true) return false
-        if (MainActivity.isResumed) return true
-        val am = getSystemService(ACTIVITY_SERVICE) as? ActivityManager ?: return false
-        val processes = am.runningAppProcesses ?: return false
-        return processes.any {
-            it.processName == packageName &&
-                it.importance == ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
-        }
-    }
+    private fun isAppInForeground(): Boolean =
+        MainActivity.isResumed && MainActivity.instance?.isInPictureInPictureMode != true
 
 }
