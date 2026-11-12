@@ -1896,6 +1896,9 @@ class MainActivity : BasePermissionsActivity(),
         if (checkNavigationBar) {
             val navBarColor = lastFragment?.getNavigationBarColor() ?: themeColors.surface
             window.navigationBarColor = navBarColor
+            if (::drawerLayoutContainer.isInitialized) {
+                drawerLayoutContainer.setBehindKeyboardColor(navBarColor)
+            }
         }
     }
 }

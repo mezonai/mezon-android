@@ -222,6 +222,14 @@
     <string name="common_error_network">Lỗi kết nối mạng</string>
     <string name="common_error_offline">Không thể kết nối. Vui lòng kiểm tra kết nối internet và thử lại.</string>
     <string name="common_error_connecting">Đang kết nối…</string>
+    <string name="call_end_action">Kết thúc</string>
+    <string name="call_speaker_action">Loa ngoài</string>
+    <string name="call_mute_action">Tắt mic</string>
+    <string name="call_unmute_action">Bật mic</string>
+    <string name="call_minimize_action">Thu nhỏ cuộc gọi</string>
+    <string name="call_switch_camera_action">Đổi camera</string>
+    <string name="call_enable_camera_action">Bật camera</string>
+    <string name="call_disable_camera_action">Tắt camera</string>
     <string name="common_error_connection_failed">Kết nối thất bại. Vui lòng thử lại.</string>
 
     <!-- common.timeFormat.timeAgo -->

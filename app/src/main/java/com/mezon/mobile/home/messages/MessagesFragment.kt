@@ -302,62 +302,35 @@ class MessagesFragment : BaseFragment() {
     }
 
     private fun buildHeader(context: Context): View {
+        val sideInset = LayoutHelper.dp(18)
+        val actionSize = 36
         val header = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(0, LayoutHelper.dp(8), 0, LayoutHelper.dp(4))
+            setPaddingRelative(sideInset, LayoutHelper.dp(8), sideInset, LayoutHelper.dp(8))
         }
-
-        // Row 1: Messages icon (purple circle avatar) + title
-        val titleRow = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(LayoutHelper.dp(16), 0, LayoutHelper.dp(16), 0)
-        }
-
-        val messagesIcon = FrameLayout(context).apply {
-            val circleBg = android.graphics.drawable.GradientDrawable().apply {
-                shape = android.graphics.drawable.GradientDrawable.OVAL
-                setColor(themeColors.blurple) // purple like RN IconMessagesIcon
-            }
-            background = circleBg
-        }
-        val iconView = ImageView(context).apply {
-            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_messages_24, ThemeMode.DARK.iconTint))
-            scaleType = ImageView.ScaleType.FIT_CENTER
-        }
-        messagesIcon.addView(iconView, LayoutHelper.createFrame(
-            20, 20, Gravity.CENTER
-        ))
-        titleRow.addView(messagesIcon, LayoutHelper.createLinear(34, 34))
 
         headerTitle = TextView(context).apply {
             text = getString(R.string.dm_title)
             setTextColor(themeColors.onSurface)
             textSize = 18f
             setTypeface(typeface, Typeface.BOLD)
-            setPadding(LayoutHelper.dp(10), 0, 0, 0)
+            gravity = Gravity.START or Gravity.CENTER_VERTICAL
+            minimumHeight = LayoutHelper.dp(44)
         }
-        titleRow.addView(headerTitle, LayoutHelper.createLinear(
-            LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT
-        ))
-        header.addView(titleRow, LayoutHelper.createLinear(
+        header.addView(headerTitle, LayoutHelper.createLinear(
             LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT
         ))
 
-        // Row 2: Add Friend pill (flex:1) + Search circle button
         val buttonsRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, LayoutHelper.dp(6), 0, 0)
         }
 
-        // Add Friend pill — flex:1 via weight
-        val addFriendPill = buildAddFriendPill(context)
-        buttonsRow.addView(addFriendPill, LinearLayout.LayoutParams(
-            0, LayoutHelper.dp(32), 1f
-        ).apply {
-            leftMargin = LayoutHelper.dp(16)
-            rightMargin = LayoutHelper.dp(8)
+        val addFriendPill = buildAddFriendPill(context).apply {
+            minimumHeight = LayoutHelper.dp(actionSize)
+        }
+        buttonsRow.addView(addFriendPill, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f).apply {
+            marginEnd = LayoutHelper.dp(10)
         })
 
         val searchButton = ImageView(context).apply {
@@ -373,18 +346,17 @@ class MessagesFragment : BaseFragment() {
             background = android.graphics.drawable.RippleDrawable(rippleColor, circleBg, rippleMask)
             setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_search_24, themeColors.iconTint))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
-            val iconPad = LayoutHelper.dp(7)
+            val iconPad = LayoutHelper.dp(8)
             setPadding(iconPad, iconPad, iconPad, iconPad)
+            contentDescription = getString(R.string.common_search)
             isClickable = true
             isFocusable = true
             setOnClickListener { openSearch() }
         }
-        buttonsRow.addView(searchButton, LayoutHelper.createLinear(
-            34, 34, rightMargin = 16f
-        ))
+        buttonsRow.addView(searchButton, LayoutHelper.createLinear(actionSize, actionSize))
 
         header.addView(buttonsRow, LayoutHelper.createLinear(
-            LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT
+            LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, topMargin = 10f
         ))
 
         return header
@@ -436,7 +408,8 @@ class MessagesFragment : BaseFragment() {
         val label = TextView(context).apply {
             text = getString(R.string.dm_add_friend)
             setTextColor(themeColors.onSurface)
-            textSize = 15f
+            textSize = 14f
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         }
         buttonContent.addView(label, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT

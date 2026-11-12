@@ -2853,6 +2853,8 @@ open class ChatFragment : BaseFragment() {
 
     override fun isLightStatusBar(): Boolean = themeColors.resolvedMode.isLight
 
+    override fun getNavigationBarColor(): Int = themeColors.background
+
     override fun onBecomeFullyVisible() {
         super.onBecomeFullyVisible()
         actionBar?.post {

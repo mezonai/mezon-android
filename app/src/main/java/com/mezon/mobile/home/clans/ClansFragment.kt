@@ -61,7 +61,6 @@ import com.mezon.mobile.home.voice.VoiceRoomFragment
 import com.mezon.mobile.home.voice.resolveVoiceMemberIdentity
 import com.mezon.mobile.home.clans.discover.DiscoverClansListSection
 import com.mezon.mobile.home.clans.discover.buildDiscoverCommunitySearchToolbar
-import com.mezon.mobile.home.clans.discover.DiscoverRailCell
 import com.mezon.mobile.home.clans.CreateClanRnUiTokens
 import com.mezon.mobile.home.clans.PermissionPolicy
 import com.mezon.mobile.home.clans.settings.AuditLogSettingFragment
@@ -1986,7 +1985,7 @@ class ClansFragment : BaseFragment() {
                     }
                 }
                 is DiscoverRailCell -> {
-                    view.setEmbeddedDiscoverHighlight(embeddedRailDiscoverHighlight)
+                    view.isSelected = embeddedRailDiscoverHighlight
                 }
             }
         }

@@ -182,8 +182,11 @@ class CreateClanTemplateFragment : BaseFragment() {
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             isBaselineAligned = false
-            gravity = android.view.Gravity.CENTER_VERTICAL
-            setPadding(LayoutHelper.dp(10), LayoutHelper.dp(10), LayoutHelper.dp(10), LayoutHelper.dp(10))
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = LayoutHelper.dp(54)
+            val horizontalPadding = LayoutHelper.dp(12)
+            val verticalPadding = LayoutHelper.dp(10)
+            setPaddingRelative(horizontalPadding, verticalPadding, horizontalPadding, verticalPadding)
             isClickable = true
             isFocusable = true
             val radius = LayoutHelper.dp(8).toFloat()
@@ -211,10 +214,6 @@ class CreateClanTemplateFragment : BaseFragment() {
             icon,
             LayoutHelper.createLinear(20, 20, 0f, Gravity.CENTER_VERTICAL)
         )
-        val textWrap = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, LayoutHelper.dp(20), LayoutHelper.dp(20), LayoutHelper.dp(20))
-        }
         val label = TextView(context).apply {
             text = title
             setTextColor(CreateClanRnUiTokens.menuText(themeColors))
@@ -222,10 +221,11 @@ class CreateClanTemplateFragment : BaseFragment() {
             typeface = Typeface.create(Typeface.DEFAULT, 600, false)
             includeFontPadding = false
         }
-        textWrap.addView(label, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
         row.addView(
-            textWrap,
-            LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.CENTER_VERTICAL, 10f, 0f, 0f, 0f)
+            label,
+            LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.CENTER_VERTICAL).apply {
+                marginStart = LayoutHelper.dp(10)
+            }
         )
         return row
     }

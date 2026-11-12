@@ -6,6 +6,7 @@ import android.content.Intent
 import com.mezon.mobile.MainActivity
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.graphics.Canvas
 import android.graphics.drawable.GradientDrawable
 import android.media.AudioManager
 import android.os.Bundle
@@ -16,20 +17,22 @@ import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
-import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.LinearLayout
-import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import com.mezon.mobile.R
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.core.theme.applyThemeSurface
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.voice.VoiceChrome
 import com.mezon.mobile.home.voice.VoiceStyleCircleButton
@@ -61,17 +64,13 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
     private var ringingAvatarView: AvatarView? = null
     private var actionsContainer: LinearLayout? = null
     private var fullScreenIntentHint: TextView? = null
-    private var connectingContainer: LinearLayout? = null
-
-    private var connectedRoot: FrameLayout? = null
+    private var inCallRoot: LinearLayout? = null
+    private var callIdentity: IncomingCallIdentityView? = null
     private var connectedHeader: DmCallHeaderView? = null
     private var connectedContentContainer: FrameLayout? = null
-    private var connectedAvatarView: CallAvatarView? = null
     private var connectedVideoView: CallVideoView? = null
     private var connectedLocalPip: LocalCallVideoPip? = null
     private var connectedControlBar: CallControlBar? = null
-    private var connectedDurationView: CallDurationView? = null
-    private var connectedDurationOnVideo: Boolean? = null
     private var lastConnectedMainVideoMode: Boolean? = null
 
     private var pendingConnectedVideoAfterCameraGrant = false
@@ -290,6 +289,7 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
         nc.addObserver(this, NotificationCenter.callStateChanged)
         nc.addObserver(this, NotificationCenter.callMediaChanged)
         nc.addObserver(this, NotificationCenter.callEnded)
+        NotificationCenter.getGlobalInstance().addObserver(this, NotificationCenter.themeChanged)
     }
 
     private fun detachObservers() {
@@ -299,10 +299,12 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
         nc.removeObserver(this, NotificationCenter.callStateChanged)
         nc.removeObserver(this, NotificationCenter.callMediaChanged)
         nc.removeObserver(this, NotificationCenter.callEnded)
+        NotificationCenter.getGlobalInstance().removeObserver(this, NotificationCenter.themeChanged)
     }
 
     override fun didReceivedNotification(id: Int, account: Int, vararg args: Any?) {
         when (id) {
+            NotificationCenter.themeChanged -> rootView?.let(::applyChatBackground)
             NotificationCenter.callStateChanged -> handleStateChanged()
             NotificationCenter.callMediaChanged -> updateConnectedMediaUi()
             NotificationCenter.callEnded -> {
@@ -389,18 +391,35 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
         val bodyMutedColor = tc.onSurfaceVariant
         val statusMutedColor = tc.textDisabled
 
-        val rootBg = GradientDrawable(
-            GradientDrawable.Orientation.RIGHT_LEFT,
-            intArrayOf(tc.serverRailBg, tc.serverRailBg)
-        )
-        val root = FrameLayout(this).apply {
-            background = rootBg
-        }
+        val root = FrameLayout(this)
         rootView = root
 
-        contentLayout = LinearLayout(this).apply {
+        contentLayout = object : LinearLayout(this) {
+            private val ripples = RingingRipples(tc, ::invalidate)
+
+            override fun onVisibilityAggregated(isVisible: Boolean) {
+                super.onVisibilityAggregated(isVisible)
+                ripples.setVisible(isVisible)
+            }
+
+            override fun onDetachedFromWindow() {
+                ripples.setVisible(false)
+                super.onDetachedFromWindow()
+            }
+
+            override fun dispatchDraw(canvas: Canvas) {
+                ringingAvatarView?.let { avatar ->
+                    val cx = avatar.left + avatar.width / 2f
+                    val cy = avatar.top + avatar.height / 2f
+                    val avatarRadius = minOf(avatar.width, avatar.height) / 2f
+                    ripples.draw(canvas, cx, cy, avatarRadius, minOf(cx, width - cx, cy, height - cy))
+                }
+                super.dispatchDraw(canvas)
+            }
+        }.apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(0, 0, 0, dp(28))
         }
 
         titleView = TextView(this).apply {
@@ -534,35 +553,21 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
             Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
         ).apply { bottomMargin = dp(138) })
 
-        connectingContainer = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            visibility = View.GONE
-            addView(ProgressBar(this@IncomingCallActivity).apply {
-                indeterminateTintList = android.content.res.ColorStateList.valueOf(headlineColor)
-            }, LinearLayout.LayoutParams(dp(36), dp(36)))
-            addView(VoiceStyleCircleButton(
-                this@IncomingCallActivity,
-                R.drawable.mz_call_cancel_24,
-                VoiceChrome.RED_STRONG,
-                0,
-                0xFFFFFFFF.toInt(),
-                VoiceStyleCircleButton.endCallIconSizePx(this@IncomingCallActivity),
-                fixedIconLoader = { iconContext, icon ->
-                    MezonIcon.loadDrawable(iconContext, icon, ThemeMode.DARK.iconTint)
-                }
-            ).apply {
-                contentDescription = getString(R.string.call_end_action)
-                setOnClickListener { endConnectingCall() }
-            }, LinearLayout.LayoutParams(dp(64), dp(64)).apply { topMargin = dp(24) })
-        }
-        root.addView(connectingContainer, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-        ).apply { bottomMargin = dp(70) })
-
         setContentView(root)
+        applyChatBackground(root)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun applyChatBackground(root: View) {
+        val theme = ThemeColors.instance
+        val gradient = theme.desktop.chatGradient
+        root.applyThemeSurface(theme.chatBackground, gradient, anchorToWindow = true)
+        window.statusBarColor = gradient?.startColor ?: theme.chatBackground
+        window.navigationBarColor = theme.surface
+        WindowCompat.getInsetsController(window, root).apply {
+            isAppearanceLightStatusBars = theme.resolvedMode.isLight
+            isAppearanceLightNavigationBars = theme.resolvedMode.isLight
+        }
     }
 
     private fun bindUiData() {
@@ -571,6 +576,7 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
         titleView?.text = "Incoming Call"
         ringingAvatarView?.setUserId(0L)
         ringingAvatarView?.setImageUrl(callerAvatar)
+        callIdentity?.bind(callerName, callerAvatar)
     }
 
     private fun scheduleIncomingRingtoneFromActivity() {
@@ -738,12 +744,16 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
 
     private fun showConnectingUi() {
         lastConnectedMainVideoMode = null
-        actionsContainer?.visibility = View.GONE
-        connectingContainer?.visibility = View.VISIBLE
-        titleView?.text = getString(R.string.common_error_connecting)
-        statusView?.visibility = View.INVISIBLE
-        connectedRoot?.visibility = View.GONE
-        fullScreenIntentHint?.visibility = View.GONE
+        showInCallUi()
+        connectedHeader?.visibility = View.INVISIBLE
+        connectedControlBar?.setConnecting(true)
+        hideConnectedVideoView()
+        hideConnectedLocalPip()
+        callIdentity?.apply {
+            visibility = View.VISIBLE
+            moveStatus(null)
+            showConnecting()
+        }
         handler.removeCallbacks(acceptTimeoutRunnable)
         val remaining = CallController.instance?.connectingTimeoutRemainingMs() ?: CONNECT_TIMEOUT_MS
         handler.postDelayed(acceptTimeoutRunnable, remaining)
@@ -762,56 +772,49 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
     }
 
     private fun showConnectedUi(connectedTime: Long) {
-        contentLayout?.visibility = View.GONE
-        actionsContainer?.visibility = View.GONE
-        connectingContainer?.visibility = View.GONE
-        fullScreenIntentHint?.visibility = View.GONE
-
         val controller = ensureCallController() ?: return
         val callInfo = controller.currentCallInfo() ?: return
 
-        if (connectedRoot == null) {
-            buildConnectedUi()
-        }
-        connectedRoot?.visibility = View.VISIBLE
-        connectedHeader?.setPeerName(callInfo.peerName)
-        connectedDurationView?.startTimer(connectedTime)
+        showInCallUi()
+        connectedHeader?.visibility = View.VISIBLE
+        connectedControlBar?.setConnecting(false)
+        callIdentity?.bind(callInfo.peerName, callInfo.peerAvatar)
+        callIdentity?.showConnected(connectedTime)
         applyConnectedMainLayout(callInfo)
         lastConnectedMainVideoMode = shouldShowRemoteVideo()
         updateConnectedMediaUi()
     }
 
-    private fun buildConnectedUi() {
+    private fun showInCallUi() {
+        contentLayout?.visibility = View.GONE
+        actionsContainer?.visibility = View.GONE
+        fullScreenIntentHint?.visibility = View.GONE
+        if (inCallRoot == null) buildInCallUi()
+    }
+
+    private fun buildInCallUi() {
         val tc = ThemeColors.instance
-        val statusBarDp = AndroidUtilities.statusBarHeight / AndroidUtilities.density
-        val headerHp = 56f
-        val topContentDp = statusBarDp + headerHp
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        inCallRoot = root
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            val safeArea = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            )
+            view.setPadding(safeArea.left, safeArea.top, safeArea.right, safeArea.bottom)
+            insets
+        }
 
-        val gradientBg = GradientDrawable(
-            GradientDrawable.Orientation.RIGHT_LEFT,
-            intArrayOf(tc.serverRailBg, tc.serverRailBg)
-        )
-
-        val root = FrameLayout(this).apply { background = gradientBg }
-        connectedRoot = root
-
-        val statusBarSpacer = View(this)
-        root.addView(statusBarSpacer, LayoutHelper.createFrame(
-            LayoutHelper.MATCH_PARENT.toFloat(),
-            statusBarDp,
-            Gravity.TOP
-        ))
-
-        val controller = CallController.instance
         connectedHeader = DmCallHeaderView(this, tc).apply {
             onMinimizeClick = {
                 minimizeCallToApp()
             }
             onSwitchCameraClick = {
-                controller?.switchCamera()
+                CallController.instance?.switchCamera()
             }
             onVideoToggleClick = vid@{
-                val ctl = controller ?: return@vid
+                val ctl = CallController.instance ?: return@vid
                 if (CallPermissionUi.startCameraRequestIfNeededToEnableVideo(
                         this@IncomingCallActivity,
                         ctl.isLocalVideoEnabled,
@@ -826,31 +829,28 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
                 ctl.toggleVideo()
             }
         }
-        root.addView(connectedHeader, LayoutHelper.createFrame(
-            LayoutHelper.MATCH_PARENT, headerHp.toInt(),
-            Gravity.TOP, 0f, statusBarDp, 0f, 0f
-        ))
+        root.addView(connectedHeader, LinearLayout.LayoutParams(LayoutHelper.MATCH_PARENT, LayoutHelper.dp(56)))
 
-        connectedContentContainer = FrameLayout(this)
-        root.addView(connectedContentContainer, LayoutHelper.createFrame(
-            LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT,
-            Gravity.TOP, 10f, topContentDp + 10f, 10f, 88f
-        ))
+        val identity = IncomingCallIdentityView(this, tc).apply { bind(callerName, callerAvatar) }
+        callIdentity = identity
+        connectedContentContainer = FrameLayout(this).apply {
+            addView(identity, FrameLayout.LayoutParams(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER))
+        }
+        root.addView(connectedContentContainer, LinearLayout.LayoutParams(LayoutHelper.MATCH_PARENT, 0, 1f).apply {
+            marginStart = LayoutHelper.dp(12)
+            marginEnd = LayoutHelper.dp(12)
+        })
 
-        connectedDurationView = CallDurationView(this, tc)
-        connectedDurationView!!.visibility = View.VISIBLE
-        connectedDurationOnVideo = null
-
-        connectedControlBar = CallControlBar(this, tc).apply {
+        connectedControlBar = CallControlBar(this, tc, showLabels = true).apply {
             delegate = object : CallControlBar.Delegate {
                 override fun onSpeakerClicked() {
-                    controller?.toggleSpeaker()
+                    CallController.instance?.toggleSpeaker()
                 }
                 override fun onEndCallClicked() {
                     endConnectingCall()
                 }
                 override fun onMicClicked() {
-                    val ctl = controller ?: return
+                    val ctl = CallController.instance ?: return
                     if (CallPermissionUi.startMicRequestIfNeededToUnmute(
                             this@IncomingCallActivity,
                             ctl.isLocalAudioEnabled,
@@ -866,16 +866,16 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
                 }
             }
         }
-        root.addView(connectedControlBar, LayoutHelper.createFrame(
-            LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT,
-            Gravity.BOTTOM,
-            0f, 0f, 0f, 40f
-        ))
+        root.addView(connectedControlBar, LinearLayout.LayoutParams(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
+            topMargin = LayoutHelper.dp(8)
+            bottomMargin = LayoutHelper.dp(18)
+        })
 
         rootView?.addView(root, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.MATCH_PARENT
         ))
+        ViewCompat.requestApplyInsets(root)
     }
 
     private fun shouldShowRemoteVideo(): Boolean {
@@ -885,14 +885,18 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
 
     private fun applyConnectedMainLayout(callInfo: CallInfo) {
         if (shouldShowRemoteVideo()) {
+            connectedHeader?.setPeerName(callInfo.peerName)
             hideConnectedLocalPip()
             showConnectedVideoView()
-            updateConnectedDurationPosition(true)
+            callIdentity?.moveStatus(connectedContentContainer)
         } else {
+            connectedHeader?.setPeerName("")
             hideConnectedVideoView()
-            showConnectedAvatarView(callInfo)
+            callIdentity?.apply {
+                moveStatus(null)
+                visibility = View.VISIBLE
+            }
             bindConnectedLocalPip()
-            updateConnectedDurationPosition(false)
         }
     }
 
@@ -917,31 +921,9 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
         }
     }
 
-    private fun showConnectedAvatarView(callInfo: CallInfo) {
-        val tc = ThemeColors.instance
-        if (connectedAvatarView == null) {
-            connectedAvatarView = CallAvatarView(this, tc)
-        }
-        if (connectedAvatarView?.parent == null) {
-            connectedContentContainer?.addView(connectedAvatarView, LayoutHelper.createFrame(
-                LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT,
-                Gravity.CENTER
-            ))
-        }
-        connectedAvatarView?.visibility = View.VISIBLE
-        connectedAvatarView?.setData(callInfo.peerName, callInfo.peerAvatar)
-        connectedAvatarView?.setConnected(true)
-        connectedAvatarView?.setStatus("")
-        connectedAvatarView?.stopRingAnimation()
-        connectedAvatarView?.let { connectedContentContainer?.bringChildToFront(it) }
-    }
-
     private fun showConnectedVideoView() {
         hideConnectedLocalPip()
-        connectedAvatarView?.let {
-            it.stopRingAnimation()
-            it.visibility = View.GONE
-        }
+        callIdentity?.visibility = View.GONE
         if (connectedVideoView == null) {
             connectedVideoView = CallVideoView(this)
             connectedVideoView!!.initialize()
@@ -1037,25 +1019,6 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
         connectedLocalPip = null
     }
 
-    private fun updateConnectedDurationPosition(onVideo: Boolean) {
-        val view = connectedDurationView ?: return
-        if (connectedDurationOnVideo == onVideo && view.parent != null) return
-        connectedDurationOnVideo = onVideo
-        (view.parent as? ViewGroup)?.removeView(view)
-        view.setShadowEnabled(onVideo)
-        if (onVideo) {
-            connectedRoot?.addView(view, LayoutHelper.createFrame(
-                LayoutHelper.MATCH_PARENT, 28,
-                Gravity.BOTTOM, 0f, 0f, 0f, 118f
-            ))
-        } else {
-            connectedContentContainer?.addView(view, LayoutHelper.createFrame(
-                LayoutHelper.MATCH_PARENT, 28,
-                Gravity.CENTER, 0f, 76f, 0f, 0f
-            ))
-        }
-    }
-
     private fun declineCall(automatic: Boolean = false) {
         if (dismissed) return
         val controller = ensureCallController()
@@ -1119,7 +1082,6 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
         callAudioManager?.stopTone()
         callAudioManager?.stop()
         detachObservers()
-        connectedDurationView?.stopTimer()
         releaseConnectedLocalPip()
         releaseConnectedVideoView()
         super.onDestroy()

@@ -14,6 +14,7 @@ import android.graphics.RectF
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
+import android.text.Layout
 import android.text.Spannable
 import android.text.SpannableString
 import android.text.SpannableStringBuilder
@@ -258,17 +259,22 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private val callLogCardRect = RectF()
     private val callLogCallbackRect = RectF()
     private var callLogCardHeight = 0
-    private var callLogInnerWidth = 0
+    private var callLogCardWidth = 0
     private var callLogIconResId = R.drawable.mz_call_outgoing_16
     private var callLogIconDrawable: Drawable? = null
     private var callLogDrawableResId: Int? = null
     private var callLogCallbackLayout: StaticLayout? = null
-    private var callLogTitleIsRed = false
     private val callLogTitlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
     private val callLogDescPaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
     private val callLogCallbackPaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
     private val callLogCardBgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val callLogDividerPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val callLogCardBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = LayoutHelper.dpf(1f)
+    }
+    private val callLogDividerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        strokeWidth = LayoutHelper.dpf(1f)
+    }
     private var drawPhotoImage = false
     private var drawFileAttachment = false
     private var drawAudioAttachment = false
@@ -1522,34 +1528,32 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     context.getString(R.string.message_call_log_start_audio_call, senderLabel)
             else -> ""
         }
-        callLogTitleIsRed = parsed.callLogType == CallLogMessageType.TIMEOUTCALL ||
+        val failed = parsed.callLogType == CallLogMessageType.TIMEOUTCALL ||
             parsed.callLogType == CallLogMessageType.REJECTCALL ||
             parsed.callLogType == CallLogMessageType.CANCELCALL
+        val lightTheme = theme.resolvedMode.isLight
+        val cardColor = ColorUtils.blendARGB(theme.background, theme.onSurface, if (lightTheme) 0f else 0.055f)
+        val failureColor = if (lightTheme) {
+            ColorUtils.blendARGB(theme.redStrong, theme.onSurface, 0.08f)
+        } else {
+            ColorUtils.blendARGB(theme.disconnectedColor, theme.onSurface, 0.40f)
+        }
 
         callLogTitlePaint.typeface = Typeface.DEFAULT_BOLD
-        callLogTitlePaint.textSize = LayoutHelper.sp(16f)
-        callLogTitlePaint.color = if (callLogTitleIsRed) theme.redStrong else theme.colorText
+        callLogTitlePaint.textSize = LayoutHelper.sp(15f)
+        callLogTitlePaint.color = if (failed) failureColor else theme.textStrong
 
         callLogDescPaint.typeface = Typeface.DEFAULT
-        callLogDescPaint.textSize = LayoutHelper.sp(14f)
-        callLogDescPaint.color = theme.textDisabled
+        callLogDescPaint.textSize = LayoutHelper.sp(13f)
+        callLogDescPaint.color = theme.onSurfaceVariant
 
         callLogCallbackPaint.typeface = Typeface.DEFAULT_BOLD
-        callLogCallbackPaint.textSize = LayoutHelper.sp(14f)
-        callLogCallbackPaint.color = theme.textLink
-        callLogCallbackPaint.isFakeBoldText = true
+        callLogCallbackPaint.textSize = LayoutHelper.sp(13f)
+        callLogCallbackPaint.color = ColorUtils.blendARGB(theme.textLink, theme.onSurface, if (lightTheme) 0.40f else 0.22f)
 
-        callLogCardBgPaint.style = Paint.Style.FILL
-        callLogCardBgPaint.color = theme.background
-        callLogDividerPaint.style = Paint.Style.STROKE
-        callLogDividerPaint.color = theme.secondaryWeight
-        callLogDividerPaint.strokeWidth = LayoutHelper.dp(1f).toFloat()
-
-        val innerContentW = (textWidth - 2 * (CALL_LOG_CARD_MARGIN_H + CALL_LOG_INNER_PAD)).coerceAtLeast(1)
-        val titleW = innerContentW.coerceAtLeast(1)
-        callLogTitleLayout = if (titleStr.isNotEmpty()) {
-            StaticLayout.Builder.obtain(titleStr, 0, titleStr.length, callLogTitlePaint, titleW).build()
-        } else null
+        callLogCardBgPaint.color = cardColor
+        callLogCardBorderPaint.color = ColorUtils.blendARGB(cardColor, theme.onSurface, 0.19f)
+        callLogDividerPaint.color = ColorUtils.blendARGB(cardColor, theme.onSurface, 0.11f)
 
         val descText = if (parsed.callLogType == CallLogMessageType.FINISHCALL) {
             parsed.tText.ifBlank {
@@ -1558,9 +1562,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         } else {
             context.getString(if (parsed.isVideo) R.string.message_call_log_video_call else R.string.message_call_log_audio_call)
         }
-        val descW = (innerContentW - CALL_LOG_ICON_SLOT).coerceAtLeast(1)
-        callLogDescLayout = StaticLayout.Builder.obtain(descText, 0, descText.length, callLogDescPaint, descW).build()
-
         callLogIconResId = when (parsed.callLogType) {
             CallLogMessageType.TIMEOUTCALL ->
                 if (isMe) R.drawable.mz_call_outgoing_16 else R.drawable.mz_call_missed_16
@@ -1581,26 +1582,37 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             parsed.callLogType != CallLogMessageType.STARTCALL &&
             (!inNoCallback || !isMe)
 
+        val callbackText = if (callLogShowCallback) context.getString(R.string.message_call_log_call_back).uppercase() else ""
+        val naturalContentWidth = maxOf(
+            Layout.getDesiredWidth(titleStr, callLogTitlePaint),
+            Layout.getDesiredWidth(descText, callLogDescPaint) + CALL_LOG_ICON_SLOT,
+            Layout.getDesiredWidth(callbackText, callLogCallbackPaint)
+        )
+        val maxCardWidth = (textWidth - 2 * CALL_LOG_CARD_MARGIN_H).coerceAtLeast(1)
+        callLogCardWidth = (ceil(naturalContentWidth).toInt() + 2 * CALL_LOG_INNER_PAD).coerceAtMost(maxCardWidth)
+        val innerContentWidth = (callLogCardWidth - 2 * CALL_LOG_INNER_PAD).coerceAtLeast(1)
+
+        callLogTitleLayout = if (titleStr.isNotEmpty()) {
+            StaticLayout.Builder.obtain(titleStr, 0, titleStr.length, callLogTitlePaint, innerContentWidth).build()
+        } else null
+
+        val descWidth = (innerContentWidth - CALL_LOG_ICON_SLOT).coerceAtLeast(1)
+        callLogDescLayout = StaticLayout.Builder.obtain(descText, 0, descText.length, callLogDescPaint, descWidth).build()
+
         callLogCallbackLayout = if (callLogShowCallback) {
-            val cb = context.getString(R.string.message_call_log_call_back).uppercase()
-            StaticLayout.Builder.obtain(cb, 0, cb.length, callLogCallbackPaint, (textWidth - 2 * CALL_LOG_CARD_MARGIN_H).coerceAtLeast(1))
-                .setAlignment(android.text.Layout.Alignment.ALIGN_CENTER)
+            StaticLayout.Builder.obtain(callbackText, 0, callbackText.length, callLogCallbackPaint, innerContentWidth)
+                .setAlignment(Layout.Alignment.ALIGN_CENTER)
                 .build()
         } else null
 
         val titleH = callLogTitleLayout?.height ?: 0
         val descH = callLogDescLayout?.height ?: 0
-        val fm = callLogCallbackPaint.fontMetrics
-        val cbExtra = if (callLogShowCallback) {
-            CALL_LOG_CALLBACK_TOP_PAD + (fm.descent - fm.ascent).toInt() + CALL_LOG_CALLBACK_BOTTOM_PAD
-        } else 0
         var innerH = CALL_LOG_INNER_PAD * 2
         innerH += titleH
         if (titleH > 0) innerH += CALL_LOG_TITLE_DESC_GAP
         innerH += maxOf(CALL_LOG_ICON_SIZE, descH)
-        if (callLogShowCallback) innerH += cbExtra
-        callLogCardHeight = CALL_LOG_TOP_MARGIN + CALL_LOG_CARD_MARGIN_V * 2 + innerH
-        callLogInnerWidth = textWidth
+        callLogCallbackLayout?.let { innerH += CALL_LOG_CALLBACK_TOP_PAD + it.height + CALL_LOG_CALLBACK_BOTTOM_PAD }
+        callLogCardHeight = CALL_LOG_TOP_MARGIN + innerH
     }
 
     private fun obtainCallLogIconDrawable(): Drawable {
@@ -1614,9 +1626,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             }
         }
         val tint = when (callLogParsed?.callLogType) {
-            CallLogMessageType.TIMEOUTCALL -> if (messageEntity?.isMe == true) theme.textDisabled else theme.redStrong
-            CallLogMessageType.REJECTCALL, CallLogMessageType.CANCELCALL -> theme.redStrong
-            else -> theme.textDisabled
+            CallLogMessageType.TIMEOUTCALL -> if (messageEntity?.isMe == true) callLogDescPaint.color else callLogTitlePaint.color
+            CallLogMessageType.REJECTCALL, CallLogMessageType.CANCELCALL -> callLogTitlePaint.color
+            else -> callLogDescPaint.color
         }
         drawable.setIconColor(tint)
         drawable.setBounds(0, 0, drawable.intrinsicWidth, drawable.intrinsicHeight)
@@ -1624,17 +1636,21 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     }
 
     private fun drawCallLogCard(canvas: Canvas, contentLeft: Float, yOff: Float): Float {
-        val w = callLogInnerWidth.toFloat()
-        val outerTop = yOff + CALL_LOG_TOP_MARGIN
-        val cardLeft = contentLeft
-        val cardTop = outerTop
+        val w = callLogCardWidth.toFloat()
+        val cardLeft = contentLeft + CALL_LOG_CARD_MARGIN_H
+        val cardTop = yOff + CALL_LOG_TOP_MARGIN
         val cardRight = cardLeft + w
-        val cardBottom = cardTop + callLogCardHeight - CALL_LOG_TOP_MARGIN
-        callLogCardRect.set(cardLeft, outerTop, cardRight, yOff + callLogCardHeight)
-        canvas.drawRoundRect(cardLeft, cardTop, cardRight, cardBottom, CALL_LOG_CORNER, CALL_LOG_CORNER, callLogCardBgPaint)
+        val cardBottom = yOff + callLogCardHeight
+        callLogCardRect.set(cardLeft, cardTop, cardRight, cardBottom)
+        canvas.drawRoundRect(callLogCardRect, CALL_LOG_CORNER, CALL_LOG_CORNER, callLogCardBgPaint)
+        val halfBorder = callLogCardBorderPaint.strokeWidth / 2f
+        tmpRect.set(callLogCardRect)
+        tmpRect.inset(halfBorder, halfBorder)
+        val borderRadius = CALL_LOG_CORNER - halfBorder
+        canvas.drawRoundRect(tmpRect, borderRadius, borderRadius, callLogCardBorderPaint)
 
-        val innerLeft = cardLeft + CALL_LOG_CARD_MARGIN_H + CALL_LOG_INNER_PAD
-        var iy = cardTop + CALL_LOG_CARD_MARGIN_V + CALL_LOG_INNER_PAD
+        val innerLeft = cardLeft + CALL_LOG_INNER_PAD
+        var iy = cardTop + CALL_LOG_INNER_PAD
         callLogTitleLayout?.let { tl ->
             canvas.save()
             canvas.translate(innerLeft, iy)
@@ -1661,9 +1677,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         if (callLogShowCallback) {
             val divY = rowBottom + CALL_LOG_INNER_PAD
             canvas.drawLine(
-                cardLeft + CALL_LOG_CARD_MARGIN_H,
+                cardLeft + callLogCardBorderPaint.strokeWidth,
                 divY,
-                cardRight - CALL_LOG_CARD_MARGIN_H,
+                cardRight - callLogCardBorderPaint.strokeWidth,
                 divY,
                 callLogDividerPaint
             )
@@ -1674,7 +1690,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 canvas.translate(cardLeft + (w - cbLayout.width) / 2f, cby)
                 cbLayout.draw(canvas)
                 canvas.restore()
-                callLogCallbackRect.set(cardLeft, divY, cardRight, cby + cbLayout.height + CALL_LOG_CALLBACK_BOTTOM_PAD)
+                callLogCallbackRect.set(cardLeft, divY, cardRight, cardBottom)
             }
         } else {
             callLogCallbackRect.setEmpty()
@@ -1778,7 +1794,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             callLogCallbackLayout = null
             callLogShowCallback = false
             callLogCardHeight = 0
-            callLogInnerWidth = 0
+            callLogCardWidth = 0
             callLogCallbackRect.setEmpty()
         }
 
@@ -2006,7 +2022,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         } == true
 
         cachedContentW = when {
-            hasCallLogCard -> textWidth.toFloat()
+            hasCallLogCard -> (callLogCardWidth + 2 * CALL_LOG_CARD_MARGIN_H).toFloat()
             hasCodeFence -> textWidth.toFloat()
             else -> contentLayout?.let { maxLineWidth(it) } ?: 0f
         }
@@ -5423,7 +5439,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         private val TIME_GAP_RIGHT = LayoutHelper.dp(4)
 
         private val CALL_LOG_TOP_MARGIN = LayoutHelper.dp(4f)
-        private val CALL_LOG_CARD_MARGIN_V = LayoutHelper.dp(0)
         private val CALL_LOG_CARD_MARGIN_H = LayoutHelper.dp(4f)
         private val CALL_LOG_INNER_PAD = LayoutHelper.dp(10f)
         private val CALL_LOG_TITLE_DESC_GAP = LayoutHelper.dp(6f)
