@@ -23,7 +23,6 @@ import com.mezon.mobile.home.clans.settings.StickerSettingsController
 import com.mezon.mobile.home.chat.ImageClipboardCoordinator
 import com.mezon.mobile.home.chat.input.MentionSearchController
 import com.mezon.mobile.home.DialogsController
-import com.mezon.mobile.home.ForwardTargetUsageStore
 import com.mezon.mobile.home.messages.DmPinStorage
 import com.mezon.mobile.home.messages.MessageActivitiesController
 import com.mezon.mobile.home.voice.VoiceController
@@ -83,7 +82,6 @@ interface FragmentEntryPoint {
     fun connectionController(): ConnectionController
     fun endpointFailover(): EndpointFailover
     fun dialogsController(): DialogsController
-    fun forwardTargetUsageStore(): ForwardTargetUsageStore
     fun messageActivitiesController(): MessageActivitiesController
     fun dmPinStorage(): DmPinStorage
     fun messagesController(): MessagesController

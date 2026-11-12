@@ -42,7 +42,6 @@ import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.ChatController
 import com.mezon.mobile.home.DialogsController
-import com.mezon.mobile.home.ForwardTargetUsageStore
 import com.mezon.mobile.home.chat.AttachmentInfo
 import com.mezon.mobile.home.chat.AttachmentPickerItem
 import com.mezon.mobile.home.chat.ForwardNavigationStash
@@ -99,7 +98,6 @@ class SharingFragment(
     private lateinit var channelController: ChannelController
     private lateinit var friendController: FriendController
     private lateinit var permissionPolicy: PermissionPolicy
-    private lateinit var forwardTargetUsageStore: ForwardTargetUsageStore
 
     private val isForwardMode: Boolean
         get() = payload is SharingPayload.ForwardFromChat
@@ -108,7 +106,7 @@ class SharingFragment(
         get() = payload as? SharingPayload.ForwardFromChat
 
     private var forwardMessages = ArrayList<MessageEntity>()
-    private val forwardSelectedKeys = HashSet<String>()
+    private val forwardSelectedTargets = LinkedHashMap<String, SharingTarget>()
 
     private var forwardPreviewContentText: TextView? = null
     private var forwardPreviewEmbedText: TextView? = null
@@ -163,7 +161,7 @@ class SharingFragment(
     private var searchQuery = ""
     private var didAutoFocusSearch = false
     private var awaitingSearchResults = false
-    private var deviceQueryPending = false
+    private var queryPending = false
     private var targetRankingJob: Job? = null
     private var targetRankingGeneration = 0L
     private var displayLimit = LOCAL_PAGE_SIZE
@@ -185,7 +183,6 @@ class SharingFragment(
         channelController = entryPoint.channelController()
         friendController = entryPoint.friendController()
         permissionPolicy = entryPoint.permissionPolicy()
-        forwardTargetUsageStore = entryPoint.forwardTargetUsageStore()
     }
 
     override fun onFragmentCreate(): Boolean {
@@ -198,20 +195,12 @@ class SharingFragment(
             if (isForwardMode) scheduleRebuildForwardTargets() else rebuildTargets()
         }
         observe(NotificationCenter.searchMembersDidLoad) { _, _, _ ->
-            if (fragmentView == null || isForwardMode) return@observe
+            if (fragmentView == null) return@observe
             onSearchResultsLoaded()
         }
         observe(NotificationCenter.searchChannelsDidLoad) { _, _, _ ->
-            if (fragmentView == null || isForwardMode) return@observe
+            if (fragmentView == null) return@observe
             onSearchResultsLoaded()
-        }
-        observe(NotificationCenter.channelsDidLoad) { _, _, _ ->
-            if (fragmentView == null || !isForwardMode) return@observe
-            scheduleRebuildForwardTargets()
-        }
-        observe(NotificationCenter.clansDidLoad) { _, _, _ ->
-            if (fragmentView == null || !isForwardMode) return@observe
-            scheduleRebuildForwardTargets()
         }
         observe(NotificationCenter.blockedUsersLoaded) { _, _, _ ->
             if (fragmentView == null || !isForwardMode) return@observe
@@ -268,13 +257,13 @@ class SharingFragment(
 
     private fun hasTargetForChannel(channelId: Long): Boolean {
         if (selectedTarget?.channelId == channelId) return true
-        return allTargets.any { it.channelId == channelId && forwardSelectedKeys.contains(it.key) }
+        return forwardSelectedTargets.values.any { it.channelId == channelId }
     }
 
     private fun hasTargetForClan(clanId: Long): Boolean {
         if (clanId == 0L) return false
         if (selectedTarget?.clanId == clanId) return true
-        return allTargets.any { it.clanId == clanId && forwardSelectedKeys.contains(it.key) }
+        return forwardSelectedTargets.values.any { it.clanId == clanId }
     }
 
     private fun ensureSendPermission(t: SharingTarget) {
@@ -294,8 +283,8 @@ class SharingFragment(
     }
 
     private fun selectedForwardTargets(): List<SharingTarget> {
-        if (!isForwardMode || forwardSelectedKeys.isEmpty()) return emptyList()
-        return allTargets.filter { forwardSelectedKeys.contains(it.key) }
+        if (!isForwardMode) return emptyList()
+        return forwardSelectedTargets.values.toList()
     }
 
     private fun showNoSendPermissionToast() {
@@ -307,7 +296,7 @@ class SharingFragment(
         fragmentView?.removeCallbacks(rebuildForwardDebounced)
         super.onFragmentDestroy()
         debounceRunnable?.let { debounceHandler.removeCallbacks(it) }
-        if (!isForwardMode) searchController.cancelCtrlKSearch()
+        searchController.cancelCtrlKSearch()
     }
 
     override fun createView(context: Context): View {
@@ -377,13 +366,11 @@ class SharingFragment(
                 val t = view.target ?: return@OnItemClickListener
                 if (isForwardMode) {
                     val key = t.key
-                    if (forwardSelectedKeys.contains(key)) {
-                        forwardSelectedKeys.remove(key)
-                    } else {
-                        forwardSelectedKeys.add(key)
+                    if (forwardSelectedTargets.remove(key) == null) {
+                        forwardSelectedTargets[key] = t
                         ensureSendPermission(t)
                     }
-                    adapter.updateForwardSelection(forwardSelectedKeys)
+                    adapter.updateForwardSelection(forwardSelectedTargets.keys)
                     refreshForwardSelectionUi()
                 } else {
                     selectTarget(t)
@@ -414,10 +401,7 @@ class SharingFragment(
         adapter = SharingTargetAdapter(themeColors)
         recyclerView.adapter = adapter
 
-        if (isForwardMode) {
-            prefetchChannelCachesIfNeeded()
-            refreshForwardPreviewContent()
-        }
+        if (isForwardMode) refreshForwardPreviewContent()
         rebuildTargets()
         refreshSendButtonEnabled()
 
@@ -487,15 +471,10 @@ class SharingFragment(
                     debounceRunnable?.let { debounceHandler.removeCallbacks(it) }
                     val query = s?.toString() ?: ""
                     invalidateTargetRanking()
-                    if (!isForwardMode) {
-                        deviceQueryPending = true
-                        // Reject old API responses immediately, including the debounce window.
-                        searchController.cancelCtrlKSearch()
-                    }
-                    debounceRunnable = Runnable {
-                        if (isForwardMode) applyForwardFilter(query) else onDeviceQueryChanged(query)
-                    }
-                    debounceHandler.postDelayed(debounceRunnable!!, if (isForwardMode) DEBOUNCE_MS else CTRL_K_DEBOUNCE_MS)
+                    queryPending = true
+                    searchController.cancelCtrlKSearch()
+                    debounceRunnable = Runnable { onQueryChanged(query) }
+                    debounceHandler.postDelayed(debounceRunnable!!, CTRL_K_DEBOUNCE_MS)
                 }
             })
         }
@@ -838,59 +817,60 @@ class SharingFragment(
     }
 
     private fun rebuildTargets() {
-        if (isForwardMode) rebuildForwardTargets() else rebuildDeviceTargets()
-    }
-
-    private fun rebuildDeviceTargets() {
         allTargets.clear()
         for (dm in dialogsController.getDialogs()) {
             if (dm.type != CHANNEL_TYPE_DM && dm.type != CHANNEL_TYPE_GROUP) continue
+            if (isForwardMode && dm.type == CHANNEL_TYPE_DM && friendController.isUserBlocked(dm.otherUserId)) continue
             val target = dm.toSharingTarget()
             if (target.channelLabel.isBlank()) continue
             allTargets.add(target)
         }
         allTargets.sortByDescending { it.lastActivityTs }
-        renderDeviceTargets()
+        renderTargets()
     }
 
-    private fun onDeviceQueryChanged(query: String) {
-        deviceQueryPending = false
+    private fun onQueryChanged(query: String) {
+        queryPending = false
         searchQuery = query.trim()
         displayLimit = LOCAL_PAGE_SIZE
         awaitingSearchResults = searchQuery.isNotEmpty() && searchController.fetchCtrlKResults(searchQuery)
         if (!awaitingSearchResults) searchController.cancelCtrlKSearch()
-        renderDeviceTargets()
+        renderTargets()
     }
 
     private fun onSearchResultsLoaded() {
-        if (deviceQueryPending || searchQuery.isEmpty()) return
+        if (queryPending || searchQuery.isEmpty()) return
         awaitingSearchResults = false
-        renderDeviceTargets()
+        renderTargets()
     }
 
-    private fun renderDeviceTargets() {
+    private fun renderTargets() {
         val searching = searchQuery.isNotEmpty()
         suggestionsLabel.visibility = if (searching) View.GONE else View.VISIBLE
-        if (deviceQueryPending) return
+        if (queryPending) return
         if (searching) {
             rankTargets(buildSearchResultTargets(), searchQuery.removeSearchTypePrefix(), includeUnmatched = true) { ranked ->
                 filteredTargets.clear()
                 filteredTargets.addAll(ranked)
-                updateDeviceResultsUi()
+                updateResultsUi()
             }
         } else {
             invalidateTargetRanking()
             filteredTargets.clear()
             filteredTargets.addAll(allTargets)
-            updateDeviceResultsUi()
+            updateResultsUi()
         }
     }
 
-    private fun updateDeviceResultsUi() {
+    private fun updateResultsUi() {
         val showEmpty = filteredTargets.isEmpty() && !awaitingSearchResults
         emptyView.visibility = if (showEmpty) View.VISIBLE else View.GONE
         recyclerView.visibility = if (showEmpty) View.GONE else View.VISIBLE
-        adapter.setData(filteredTargets.take(displayLimit), false, emptySet())
+        if (isForwardMode) {
+            adapter.setData(filteredTargets.toList(), true, forwardSelectedTargets.keys)
+        } else {
+            adapter.setData(filteredTargets.take(displayLimit), false, emptySet())
+        }
     }
 
     private fun invalidateTargetRanking() {
@@ -903,7 +883,6 @@ class SharingFragment(
         targets: List<SharingTarget>,
         query: String,
         includeUnmatched: Boolean,
-        usernameOnly: Boolean = false,
         onRanked: (List<SharingTarget>) -> Unit,
     ) {
         invalidateTargetRanking()
@@ -913,9 +892,9 @@ class SharingFragment(
                 val candidates = targets.map { target ->
                     SharingSearchRanking.Candidate(
                         target,
-                        displayName = if (usernameOnly) "" else target.channelLabel,
+                        displayName = target.channelLabel,
                         username = target.username,
-                        clanName = if (usernameOnly) "" else target.clanName,
+                        clanName = target.clanName,
                     )
                 }
                 SharingSearchRanking.rank(candidates, query, includeUnmatched) {
@@ -941,6 +920,7 @@ class SharingFragment(
         val results = ArrayList<SharingTarget>()
         val seenKeys = HashSet<String>()
         for (member in searchController.ctrlKMembersSnapshot()) {
+            if (isForwardMode && !member.isDm && friendController.isUserBlocked(member.id)) continue
             val target = member.toSharingTarget(dmChannelByUserId[member.id] ?: 0L)
             if (target.channelLabel.isBlank()) continue
             if (seenKeys.add(target.key)) results.add(target)
@@ -965,82 +945,6 @@ class SharingFragment(
             .firstOrNull { it.channelId == channel.parentId }
             ?.channelLabel
             .orEmpty()
-    }
-
-    private fun prefetchChannelCachesIfNeeded() {
-        for (clan in clansController.clans.value) {
-            if (channelController.getChannels(clan.clanId).isEmpty()) {
-                channelController.loadChannelsForClan(clan.clanId)
-            }
-        }
-    }
-
-    private fun rebuildForwardTargets() {
-        allTargets.clear()
-        val clans = clansController.clans.value
-        val channelLabelById = HashMap<Long, String>()
-        for (clan in clans) {
-            for (ch in channelController.getChannels(clan.clanId)) {
-                channelLabelById[ch.channelId] = ch.channelLabel
-            }
-        }
-        for (clan in clans) {
-            for (ch in channelController.getChannels(clan.clanId)) {
-                val t = ch.type
-                if (t != CHANNEL_TYPE_CHANNEL && t != CHANNEL_TYPE_THREAD) continue
-                if (ch.channelLabel.isBlank()) continue
-                val parentLabel = if (ch.parentId != 0L) channelLabelById[ch.parentId].orEmpty() else ""
-                allTargets.add(ch.toSharingTarget(clan.clanName, clan.logo, parentLabel))
-            }
-        }
-        for (dm in dialogsController.getDialogs()) {
-            val t = dm.type
-            if (t != CHANNEL_TYPE_DM && t != CHANNEL_TYPE_GROUP) continue
-            if (dm.label.isBlank()) continue
-            if (t == CHANNEL_TYPE_DM && friendController.isUserBlocked(dm.otherUserId)) continue
-            allTargets.add(dm.toSharingTarget())
-        }
-        allTargets.sortWith(
-            compareByDescending<SharingTarget> { forwardTargetOwnSentTs(it) }
-        )
-        displayLimit = maxOf(allTargets.size, LOCAL_PAGE_SIZE)
-        applyForwardFilter(searchEditText.text?.toString() ?: "")
-    }
-
-    private fun forwardTargetOwnSentTs(target: SharingTarget): Long {
-        return forwardTargetUsageStore.getLastSent(target.channelId, target.channelType)
-    }
-
-    private fun applyForwardFilter(query: String) {
-        val trimmed = query.trim()
-        if (trimmed.isEmpty()) {
-            invalidateTargetRanking()
-            filteredTargets.clear()
-            filteredTargets.addAll(allTargets)
-            updateForwardResultsUi()
-            return
-        }
-        val targets = when {
-            trimmed.startsWith("#") -> allTargets.filter {
-                it.channelType == CHANNEL_TYPE_CHANNEL || it.channelType == CHANNEL_TYPE_THREAD
-            }
-            else -> allTargets.toList()
-        }
-        rankTargets(
-            targets, trimmed.removeSearchTypePrefix(), includeUnmatched = false,
-            usernameOnly = trimmed.startsWith("@"),
-        ) { ranked ->
-            filteredTargets.clear()
-            filteredTargets.addAll(ranked)
-            updateForwardResultsUi()
-        }
-    }
-
-    private fun updateForwardResultsUi() {
-        val empty = filteredTargets.isEmpty()
-        emptyView.visibility = if (empty) View.VISIBLE else View.GONE
-        recyclerView.visibility = if (empty) View.GONE else View.VISIBLE
-        adapter.setData(filteredTargets, true, forwardSelectedKeys)
     }
 
     private fun refreshForwardSelectionUi() {
@@ -1198,21 +1102,29 @@ class SharingFragment(
                 showNoSendPermissionToast()
                 return
             }
-            val picks = targets.map { it.toForwardDestination() }
             AndroidUtilities.hideKeyboard(captionInput)
             setSendingState(true)
-            chatController.forwardMessages(
-                fp.sourceChannelId,
-                forwardMessages,
-                picks,
-                captionInput.text?.toString().orEmpty()
-            ) { ok ->
-                setSendingState(false)
-                if (ok) {
-                    MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(R.string.forward_messages_success))
-                    finishFragment()
-                } else {
-                    MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.forward_messages_error))
+            fragmentScope.launch(mainDispatcher) {
+                val resolved = targets.map { resolveDmChannel(it) }
+                if (fragmentView == null) return@launch
+                if (resolved.any { it == null }) {
+                    setSendingState(false)
+                    MezonToast.show(this@SharingFragment, ToastOverlay.ToastType.ERROR, getString(R.string.forward_messages_error))
+                    return@launch
+                }
+                chatController.forwardMessages(
+                    fp.sourceChannelId,
+                    forwardMessages,
+                    resolved.filterNotNull().map { it.toForwardDestination() },
+                    captionInput.text?.toString().orEmpty()
+                ) { ok ->
+                    setSendingState(false)
+                    if (ok) {
+                        MezonToast.show(this@SharingFragment, ToastOverlay.ToastType.INFO, getString(R.string.forward_messages_success))
+                        finishFragment()
+                    } else {
+                        MezonToast.show(this@SharingFragment, ToastOverlay.ToastType.ERROR, getString(R.string.forward_messages_error))
+                    }
                 }
             }
             return
@@ -1448,7 +1360,6 @@ class SharingFragment(
 
     companion object {
         private const val TAG = "SharingFragment"
-        private const val DEBOUNCE_MS = 300L
         private const val CTRL_K_DEBOUNCE_MS = 500L
         private const val MAX_FORWARD_COMMENT_CHARS = 2000
 
