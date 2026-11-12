@@ -643,11 +643,12 @@ class ClanEventBottomSheet(
             isClickable = true
             isFocusable = true
             setOnClickListener { onClick() }
+            val iconSize = LayoutHelper.dp(if (icon == R.drawable.mz_edit_20) 16 else 18)
             addView(
                 ImageView(context).apply {
                     setImageDrawable(MezonIcon.loadDrawable(context, icon, theme.textStrong))
                 },
-                LinearLayout.LayoutParams(LayoutHelper.dp(18), LayoutHelper.dp(18)),
+                LinearLayout.LayoutParams(iconSize, iconSize),
             )
             if (!label.isNullOrBlank()) {
                 addView(
