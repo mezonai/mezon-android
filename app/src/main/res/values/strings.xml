@@ -195,6 +195,13 @@
     <string name="common_error_offline">Unable to connect. Please check your internet connection and try again.</string>
     <string name="common_error_connecting">Connecting…</string>
     <string name="call_end_action">End call</string>
+    <string name="call_speaker_action">Speaker</string>
+    <string name="call_mute_action">Mute</string>
+    <string name="call_unmute_action">Unmute</string>
+    <string name="call_minimize_action">Minimize call</string>
+    <string name="call_switch_camera_action">Switch camera</string>
+    <string name="call_enable_camera_action">Turn on camera</string>
+    <string name="call_disable_camera_action">Turn off camera</string>
     <string name="call_connection_timeout">Call could not connect. Please try again.</string>
     <string name="common_error_connection_failed">Connection failed. Please try again.</string>
 

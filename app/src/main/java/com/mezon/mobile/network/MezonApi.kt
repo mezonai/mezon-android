@@ -181,10 +181,12 @@ import com.mezon.mezon.api.listAuditLogRequest
 import com.mezon.mezon.rtapi.ActiveArchivedThread
 import com.mezon.mezon.rtapi.ChannelMessageSend
 import com.mezon.mezon.rtapi.ListActivity
+import com.mezon.mezon.rtapi.WebrtcSignalingFwd
 import com.mezon.mezon.rtapi.messageButtonClicked
 import android.util.Log
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
+import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -229,7 +231,9 @@ import kotlinx.coroutines.CompletableDeferred
 import java.io.IOException
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
+import okhttp3.OkHttpClient
 import javax.inject.Inject
 import javax.inject.Singleton
 class UnauthorizedException(message: String) : RuntimeException(message)
@@ -370,9 +374,24 @@ private data class ClanDiscoverJson(
 @Singleton
 class MezonApi @Inject constructor(
     private val httpClient: HttpClient,
+    okHttpClient: OkHttpClient,
     private val mezonSocketLazy: dagger.Lazy<MezonSocket>,
     private val sentryReporter: SentryReporter
 ) {
+    private val callSetupHttpClient by lazy {
+        HttpClient(OkHttp) {
+            followRedirects = false
+            engine {
+                preconfigured = okHttpClient.newBuilder()
+                    .retryOnConnectionFailure(false)
+                    .followRedirects(false)
+                    .followSslRedirects(false)
+                    .callTimeout(5, TimeUnit.SECONDS)
+                    .build()
+            }
+        }
+    }
+
     private data class InFlightReadRpc(
         val startedAtMs: Long,
         val deferred: CompletableDeferred<ByteArray>
@@ -805,11 +824,12 @@ class MezonApi @Inject constructor(
         apiUrl: String,
         token: String,
         method: String,
-        body: ByteArray
+        body: ByteArray,
+        client: HttpClient = httpClient
     ): ByteArray {
         val base = apiUrl.trimEnd('/')
         val url = "$base/mezon.api.Mezon/$method"
-        val response = httpClient.post(url) {
+        val response = client.post(url) {
             header(HttpHeaders.Authorization, "Bearer $token")
             header(HttpHeaders.Accept, CONTENT_TYPE_PROTO.toString())
             contentType(CONTENT_TYPE_PROTO)
@@ -1881,6 +1901,21 @@ class MezonApi @Inject constructor(
         val body = request.toByteArray()
         val bytes = rpc(apiUrl, token, "SendChannelMessage", body)
         return com.mezon.mezon.rtapi.ChannelMessageAck.parseFrom(bytes)
+    }
+
+    suspend fun forwardCallSetup(
+        apiUrl: String,
+        token: String,
+        request: WebrtcSignalingFwd
+    ) {
+        val bytes = rpcOverHttp(apiUrl, token, "ForwardCallSetup", request.toByteArray(), callSetupHttpClient)
+        val ack = WebrtcSignalingFwd.parseFrom(bytes)
+        check(
+            ack.receiverId == request.receiverId &&
+                ack.channelId == request.channelId &&
+                ack.callerId == request.callerId &&
+                ack.dataType == request.dataType
+        ) { "Invalid call setup acknowledgement" }
     }
 
     suspend fun sendEphemeralMessageToBot(

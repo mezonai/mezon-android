@@ -56,7 +56,7 @@ class PeerConnectionWrapper(
     private val pendingRemoteIce = mutableListOf<IceCandidate>()
     private val pendingLocalIceBeforeAccept = mutableListOf<IceCandidate>()
     private var holdLocalCandidates = false
-    private var remoteDescriptionSet = false
+    @Volatile private var remoteDescriptionSet = false
     private val answerLock = Any()
     private var pendingAnswerCallback: ((SessionDescription) -> Unit)? = null
     private var iceReconnectRunnable: Runnable? = null
@@ -76,6 +76,7 @@ class PeerConnectionWrapper(
         override fun onIceConnectionChange(state: PeerConnection.IceConnectionState?) {
             mainHandler.post {
                 if (disposed) return@post
+                android.util.Log.d(TAG, "Call ICE connection state=$state")
                 when (state) {
                     PeerConnection.IceConnectionState.CONNECTED,
                     PeerConnection.IceConnectionState.COMPLETED -> {
@@ -183,35 +184,8 @@ class PeerConnectionWrapper(
     }
 
     fun handleRemoteOffer(sdp: SessionDescription, callback: (SessionDescription) -> Unit) {
-        createPeerConnection()
-        if (peerConnection == null) {
-            android.util.Log.e(TAG, "handleRemoteOffer: createPeerConnection returned null!")
-            return
-        }
-        addLocalAudioTrackIfPermitted()
-
-        peerConnection?.setRemoteDescription(object : SimpleSdpObserver() {
-            override fun onSetSuccess() {
-                remoteDescriptionSet = true
-                flushPendingIce()
-
-                peerConnection?.createAnswer(object : SimpleSdpObserver() {
-                    override fun onCreateSuccess(answer: SessionDescription?) {
-                        if (disposed) return
-                        answer?.let {
-                            val preferredAnswer = preferVp8Codec(it)
-                            peerConnection?.setLocalDescription(SimpleSdpObserver(), preferredAnswer)
-                            mainHandler.post { if (!disposed) callback(preferredAnswer) }
-                        }
-                    }
-                }, MediaConstraints())
-            }
-
-            override fun onSetFailure(error: String?) {
-                android.util.Log.e(TAG, "handleRemoteOffer: setRemoteDescription FAILED: $error")
-                reportInboundSignalingSetupFailure(error ?: "setRemoteDescription failed")
-            }
-        }, sdp)
+        handleRemoteOfferEager(sdp)
+        requestAnswerWhenRemoteReady(callback)
     }
 
     fun handleRemoteOfferEager(sdp: SessionDescription) {
@@ -229,8 +203,7 @@ class PeerConnectionWrapper(
 
         peerConnection?.setRemoteDescription(object : SimpleSdpObserver() {
             override fun onSetSuccess() {
-                remoteDescriptionSet = true
-                flushPendingIce()
+                onRemoteDescriptionSet()
                 drainPendingAnswerAfterRemoteSet()
             }
 
@@ -255,9 +228,6 @@ class PeerConnectionWrapper(
             }
         }
         if (runNow) {
-            if (localAudioTrack == null) {
-                addLocalAudioTrackIfPermitted()
-            }
             createAnswerAndFlush(callback)
         }
     }
@@ -269,15 +239,12 @@ class PeerConnectionWrapper(
             p
         } ?: return
         if (disposed) return
-        if (localAudioTrack == null) {
-            addLocalAudioTrackIfPermitted()
-        }
         createAnswerAndFlush(cb)
     }
 
-    fun createAnswerAndFlush(callback: (SessionDescription) -> Unit) {
+    private fun createAnswerAndFlush(callback: (SessionDescription) -> Unit) {
         val pc = peerConnection ?: run {
-            android.util.Log.e(TAG, "createAnswerAndFlush: no peerConnection")
+            reportInboundSignalingSetupFailure("createAnswer: no peer connection")
             return
         }
         if (localAudioTrack == null) {
@@ -291,12 +258,19 @@ class PeerConnectionWrapper(
                     return
                 }
                 val preferredAnswer = preferVp8Codec(answer)
-                pc.setLocalDescription(SimpleSdpObserver(), preferredAnswer)
-                mainHandler.post {
-                    if (disposed) return@post
-                    callback(preferredAnswer)
-                    flushPendingLocalIce()
-                }
+                pc.setLocalDescription(object : SimpleSdpObserver() {
+                    override fun onSetSuccess() {
+                        mainHandler.post {
+                            if (disposed) return@post
+                            callback(preferredAnswer)
+                            flushPendingLocalIce()
+                        }
+                    }
+
+                    override fun onSetFailure(error: String?) {
+                        reportInboundSignalingSetupFailure(error ?: "setLocalDescription for answer failed")
+                    }
+                }, preferredAnswer)
             }
 
             override fun onCreateFailure(error: String?) {
@@ -330,8 +304,7 @@ class PeerConnectionWrapper(
         val pc = peerConnection ?: return
         pc.setRemoteDescription(object : SimpleSdpObserver() {
             override fun onSetSuccess() {
-                remoteDescriptionSet = true
-                flushPendingIce()
+                onRemoteDescriptionSet()
                 pc.createAnswer(object : SimpleSdpObserver() {
                     override fun onCreateSuccess(answer: SessionDescription?) {
                         answer?.let {
@@ -373,29 +346,31 @@ class PeerConnectionWrapper(
     fun handleRemoteAnswer(sdp: SessionDescription) {
         peerConnection?.setRemoteDescription(object : SimpleSdpObserver() {
             override fun onSetSuccess() {
-                remoteDescriptionSet = true
-                flushPendingIce()
+                onRemoteDescriptionSet()
                 mainHandler.post { flushPendingLocalIce() }
             }
         }, sdp)
     }
 
     fun addRemoteIceCandidate(candidate: IceCandidate) {
-        if (remoteDescriptionSet) {
-            peerConnection?.addIceCandidate(candidate)
-        } else {
-            synchronized(pendingRemoteIce) {
+        synchronized(pendingRemoteIce) {
+            if (!remoteDescriptionSet) {
                 pendingRemoteIce.add(candidate)
+                return
             }
         }
+        peerConnection?.addIceCandidate(candidate)
     }
 
-    private fun flushPendingIce() {
-        synchronized(pendingRemoteIce) {
-            for (candidate in pendingRemoteIce) {
-                peerConnection?.addIceCandidate(candidate)
-            }
+    private fun onRemoteDescriptionSet() {
+        val candidates = synchronized(pendingRemoteIce) {
+            remoteDescriptionSet = true
+            val queued = pendingRemoteIce.toList()
             pendingRemoteIce.clear()
+            queued
+        }
+        for (candidate in candidates) {
+            peerConnection?.addIceCandidate(candidate)
         }
     }
 

@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
+import com.mezon.mezon.rtapi.webrtcSignalingFwd
 import com.mezon.mobile.MainActivity
 import com.mezon.mobile.R
 import com.mezon.mobile.core.NotificationCenter
@@ -14,9 +15,13 @@ import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.home.ChatController
 import com.mezon.mobile.home.profile.UserController
 import com.mezon.mobile.network.ConnectionState
+import com.mezon.mobile.network.HttpRpcStatusException
+import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.network.MezonSocket
 import com.mezon.mobile.network.SocketEventDispatcher
+import com.mezon.mobile.network.SocketRequestNotSentException
 import com.mezon.mobile.notification.NotificationHelper
+import com.mezon.mobile.session.SessionManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -25,6 +30,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -33,6 +39,9 @@ import org.webrtc.IceCandidate
 import org.webrtc.AudioTrack
 import org.webrtc.SessionDescription
 import org.webrtc.VideoTrack
+import java.net.ConnectException
+import java.net.NoRouteToHostException
+import java.net.UnknownHostException
 import javax.inject.Inject
 import javax.inject.Singleton
 import dagger.Lazy
@@ -40,6 +49,7 @@ import dagger.Lazy
 private const val TAG = "CallController"
 private const val CALL_TIMEOUT_MS = 30_000L
 internal const val CONNECT_TIMEOUT_MS = 30_000L
+private const val SIGNALING_SOCKET_TIMEOUT_MS = 15_000L
 private const val REMOTE_VIDEO_INITIAL_SUPPRESS_MS = 2000L
 private const val MAX_KNOWN_PEER_SESSIONS = 8
 private val MISSED_INCOMING_CALL_REASONS = setOf(
@@ -65,6 +75,8 @@ internal fun offerSdpSendsVideo(sdp: String): Boolean {
 @Singleton
 class CallController @Inject constructor(
     private val socket: MezonSocket,
+    private val api: MezonApi,
+    private val sessionManager: SessionManager,
     private val dispatcher: SocketEventDispatcher,
     private val notificationCenter: NotificationCenter,
     private val userController: UserController,
@@ -120,6 +132,8 @@ class CallController @Inject constructor(
     private var peerConnection: PeerConnectionWrapper? = null
     private var callAudioManager: CallAudioManager? = null
     private var endingCallAudioManager: CallAudioManager? = null
+    private var offerSendJob: Job? = null
+    private var answerSendJob: Job? = null
     private var timeoutJob: Job? = null
     private var timeoutGeneration = 0L
     private var connectingDeadlineElapsed = 0L
@@ -295,23 +309,21 @@ class CallController @Inject constructor(
                         put("sentAt", System.currentTimeMillis().toString())
                     }.toString()
 
-                    appScope.launch(ioDispatcher) sendOffer@{
+                    offerSendJob = appScope.launch(ioDispatcher) sendOffer@{
                         try {
-                            if (currentCallInfo() !== callInfo || peerConnection !== pc) return@sendOffer
-                            socket.forwardWebrtcSignaling(
-                                receiverId = peerId,
-                                dataType = WebrtcSignalingType.SDP_OFFER,
-                                jsonData = compressedPayload,
-                                channelId = channelId,
-                                callerId = userController.userId
-                            )
-                            if (currentCallInfo() !== callInfo || peerConnection !== pc) return@sendOffer
+                            val sentOverSocket = sendInitialCallSetup(callInfo, WebrtcSignalingType.SDP_OFFER, compressedPayload) {
+                                currentCallInfo() === callInfo && peerConnection === pc && callState is CallState.Outgoing
+                            }
+                            // The HTTP endpoint forwards the offer and sends the mobile push.
+                            if (!sentOverSocket || currentCallInfo() !== callInfo || callState !is CallState.Outgoing) return@sendOffer
                             socket.makeCallPush(
                                 receiverId = peerId,
                                 jsonData = fcmPayload,
                                 channelId = channelId,
                                 callerId = userController.userId
                             )
+                        } catch (e: CancellationException) {
+                            throw e
                         } catch (e: Exception) {
                             Log.e(TAG, "Failed to send offer", e)
                         }
@@ -349,6 +361,7 @@ class CallController @Inject constructor(
         callAudioManager!!.advanceToEstablishedCallRouting(callInfo.isVideo)
 
         callState = CallState.Connecting(callInfo)
+        Log.d(TAG, "Incoming call accepted; preparing SDP answer")
         startTimeout(CONNECT_TIMEOUT_MS)
         notificationCenter.postNotificationOnMainThread(NotificationCenter.callStateChanged, callState)
 
@@ -394,20 +407,85 @@ class CallController @Inject constructor(
         }.toString()
         val compressedPayload = SdpCompressor.compress(answerJson)
 
-        appScope.launch(ioDispatcher) {
+        answerSendJob = appScope.launch(Dispatchers.Main) {
             try {
-                if (!isActiveAnswerTarget(callInfo, expectedSessionId)) return@launch
-                socket.forwardWebrtcSignaling(
-                    receiverId = callInfo.peerId,
-                    dataType = WebrtcSignalingType.SDP_ANSWER,
-                    jsonData = compressedPayload,
-                    channelId = callInfo.channelId,
-                    callerId = userController.userId
-                )
+                sendInitialCallSetup(callInfo, WebrtcSignalingType.SDP_ANSWER, compressedPayload) {
+                    isActiveAnswerTarget(callInfo, expectedSessionId)
+                }
+                Log.d(TAG, "Incoming SDP answer acknowledged by signaling server")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: SocketRequestNotSentException) {
+                if (isActiveAnswerTarget(callInfo, expectedSessionId)) {
+                    onInboundSignalingSetupFailed(e.message)
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to send answer", e)
             }
         }
+    }
+
+    /** Returns true when the socket sent the SDP, so the caller can send its usual push. */
+    private suspend fun sendInitialCallSetup(
+        callInfo: CallInfo,
+        dataType: Int,
+        payload: String,
+        isCallActive: () -> Boolean
+    ): Boolean {
+        val callerId = userController.userId
+        val request = webrtcSignalingFwd {
+            receiverId = callInfo.peerId
+            channelId = callInfo.channelId
+            this.callerId = callerId
+            this.dataType = dataType
+            jsonData = payload
+        }
+        val socketGeneration = socket.connectGen.takeIf {
+            socket.connectionState.value == ConnectionState.CONNECTED
+        }
+
+        suspend fun sendOverSocket() {
+            if (!isCallActive() || userController.userId != callerId) throw CancellationException("Call setup ended")
+            socket.forwardWebrtcSignaling(request.receiverId, dataType, payload, request.channelId, callerId)
+        }
+
+        if (!isCallActive()) throw CancellationException("Call setup ended")
+        try {
+            if (socketGeneration == null) throw SocketRequestNotSentException("Call setup socket not connected")
+            sendOverSocket()
+            return true
+        } catch (e: SocketRequestNotSentException) {
+            Log.d(TAG, "SDP type=$dataType could not be sent over socket, using HTTP: ${e.message}")
+            socket.reconnectNow("call setup")
+        }
+
+        try {
+            sessionManager.withAutoRefresh { session ->
+                if (!isCallActive() || session.userId.toLongOrNull() != callerId) {
+                    throw CancellationException("Call setup ended")
+                }
+                api.forwardCallSetup(session.apiUrl, session.token, request)
+            }
+            Log.d(TAG, "SDP type=$dataType acknowledged over HTTP")
+            return false
+        } catch (e: Exception) {
+            // A missing endpoint or failure before connecting leaves the SDP safe to send.
+            // HTTP write/ACK errors and socket write/ACK errors are ambiguous.
+            val notSent = (e is HttpRpcStatusException && e.code in listOf(404, 405, 501)) ||
+                e is ConnectException || e is NoRouteToHostException || e is UnknownHostException
+            if (!notSent) throw e
+            Log.d(TAG, "HTTP unavailable for SDP type=$dataType, waiting for socket")
+        }
+
+        socket.reconnectNow("call setup HTTP unavailable")
+        val connected = withTimeoutOrNull(SIGNALING_SOCKET_TIMEOUT_MS) {
+            socket.connectionState.first { state ->
+                state == ConnectionState.CONNECTED && socket.connectGen != socketGeneration
+            }
+        }
+        if (connected == null) throw SocketRequestNotSentException("Socket unavailable for call setup")
+        sendOverSocket()
+        return true
     }
 
     fun acceptCallFromFcm(offerJson: String) {
@@ -731,6 +809,10 @@ class CallController @Inject constructor(
     }
 
     fun endCall(reason: CallEndReason) {
+        offerSendJob?.cancel()
+        offerSendJob = null
+        answerSendJob?.cancel()
+        answerSendJob = null
         cancelTimeout()
         cancelRemoteVideoRevealRefresh()
 
@@ -1418,7 +1500,7 @@ class CallController @Inject constructor(
         appScope.launch(ioDispatcher) {
             try {
                 if (socket.connectionState.value != ConnectionState.CONNECTED) {
-                    val connected = socket.awaitConnected(15_000L)
+                    val connected = socket.awaitConnected(SIGNALING_SOCKET_TIMEOUT_MS)
                     if (!connected) {
                         Log.w(TAG, "pushCancelCallFcm: socket not connected")
                         return@launch

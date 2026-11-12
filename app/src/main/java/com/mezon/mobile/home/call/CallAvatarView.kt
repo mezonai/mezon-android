@@ -23,13 +23,10 @@ class CallAvatarView(
 
     private val avatarDrawable = AvatarDrawable()
     private val avatarSize = LayoutHelper.dp(100)
+    private val avatarTopPadding = LayoutHelper.dp(57)
     private val nameGapBelowAvatar = LayoutHelper.dp(36)
     private val statusGapBelowName = LayoutHelper.dp(24)
-    private val belowAvatarContentDp = 92
-    private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeWidth = LayoutHelper.dp(2).toFloat()
-    }
+    private val ringingRipples = RingingRipples(themeColors, ::invalidate)
     private val connectedBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = LayoutHelper.dp(4).toFloat()
@@ -48,8 +45,7 @@ class CallAvatarView(
     private var peerName = ""
     private var statusText = ""
     private var isConnected = false
-    private var ringAnimProgress = 0f
-    private var ringAnimator: ValueAnimator? = null
+    private var ringing = false
     private var connectingSpinner = false
     private var loadingSpinRotation = 0f
     private var loadingSpinnerAnimator: ValueAnimator? = null
@@ -83,8 +79,12 @@ class CallAvatarView(
         invalidate()
     }
 
-    fun setStatus(status: String) {
+    fun setStatus(status: String, ringing: Boolean = false) {
         statusText = status
+        if (this.ringing != ringing) {
+            this.ringing = ringing
+            ringingRipples.setVisible(ringing && isAttachedToWindow && isShown && windowVisibility == VISIBLE)
+        }
         invalidate()
     }
 
@@ -115,53 +115,34 @@ class CallAvatarView(
     fun setConnected(connected: Boolean) {
         isConnected = connected
         if (connected) {
-            stopRingAnimation()
             setConnectingLoading(false)
-        } else {
-            if (!connectingSpinner) {
-                startRingAnimation()
-            }
         }
         invalidate()
     }
 
-    fun startRingAnimation() {
-        if (ringAnimator != null) return
-        ringAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 3500
-            repeatCount = ValueAnimator.INFINITE
-            interpolator = LinearInterpolator()
-            addUpdateListener {
-                ringAnimProgress = it.animatedValue as Float
-                invalidate()
-            }
-            start()
-        }
-    }
-
-    fun stopRingAnimation() {
-        ringAnimator?.cancel()
-        ringAnimator = null
+    override fun onVisibilityAggregated(isVisible: Boolean) {
+        super.onVisibilityAggregated(isVisible)
+        ringingRipples.setVisible(isVisible && ringing)
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val w = MeasureSpec.getSize(widthMeasureSpec)
-        setMeasuredDimension(w, avatarSize + LayoutHelper.dp(belowAvatarContentDp))
+        setMeasuredDimension(w, avatarSize + 2 * avatarTopPadding + LayoutHelper.dp(72))
     }
 
     override fun onDraw(canvas: Canvas) {
         val theme = themeColors
-        ringPaint.color = theme.borderDim and 0x00FFFFFF or (0x55 shl 24)
         connectedBorderPaint.color = theme.connectedColor
         namePaint.color = theme.colorText
         statusPaint.color = theme.onSurfaceVariant
 
         val cx = width / 2f
-        val avatarTop = LayoutHelper.dp(10).toFloat()
+        val avatarTop = avatarTopPadding.toFloat()
         val avatarRadius = avatarSize / 2f
 
-        if (!isConnected && ringAnimator != null) {
-            drawRingCircles(canvas, cx, avatarTop + avatarRadius)
+        if (ringing) {
+            val cy = avatarTop + avatarRadius
+            ringingRipples.draw(canvas, cx, cy, avatarRadius, minOf(cx, cy, height - cy))
         }
 
         tmpRect.set(cx - avatarRadius, avatarTop, cx + avatarRadius, avatarTop + avatarSize)
@@ -189,44 +170,18 @@ class CallAvatarView(
         }
     }
 
-    private fun drawRingCircles(canvas: Canvas, cx: Float, cy: Float) {
-        val baseSizes = floatArrayOf(
-            LayoutHelper.dp(50).toFloat(),
-            LayoutHelper.dp(160).toFloat(),
-            LayoutHelper.dp(180).toFloat()
-        )
-        val delays = floatArrayOf(0f, 0.25f, 0.5f)
-
-        for (i in 0..2) {
-            val localProgress = (ringAnimProgress + delays[i]) % 1f
-            val scale = 1f + localProgress * 1.8f
-            val alpha = when {
-                localProgress < 0.2f -> localProgress / 0.2f * 0.8f
-                localProgress < 0.6f -> 0.8f - (localProgress - 0.2f) / 0.4f * 0.5f
-                else -> 0.3f - (localProgress - 0.6f) / 0.4f * 0.3f
-            }.coerceIn(0f, 1f)
-
-            ringPaint.alpha = (alpha * 255).toInt()
-            val radius = baseSizes[i] / 2f * scale
-            canvas.drawCircle(cx, cy, radius, ringPaint)
-        }
-    }
-
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         attachedToWindow = false
         cancellable?.cancel()
         cancellable = null
-        stopRingAnimation()
+        ringingRipples.setVisible(false)
         setConnectingLoading(false)
     }
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         attachedToWindow = true
-        if (!isConnected && !connectingSpinner) {
-            startRingAnimation()
-        }
         val url = currentAvatarUrl
         if (!url.isNullOrBlank() && cancellable == null && !avatarDrawable.hasPhoto()) {
             loadAvatar(url)

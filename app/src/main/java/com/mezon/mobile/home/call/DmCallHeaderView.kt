@@ -47,6 +47,7 @@ class DmCallHeaderView(
         }
 
         minimizeButton = VoiceStyleCircleButton(context, R.drawable.mz_chevron_down_16, themeColors.tertiary, btnBorder, defaultTint).apply {
+            contentDescription = context.getString(R.string.call_minimize_action)
             setOnClickListener { onMinimizeClick?.invoke() }
         }
         leftWrap.addView(minimizeButton, LinearLayout.LayoutParams(BUTTON_SIZE, BUTTON_SIZE))
@@ -76,10 +77,12 @@ class DmCallHeaderView(
         }
 
         switchCameraButton = VoiceStyleCircleButton(context, R.drawable.mz_camera_switch_20, themeColors.tertiary, btnBorder, defaultTint).apply {
+            contentDescription = context.getString(R.string.call_switch_camera_action)
             setOnClickListener { onSwitchCameraClick?.invoke() }
             visibility = View.GONE
         }
         videoButton = VoiceStyleCircleButton(context, R.drawable.mz_video_off_20, themeColors.tertiary, btnBorder, defaultTint).apply {
+            contentDescription = context.getString(R.string.call_enable_camera_action)
             setOnClickListener { onVideoToggleClick?.invoke() }
         }
 
@@ -101,5 +104,8 @@ class DmCallHeaderView(
 
     fun setLocalVideoEnabled(enabled: Boolean) {
         videoButton.updateIcon(if (enabled) R.drawable.mz_video_20 else R.drawable.mz_video_off_20)
+        videoButton.contentDescription = context.getString(
+            if (enabled) R.string.call_disable_camera_action else R.string.call_enable_camera_action
+        )
     }
 }

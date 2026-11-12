@@ -8,6 +8,7 @@ import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLSocket
 
 class AbridgedTransportException(message: String) : RuntimeException(message)
+internal class AbridgedRequestNotSentException : RuntimeException("Abridged transport is not connected")
 
 class AbridgedTcpTransport {
 
@@ -53,7 +54,7 @@ class AbridgedTcpTransport {
     fun send(envelopePayload: ByteArray, completion: (Throwable?) -> Unit) {
         io.execute {
             if (closed || socket == null) {
-                completion(AbridgedTransportException("Abridged transport is not connected"))
+                completion(AbridgedRequestNotSentException())
                 return@execute
             }
             try {
@@ -90,7 +91,7 @@ class AbridgedTcpTransport {
     }
 
     private fun writeRaw(data: ByteArray) {
-        val out = output ?: throw AbridgedTransportException("Abridged transport is not connected")
+        val out = output ?: throw AbridgedRequestNotSentException()
         val guard = stallScheduler.schedule({ failFromStall() }, writeStallTimeoutMs, TimeUnit.MILLISECONDS)
         try {
             out.write(data)

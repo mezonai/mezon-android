@@ -355,9 +355,12 @@ class MezonSocket @Inject constructor(
         val bytes = encodeEnvelopeCidLast(env)
         t.send(bytes) { error ->
             if (error != null) {
-                pendingRequests.remove(cid)?.completeExceptionally(
-                    SocketRequestNotSentException("Failed to send envelope: ${error.message}", error)
-                )
+                val failure = if (error is AbridgedRequestNotSentException) {
+                    SocketRequestNotSentException("Socket not connected", error)
+                } else {
+                    SocketConnectionLostException("Socket write could not be confirmed", error)
+                }
+                pendingRequests.remove(cid)?.completeExceptionally(failure)
                 sentryReporter.logSocketFailure("send_enqueue", error, "case=${env.messageCase}")
             }
         }

@@ -2,7 +2,7 @@ package com.mezon.mobile.home.call
 
 import android.Manifest
 import android.content.Context
-import android.graphics.drawable.GradientDrawable
+import android.graphics.Color
 import android.media.AudioManager
 import android.view.Gravity
 import android.view.View
@@ -13,6 +13,7 @@ import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
+import com.mezon.mobile.core.theme.applyThemeSurface
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.profile.UserController
 import com.mezon.mobile.ui.MezonToast
@@ -56,13 +57,8 @@ class CallFragment : BaseFragment() {
         val headerHp = 56f
         val topContentDp = statusBarDp + headerHp
 
-        val gradientBg = GradientDrawable(
-            GradientDrawable.Orientation.RIGHT_LEFT,
-            intArrayOf(themeColors.serverRailBg, themeColors.serverRailBg)
-        )
-
         val root = FrameLayout(context).apply {
-            background = gradientBg
+            applyThemeSurface(themeColors.chatBackground, themeColors.desktop.chatGradient, anchorToWindow = true)
         }
         rootContainer = root
         durationOnVideo = null
@@ -150,6 +146,9 @@ class CallFragment : BaseFragment() {
     }
 
     override fun onFragmentCreate(): Boolean {
+        observeGlobal(NotificationCenter.themeChanged) { _, _, _ ->
+            fragmentView?.applyThemeSurface(themeColors.chatBackground, themeColors.desktop.chatGradient, anchorToWindow = true)
+        }
         observe(NotificationCenter.callStateChanged) { _, _, _ ->
             updateUI()
         }
@@ -167,6 +166,11 @@ class CallFragment : BaseFragment() {
         }
         return super.onFragmentCreate()
     }
+
+    override fun getStatusBarColor(): Int =
+        if (themeColors.desktop.chatGradient != null) Color.TRANSPARENT else themeColors.chatBackground
+
+    override fun isLightStatusBar(): Boolean = themeColors.resolvedMode.isLight
 
     override fun onRequestPermissionsResult(
         requestCode: Int,
@@ -343,9 +347,8 @@ class CallFragment : BaseFragment() {
                 hideVideoView()
                 showAvatarView(callInfo)
                 avatarView?.setConnectingLoading(false)
-                avatarView?.setStatus("Ringing")
+                avatarView?.setStatus("Ringing", ringing = true)
                 avatarView?.setConnected(false)
-                avatarView?.startRingAnimation()
                 durationView?.visibility = View.GONE
             }
             is CallState.Incoming -> {
@@ -354,7 +357,7 @@ class CallFragment : BaseFragment() {
                 hideVideoView()
                 showAvatarView(callInfo)
                 avatarView?.setConnectingLoading(false)
-                avatarView?.setStatus("Incoming Call")
+                avatarView?.setStatus("Incoming Call", ringing = true)
                 avatarView?.setConnected(false)
                 durationView?.visibility = View.GONE
             }
@@ -366,7 +369,6 @@ class CallFragment : BaseFragment() {
                 avatarView?.setConnectingLoading(true)
                 avatarView?.setStatus("")
                 avatarView?.setConnected(false)
-                avatarView?.stopRingAnimation()
                 durationView?.visibility = View.GONE
             }
             is CallState.Connected -> {
@@ -388,7 +390,6 @@ class CallFragment : BaseFragment() {
         showAvatarView(callInfo)
         avatarView?.setConnectingLoading(false)
         avatarView?.setConnected(false)
-        avatarView?.stopRingAnimation()
         avatarView?.setStatus(getString(R.string.call_busy_status))
         val peerName = callInfo?.peerName?.takeIf { it.isNotBlank() }
         val toastText = if (peerName != null) {
@@ -464,10 +465,7 @@ class CallFragment : BaseFragment() {
 
     private fun showVideoView() {
         hideLocalPipOverlay()
-        avatarView?.let {
-            it.stopRingAnimation()
-            it.visibility = View.GONE
-        }
+        avatarView?.visibility = View.GONE
         if (videoView == null) {
             videoView = CallVideoView(requireContext())
             videoView!!.initialize()
