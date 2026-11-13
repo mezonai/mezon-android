@@ -1662,13 +1662,15 @@ class MezonApi @Inject constructor(
         displayName: String? = null,
         avatarUrl: String? = null,
         aboutMe: String? = null,
-        logoUrl: String? = null
+        logoUrl: String? = null,
+        bannerUrl: String? = null
     ): ByteArray {
         val builder = com.mezon.mezon.api.UpdateAccountRequest.newBuilder()
         if (displayName != null) builder.displayName = com.google.protobuf.StringValue.of(displayName)
         if (avatarUrl != null) builder.avatarUrl = com.google.protobuf.StringValue.of(avatarUrl)
         if (aboutMe != null) builder.aboutMe = com.google.protobuf.StringValue.of(aboutMe)
         if (logoUrl != null) builder.logo = com.google.protobuf.StringValue.of(logoUrl)
+        if (bannerUrl != null) builder.banner = com.google.protobuf.StringValue.of(bannerUrl)
         return rpc(apiUrl, token, "UpdateAccount", builder.build().toByteArray())
     }
 
