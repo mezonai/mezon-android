@@ -406,6 +406,7 @@ class ClansFragment : BaseFragment() {
 
         channelListView = ChannelListView(context, themeColors, channelCategoryExpandStore).apply {
             buzzChecker = dialogsController::isBuzzActive
+            onRefresh = { refreshSelectedClanChannels() }
             onChannelClick = { channel -> onChannelSelected(channel) }
             onChannelLongClick = channelLongClick@ { channel, _ ->
                 val selClan = clansController.selectedClanId.value
@@ -1383,6 +1384,19 @@ class ClansFragment : BaseFragment() {
             if (displays.isNotEmpty()) result[vc.channelId] = displays
         }
         channelListView.setVoiceMembers(result)
+    }
+
+    private fun refreshSelectedClanChannels() {
+        val clanId = clansController.selectedClanId.value
+        if (clanId == 0L) {
+            channelListView.setRefreshing(false)
+            return
+        }
+        channelAppController.loadAppsForClan(clanId, force = true)
+        fragmentScope.launch(Dispatchers.Main) {
+            runCatching { channelController.loadChannelsForClanSuspend(clanId, force = true) }
+            channelListView.setRefreshing(false)
+        }
     }
 
     private fun onClanSelected(clan: ClanEntity) {

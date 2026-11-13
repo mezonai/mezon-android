@@ -6,6 +6,7 @@ import android.widget.LinearLayout
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.RecyclerListView
@@ -42,6 +43,7 @@ class ChannelListView(
     var onSectionLongClick: ((categoryId: Long, categoryName: String, anchorView: android.view.View) -> Unit)? = null
     var buzzChecker: ((Long) -> Boolean)? = null
     var activeChannelId: Long = 0L
+    var onRefresh: (() -> Unit)? = null
 
     fun refreshBuzz(channelIds: LongArray) {
         val changed = channelIds.toSet()
@@ -50,6 +52,7 @@ class ChannelListView(
     }
 
     private val recyclerView: RecyclerListView
+    private val swipeRefresh: SwipeRefreshLayout
     private val adapter = Adapter()
 
     private val expandedCategories = mutableSetOf<Long>()
@@ -149,7 +152,20 @@ class ChannelListView(
                 else -> false
             }
         })
-        addView(recyclerView, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
+        swipeRefresh = SwipeRefreshLayout(context).apply {
+            setColorSchemeColors(themeColors.blurple)
+            setProgressBackgroundColorSchemeColor(themeColors.secondaryLight)
+            setOnRefreshListener {
+                val refresh = onRefresh
+                if (refresh == null) isRefreshing = false else refresh()
+            }
+            addView(recyclerView, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        }
+        addView(swipeRefresh, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
+    }
+
+    fun setRefreshing(refreshing: Boolean) {
+        swipeRefresh.isRefreshing = refreshing
     }
 
     fun setChannelApps(
@@ -233,6 +249,8 @@ class ChannelListView(
     }
 
     fun invalidateTheme() {
+        swipeRefresh.setColorSchemeColors(themeColors.blurple)
+        swipeRefresh.setProgressBackgroundColorSchemeColor(themeColors.secondaryLight)
         adapter.notifyDataSetChanged()
     }
 

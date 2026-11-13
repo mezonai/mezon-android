@@ -75,6 +75,7 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
 
     private var pendingConnectedVideoAfterCameraGrant = false
     private var pendingConnectedUnmuteMicAfterAudioGrant = false
+    private var acceptPendingMicGrant = false
 
     private val autoDeclineRunnable = Runnable {
         val state = CallController.instance?.callState
@@ -144,7 +145,7 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
 
         AndroidUtilities.checkDisplaySize(this)
 
-        requestCallPermissionsEagerly()
+        requestMicPermissionIfMissing()
 
         buildUI()
         bindUiData()
@@ -215,39 +216,24 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         when (requestCode) {
             REQUEST_CALL_PERMISSIONS -> {
-                val msgRes = CallPermissionUi.permissionResultMessageForCall(
-                    permissions,
-                    grantResults,
-                    incomingCallIsVideo()
-                )
-                if (msgRes != null) {
-                    Toast.makeText(this, getString(msgRes), Toast.LENGTH_LONG).show()
-                    val act = this
-                    if (!CallPermissionUi.permissionGrantedInResult(
-                            permissions,
-                            grantResults,
-                            Manifest.permission.RECORD_AUDIO
-                        )
-                    ) {
-                        CallPermissionUi.showMicOrCameraDeniedFeedback(
-                            act,
-                            Manifest.permission.RECORD_AUDIO,
-                            R.string.permission_no_audio
-                        )
-                    } else if (incomingCallIsVideo() &&
-                        !CallPermissionUi.permissionGrantedInResult(
-                            permissions,
-                            grantResults,
-                            Manifest.permission.CAMERA
-                        )
-                    ) {
-                        CallPermissionUi.showMicOrCameraDeniedFeedback(
-                            act,
-                            Manifest.permission.CAMERA,
-                            R.string.permission_no_camera
-                        )
-                    }
+                if (permissions.isEmpty()) return
+                val acceptWasPending = acceptPendingMicGrant
+                acceptPendingMicGrant = false
+                if (CallPermissionUi.permissionGrantedInResult(
+                        permissions,
+                        grantResults,
+                        Manifest.permission.RECORD_AUDIO
+                    )
+                ) {
+                    if (acceptWasPending) acceptCall()
+                    return
                 }
+                Toast.makeText(this, getString(R.string.permission_no_audio), Toast.LENGTH_LONG).show()
+                CallPermissionUi.showMicOrCameraDeniedFeedback(
+                    this,
+                    Manifest.permission.RECORD_AUDIO,
+                    R.string.permission_no_audio
+                )
             }
             REQUEST_CONNECTED_VIDEO_CAMERA -> {
                 CallPermissionUi.completePendingToggleAfterSinglePermissionResult(
@@ -351,35 +337,11 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
         }
     }
 
-    private fun requestCallPermissionsEagerly() {
-        val needed = mutableListOf<String>()
-        if (androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO)
-            != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            needed.add(android.Manifest.permission.RECORD_AUDIO)
-        }
-        if (incomingCallIsVideo() &&
-            androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA)
-            != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            needed.add(android.Manifest.permission.CAMERA)
-        }
-        if (needed.isNotEmpty()) {
-            requestPermissions(needed.toTypedArray(), REQUEST_CALL_PERMISSIONS)
-        }
-    }
-
-    private fun incomingCallIsVideo(): Boolean {
-        ensureCallController()?.currentCallInfo()?.let { return it.isVideo }
-        val raw = offerJson ?: return false
-        val parsed = rootJsonForIncomingOffer(raw) ?: return false
-        return try {
-            when {
-                parsed.has("isVideoCall") -> parsed.getBoolean("isVideoCall")
-                parsed.has("is_video_call") -> parsed.getBoolean("is_video_call")
-                parsed.has("isVideo") -> parsed.getBoolean("isVideo")
-                else -> SdpCompressor.sdpPlainTextFromNegotiationJson(parsed)?.let { offerSdpSendsVideo(it) } == true
-            }
-        } catch (_: Exception) {
-            false
+    private fun requestMicPermissionIfMissing() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_CALL_PERMISSIONS)
         }
     }
 
@@ -705,15 +667,11 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED
         ) {
-            Toast.makeText(this, getString(R.string.permission_no_audio), Toast.LENGTH_LONG).show()
-            CallPermissionUi.showMicOrCameraDeniedFeedback(
-                this,
-                Manifest.permission.RECORD_AUDIO,
-                R.string.permission_no_audio
-            )
-            requestCallPermissionsEagerly()
+            acceptPendingMicGrant = true
+            requestMicPermissionIfMissing()
             return
         }
+        acceptPendingMicGrant = false
 
         connecting = true
 
