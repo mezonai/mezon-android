@@ -2,6 +2,7 @@ package com.mezon.mobile.home.clans
 
 import com.mezon.mobile.ui.cells.setIconColor
 import com.mezon.mobile.core.theme.applyThemeSurface
+import com.mezon.mobile.core.theme.themeSurfaceShape
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -61,7 +62,6 @@ import com.mezon.mobile.home.voice.VoiceRoomFragment
 import com.mezon.mobile.home.voice.resolveVoiceMemberIdentity
 import com.mezon.mobile.home.clans.discover.DiscoverClansListSection
 import com.mezon.mobile.home.clans.discover.buildDiscoverCommunitySearchToolbar
-import com.mezon.mobile.home.clans.CreateClanRnUiTokens
 import com.mezon.mobile.home.clans.PermissionPolicy
 import com.mezon.mobile.home.clans.settings.AuditLogSettingFragment
 import com.mezon.mobile.home.clans.settings.ClanSettingFragment
@@ -263,9 +263,6 @@ class ClansFragment : BaseFragment() {
         }
         observe(NotificationCenter.themeChanged) { _, _, _ ->
             if (fragmentView == null) return@observe
-            fragmentView?.setBackgroundColor(themeColors.serverRailBg)
-            serverRail.setBackgroundColor(themeColors.serverRailBg)
-            (pinnedDmLogo.parent as? View)?.setBackgroundColor(themeColors.serverRailBg)
             pinnedDmLogo.invalidate()
             serverAdapter.notifyDataSetChanged()
             channelListView.invalidateTheme()
@@ -329,13 +326,13 @@ class ClansFragment : BaseFragment() {
     override fun createView(context: Context): View {
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
-            setBackgroundColor(themeColors.serverRailBg)
+            setBackgroundColor(railBackdropColor())
         }
 
         railAnimationsEnabled = false
         serverRail = RecyclerListView(context).apply {
             layoutManager = LinearLayoutManager(context)
-            setBackgroundColor(themeColors.serverRailBg)
+            setBackgroundColor(android.graphics.Color.TRANSPARENT)
             isVerticalScrollBarEnabled = false
             itemAnimator = null
             setSelectorType(RecyclerListView.SELECTOR_CIRCLE_TO_BOUND)
@@ -535,7 +532,7 @@ class ClansFragment : BaseFragment() {
 
         val railColumn = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(themeColors.serverRailBg)
+            applyRailBackground()
         }
         railColumn.addView(pinnedDmLogo, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
         railColumn.addView(serverRail, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
@@ -564,8 +561,23 @@ class ClansFragment : BaseFragment() {
         channelMenuChannelId = 0L
     }
 
+    private fun railBackdropColor(): Int =
+        if (themeColors.desktop.conversationGradient == null) themeColors.serverRailBg else themeColors.surface
+
+    private fun View.applyRailBackground() {
+        val gradient = themeColors.desktop.conversationGradient
+        if (gradient == null) {
+            setBackgroundColor(themeColors.serverRailBg)
+        } else {
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(themeColors.surface, gradient.startColor)
+            )
+        }
+    }
+
     private fun LinearLayout.applyChannelPanelBg() {
-        applyThemeSurface(themeColors.channelPanelBg, themeColors.desktop.conversationGradient)
+        applyThemeSurface(themeColors.surface, themeColors.desktop.conversationGradient)
     }
 
     private fun buildClanHeader(context: Context): View {
@@ -651,10 +663,12 @@ class ClansFragment : BaseFragment() {
         }
 
         val searchPill = FrameLayout(context).apply {
-            val pillBg = android.graphics.drawable.GradientDrawable().apply {
-                setColor(themeColors.secondaryLight)
-                cornerRadius = LayoutHelper.dp(32f).toFloat()
-            }
+            val pillBg = themeSurfaceShape(
+                themeColors.surfaceVariant,
+                LayoutHelper.dp(32f).toFloat(),
+                themeColors.outline,
+                LayoutHelper.dp(1)
+            )
             val rippleMask = android.graphics.drawable.GradientDrawable().apply {
                 setColor(0xFFFFFFFF.toInt())
                 cornerRadius = LayoutHelper.dp(32f).toFloat()
@@ -699,7 +713,7 @@ class ClansFragment : BaseFragment() {
         fun roundActionBackground(): RippleDrawable {
             val circleBg = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(themeColors.secondaryLight)
+                setColor(themeColors.surfaceVariant)
                 setStroke(LayoutHelper.dp(1), themeColors.outline)
             }
             val rippleMask = GradientDrawable().apply {
@@ -815,20 +829,12 @@ class ClansFragment : BaseFragment() {
         emptyClanHeaderRoot?.visibility = if (showEmbeddedDiscover) View.VISIBLE else View.GONE
         discoverListSection.rootView.visibility = if (showEmbeddedDiscover) View.VISIBLE else View.GONE
         channelListView.visibility = if (showEmbeddedDiscover) View.GONE else View.VISIBLE
-        val r = LayoutHelper.dp(20).toFloat()
+        channelPanel.applyChannelPanelBg()
         if (showEmbeddedDiscover) {
-            channelPanel.background = GradientDrawable(
-                GradientDrawable.Orientation.LEFT_RIGHT,
-                CreateClanRnUiTokens.screenGradientColors(themeColors)
-            ).apply {
-                cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
-            }
             if (emptyServerList) {
                 channelListView.clear()
             }
             discoverListSection.ensureLoadsIfEmbedded()
-        } else {
-            channelPanel.applyChannelPanelBg()
         }
     }
 

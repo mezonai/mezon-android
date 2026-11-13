@@ -87,7 +87,7 @@ class CreateChannelFragment : BaseFragment() {
             setOnClickListener { submitCreate() }
         }
 
-        actionBar = ActionBarView(context, themeColors, transparentBackground = true).apply {
+        actionBar = ActionBarView(context, themeColors, backgroundColorProvider = { themeColors.background }).apply {
             occupyStatusBar = false
             setBackButtonImage(R.drawable.mz_close_24)
             setTitle(getString(R.string.channel_creator_screen_title))

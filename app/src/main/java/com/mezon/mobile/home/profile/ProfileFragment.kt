@@ -80,6 +80,11 @@ class ProfileFragment : BaseFragment() {
 
     private var selectableItemBgResId: Int = 0
 
+    private fun itemBackground(withOutline: Boolean = true): GradientDrawable = GradientDrawable().apply {
+        setColor(themeColors.surfaceVariant)
+        if (withOutline) setStroke(LayoutHelper.dp(1), themeColors.outline)
+    }
+
     private fun getDateFormat(): SimpleDateFormat {
         val currentLocale = Locale.getDefault()
         if (cachedDateFormat == null || cachedLocale != currentLocale) {
@@ -112,6 +117,8 @@ class ProfileFragment : BaseFragment() {
     private lateinit var coverView: ProfileCoverImageView
     private var bannerAvatarUrl: String? = null
     private var bannerColor: Int? = null
+    private val bannerFallbackColor: Int
+        get() = ColorUtils.blendARGB(themeColors.surface, themeColors.onSurface, 0.08f)
     private var bannerLoad: MezonImageLoader.Cancellable? = null
     private lateinit var avatarView: AvatarView
     private lateinit var displayNameText: TextView
@@ -204,7 +211,7 @@ class ProfileFragment : BaseFragment() {
     override fun createView(context: Context): View {
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(themeColors.background)
+            setBackgroundColor(themeColors.surface)
         }
 
         val headerContainer = FrameLayout(context)
@@ -217,7 +224,7 @@ class ProfileFragment : BaseFragment() {
         bannerAvatarUrl = null
         bannerColor = null
         bannerView = View(context).apply {
-            setBackgroundColor(themeColors.surface)
+            setBackgroundColor(bannerFallbackColor)
         }
         headerContainer.addView(bannerView, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, LayoutHelper.dp(160)
@@ -309,8 +316,10 @@ class ProfileFragment : BaseFragment() {
                 private var lastWidth = 0f
                 private var lastHeight = 0f
                 override fun draw(canvas: Canvas) {
-                    val w = bounds.width().toFloat()
-                    val h = bounds.height().toFloat()
+                    val strokeWidth = LayoutHelper.dpf(1f)
+                    val w = bounds.width().toFloat() - strokeWidth
+                    val h = bounds.height().toFloat() - strokeWidth
+                    if (w <= 0f || h <= 0f) return
                     if (w != lastWidth || h != lastHeight) {
                         lastWidth = w
                         lastHeight = h
@@ -330,8 +339,17 @@ class ProfileFragment : BaseFragment() {
                         path.arcTo(0f, 0f, 2 * r, 2 * r, 180f, 90f, false)
                         path.close()
                     }
-                    paint.color = themeColors.background
+                    val saveCount = canvas.save()
+                    canvas.translate(bounds.left + strokeWidth / 2, bounds.top + strokeWidth / 2)
+                    paint.style = Paint.Style.FILL
+                    paint.color = themeColors.surfaceVariant
                     canvas.drawPath(path, paint)
+                    paint.style = Paint.Style.STROKE
+                    paint.strokeWidth = strokeWidth
+                    paint.strokeJoin = Paint.Join.ROUND
+                    paint.color = themeColors.outline
+                    canvas.drawPath(path, paint)
+                    canvas.restoreToCount(saveCount)
                 }
                 override fun setAlpha(alpha: Int) { paint.alpha = alpha }
                 override fun setColorFilter(colorFilter: ColorFilter?) { paint.colorFilter = colorFilter }
@@ -564,15 +582,13 @@ class ProfileFragment : BaseFragment() {
                 .apply { leftMargin = LayoutHelper.dp(12) }
         )
 
-        val friendAvatarBgColor = themeColors.getColor(ThemeColors.key_sheetItemBackground)
         val friendSlotSize = LayoutHelper.dp(32)
         val friendAvatarSize = LayoutHelper.dp(28)
         val friendSlotOverlap = -LayoutHelper.dp(10)
         for (i in 0 until MAX_FRIENDS_DISPLAY) {
             val slot = FrameLayout(context).apply {
-                background = GradientDrawable().apply {
+                background = itemBackground(withOutline = false).apply {
                     shape = GradientDrawable.OVAL
-                    setColor(friendAvatarBgColor)
                 }
                 visibility = View.INVISIBLE
             }
@@ -633,7 +649,7 @@ class ProfileFragment : BaseFragment() {
     private fun createCircleIconButton(context: Context, icon: Int, onClick: () -> Unit): FrameLayout {
         val size = LayoutHelper.dp(36)
         val container = FrameLayout(context).apply {
-            val bg = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(themeColors.getColor(ThemeColors.key_sheetItemBackground)) }
+            val bg = itemBackground().apply { shape = GradientDrawable.OVAL }
             background = bg
             isClickable = true; isFocusable = true; setOnClickListener { onClick() }
         }
@@ -651,8 +667,8 @@ class ProfileFragment : BaseFragment() {
             orientation = LinearLayout.VERTICAL
             val pad = LayoutHelper.dp(16)
             setPadding(pad, LayoutHelper.dp(14), pad, LayoutHelper.dp(14))
-            val bg = GradientDrawable().apply {
-                cornerRadius = LayoutHelper.dp(20f).toFloat(); setColor(themeColors.getColor(ThemeColors.key_sheetItemBackground))
+            val bg = itemBackground().apply {
+                cornerRadius = LayoutHelper.dp(20f).toFloat()
             }
             background = bg
         }
@@ -798,13 +814,13 @@ class ProfileFragment : BaseFragment() {
     }
 
     private fun updateAvatarBanner(url: String) {
-        bannerView.setBackgroundColor(bannerColor ?: themeColors.surface)
+        bannerView.setBackgroundColor(bannerColor ?: bannerFallbackColor)
         if (url == bannerAvatarUrl) return
         bannerLoad?.cancel()
         bannerLoad = null
         bannerAvatarUrl = url
         bannerColor = null
-        bannerView.setBackgroundColor(themeColors.surface)
+        bannerView.setBackgroundColor(bannerFallbackColor)
         if (url.isEmpty()) return
 
         val target = bannerView
@@ -840,7 +856,7 @@ class ProfileFragment : BaseFragment() {
     }
 
     private fun applyTheme() {
-        fragmentView?.setBackgroundColor(themeColors.background)
+        fragmentView?.setBackgroundColor(themeColors.surface)
         if (::statusBubble.isInitialized) {
             statusBubble.invalidate()
             badgeStatusText.setTextColor(themeColors.onSurface)
@@ -930,7 +946,7 @@ class ProfileFragment : BaseFragment() {
         serverChip.visibility = View.VISIBLE
         val connected = connectionController.mezonSocket.connectionState.value == ConnectionState.CONNECTED
         val statusColor = if (connected) themeColors.connectedColor else themeColors.connectingColor
-        (serverChip.background as? GradientDrawable)?.setColor(themeColors.getColor(ThemeColors.key_sheetItemBackground))
+        (serverChip.background as? GradientDrawable)?.setColor(themeColors.surfaceVariant)
         serverStatusHalo.setColor(ColorUtils.setAlphaComponent(statusColor, 77))
         serverStatusDot.setColor(statusColor)
         serverLabel.setTextColor(themeColors.onSurface)

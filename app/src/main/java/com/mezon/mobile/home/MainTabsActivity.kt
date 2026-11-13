@@ -155,7 +155,6 @@ class MainTabsActivity : ViewPagerActivity() {
                 super.onMeasure(widthMeasureSpec, heightMeasureSpec)
             }
         }.apply {
-            setBackgroundColor(themeColors.serverRailBg)
             setPadding(0, AndroidUtilities.statusBarHeight, 0, 0)
             clipToPadding = false
         }
@@ -202,6 +201,7 @@ class MainTabsActivity : ViewPagerActivity() {
             LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT
         ))
 
+        updateContentRootBackground()
         return contentRoot
     }
 
@@ -333,7 +333,11 @@ class MainTabsActivity : ViewPagerActivity() {
     private fun updateContentRootBackground() {
         if (!::contentRoot.isInitialized) return
         contentRoot.setBackgroundColor(
-            if (currentTab == TAB_CLANS) themeColors.serverRailBg else themeColors.background
+            if (currentTab == TAB_CLANS && themeColors.desktop.conversationGradient == null) {
+                themeColors.serverRailBg
+            } else {
+                themeColors.surface
+            }
         )
     }
 

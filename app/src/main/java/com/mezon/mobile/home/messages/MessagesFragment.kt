@@ -102,7 +102,7 @@ class MessagesFragment : BaseFragment() {
 
         observe(NotificationCenter.themeChanged) { _, _, _ ->
             if (fragmentView == null) return@observe
-            fragmentView?.applyThemeSurface(themeColors.background, themeColors.desktop.conversationGradient, anchorToWindow = true)
+            fragmentView?.applyThemeSurface(themeColors.surface, themeColors.desktop.conversationGradient, anchorToWindow = true)
             headerTitle.setTextColor(themeColors.onSurface)
             emptyView.setTextColor(themeColors.onSurfaceVariant)
             swipeRefresh.setColorSchemeColors(themeColors.blurple)
@@ -164,7 +164,7 @@ class MessagesFragment : BaseFragment() {
     override fun createView(context: Context): View {
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            applyThemeSurface(themeColors.background, themeColors.desktop.conversationGradient, anchorToWindow = true)
+            applyThemeSurface(themeColors.surface, themeColors.desktop.conversationGradient, anchorToWindow = true)
         }
 
         root.addView(buildHeader(context), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
@@ -349,6 +349,7 @@ class MessagesFragment : BaseFragment() {
             val circleBg = android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.OVAL
                 setColor(themeColors.tertiary)
+                setStroke(LayoutHelper.dp(1), themeColors.outline)
             }
             val rippleMask = android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.OVAL
@@ -381,6 +382,7 @@ class MessagesFragment : BaseFragment() {
             gravity = Gravity.CENTER_VERTICAL
             val bg = android.graphics.drawable.GradientDrawable().apply {
                 setColor(themeColors.tertiary)
+                setStroke(LayoutHelper.dp(1), themeColors.outline)
                 cornerRadius = LayoutHelper.dp(20).toFloat()
             }
             background = bg

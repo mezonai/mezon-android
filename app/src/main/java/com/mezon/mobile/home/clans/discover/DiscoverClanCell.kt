@@ -237,7 +237,7 @@ class DiscoverClanCell(
         canvas.save()
         canvas.clipPath(tmpPath)
 
-        bgPaint.color = themeColors.secondaryLight
+        bgPaint.color = themeColors.surfaceVariant
         canvas.drawPath(tmpPath, bgPaint)
 
         bannerRect.set(left, top, right, top + bannerH)

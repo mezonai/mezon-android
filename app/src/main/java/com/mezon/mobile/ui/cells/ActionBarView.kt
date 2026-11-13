@@ -24,6 +24,7 @@ class ActionBarView(
     context: Context,
     private val theme: ThemeColors,
     private val transparentBackground: Boolean = false,
+    private val backgroundColorProvider: (() -> Int)? = null,
 ) : FrameLayout(context) {
 
     open class ActionBarMenuOnItemClick {
@@ -103,7 +104,7 @@ class ActionBarView(
         }
 
     init {
-        setBackgroundColor(if (transparentBackground) android.graphics.Color.TRANSPARENT else theme.surface)
+        applyBackgroundColor()
         setWillNotDraw(false)
     }
 
@@ -546,8 +547,15 @@ class ActionBarView(
 
     fun updateColors() { applyTheme() }
 
+    private fun applyBackgroundColor() {
+        setBackgroundColor(
+            backgroundColorProvider?.invoke()
+                ?: if (transparentBackground) android.graphics.Color.TRANSPARENT else theme.surface
+        )
+    }
+
     fun applyTheme() {
-        setBackgroundColor(if (transparentBackground) android.graphics.Color.TRANSPARENT else theme.surface)
+        applyBackgroundColor()
         titleTextView?.setTextColor(theme.onSurface)
         subtitleTextView?.setTextColor(theme.onSurface)
         applyBackButtonTint()

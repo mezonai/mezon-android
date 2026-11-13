@@ -186,7 +186,7 @@ class NotificationsFragment : BaseFragment() {
         }
         observe(NotificationCenter.themeChanged) { _, _, _ ->
             if (fragmentView == null) return@observe
-            root.setBackgroundColor(themeColors.background)
+            root.setBackgroundColor(themeColors.surface)
             emptyView.setTextColor(themeColors.textStrong)
             rebuildTabChipColors()
             adapter.notifyDataSetChanged()
@@ -199,7 +199,7 @@ class NotificationsFragment : BaseFragment() {
     override fun createView(context: Context): View {
         root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(themeColors.background)
+            setBackgroundColor(themeColors.surface)
         }
 
         root.addView(buildHeader(context), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
@@ -704,7 +704,7 @@ class NotificationsFragment : BaseFragment() {
     }
 
     private fun buildChipBackground(active: Boolean): android.graphics.drawable.Drawable {
-        val fill = if (active) MobileThemeColors.accent else themeColors.mobile.secondaryLight
+        val fill = if (active) MobileThemeColors.accent else themeColors.tertiary
         val stroke = if (active) MobileThemeColors.accent else themeColors.mobile.borderDim
         val bg = android.graphics.drawable.GradientDrawable().apply {
             shape = android.graphics.drawable.GradientDrawable.RECTANGLE

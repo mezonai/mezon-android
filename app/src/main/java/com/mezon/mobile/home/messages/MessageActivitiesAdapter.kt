@@ -82,6 +82,7 @@ class MessageActivityStripCell(
         setPadding(LayoutHelper.dp(8), LayoutHelper.dp(6), LayoutHelper.dp(10), LayoutHelper.dp(6))
         background = android.graphics.drawable.GradientDrawable().apply {
             setColor(themeColors.tertiary)
+            setStroke(LayoutHelper.dp(1), themeColors.outline)
             cornerRadius = LayoutHelper.dp(12).toFloat()
         }
         avatarView = AvatarView(context).apply {
