@@ -278,7 +278,7 @@ class VoiceRoomFragment : BaseFragment() {
     private fun applyAgentHeaderUi() {
         if (!::headerView.isInitialized) return
         val active = isVoiceAgentActive()
-        val visible = canToggleVoiceAgent()
+        val visible = canManageVoiceChannel()
         headerView.setAgentVisible(visible)
         headerView.setAgentActive(active)
     }
@@ -456,13 +456,13 @@ class VoiceRoomFragment : BaseFragment() {
         headerView = VoiceHeaderView(context, themeColors).apply {
             setChannelName(channelLabel)
             setExternalTag(if (isExternalMeeting) getString(R.string.external_meeting_call) else null)
-            setAgentVisible(canToggleVoiceAgent())
+            setAgentVisible(canManageVoiceChannel())
             setSwitchCameraVisible(false)
             setMinimizeVisible(!isGroupCall)
             setMoreVisible(!isGroupCall)
             onMinimizeClick = { minimizeToOverlay() }
             onAgentClick = agentClick@{
-                if (!canToggleVoiceAgent()) return@agentClick
+                if (!canManageVoiceChannel()) return@agentClick
                 val scope = roomScope
                 val ctx = context
                 if (scope == null) {
@@ -476,10 +476,7 @@ class VoiceRoomFragment : BaseFragment() {
                     val roomCandidates = getAgentToggleFallbackRoomNames()
                     headerView.setAgentLoading(true)
                     try {
-                        val meeting = externalMeeting
-                        if (meeting != null) {
-                            voiceController.setExternalMeetingAgentEnabled(meeting, !before)
-                        } else if (before) {
+                        if (before) {
                             voiceController.disconnectAiAgent(clanId, channelId, info.roomName, roomCandidates)
                         } else {
                             voiceController.addAiAgentToChannel(clanId, channelId, info.roomName, roomCandidates)
@@ -1908,8 +1905,6 @@ class VoiceRoomFragment : BaseFragment() {
             clanId,
         )
     }
-
-    private fun canToggleVoiceAgent(): Boolean = isExternalMeeting || canManageVoiceChannel()
 
     private fun canManageVoiceUser(targetUserId: Long): Boolean {
         if (isInPipMode) return false

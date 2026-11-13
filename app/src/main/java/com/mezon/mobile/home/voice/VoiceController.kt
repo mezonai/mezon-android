@@ -766,20 +766,6 @@ class VoiceController @Inject constructor(
         )
     }
 
-    suspend fun setExternalMeetingAgentEnabled(meeting: ExternalMeetingRoom, enabled: Boolean) {
-        val roomName = meeting.roomId.toString()
-        sessionManager.withAutoRefresh { session ->
-            withContext(ioDispatcher) {
-                if (enabled) {
-                    api.addAgentToChannel(session.apiUrl, session.token, 0L, roomName)
-                } else {
-                    api.disconnectAgent(session.apiUrl, session.token, 0L, roomName)
-                }
-            }
-        }
-        applyAiAgentEnabledState(0L, meeting.roomId, enabled, "rpcExternalAgent room=$roomName")
-    }
-
     private suspend fun updateAiAgentWithFallback(
         clanId: Long,
         channelId: Long,
