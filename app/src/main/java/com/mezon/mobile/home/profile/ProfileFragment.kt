@@ -117,6 +117,8 @@ class ProfileFragment : BaseFragment() {
     private lateinit var coverView: ProfileCoverImageView
     private var bannerAvatarUrl: String? = null
     private var bannerColor: Int? = null
+    private val bannerFallbackColor: Int
+        get() = ColorUtils.blendARGB(themeColors.surface, themeColors.onSurface, 0.08f)
     private var bannerLoad: MezonImageLoader.Cancellable? = null
     private lateinit var avatarView: AvatarView
     private lateinit var displayNameText: TextView
@@ -222,7 +224,7 @@ class ProfileFragment : BaseFragment() {
         bannerAvatarUrl = null
         bannerColor = null
         bannerView = View(context).apply {
-            setBackgroundColor(themeColors.surfaceVariant)
+            setBackgroundColor(bannerFallbackColor)
         }
         headerContainer.addView(bannerView, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, LayoutHelper.dp(160)
@@ -812,13 +814,13 @@ class ProfileFragment : BaseFragment() {
     }
 
     private fun updateAvatarBanner(url: String) {
-        bannerView.setBackgroundColor(bannerColor ?: themeColors.surfaceVariant)
+        bannerView.setBackgroundColor(bannerColor ?: bannerFallbackColor)
         if (url == bannerAvatarUrl) return
         bannerLoad?.cancel()
         bannerLoad = null
         bannerAvatarUrl = url
         bannerColor = null
-        bannerView.setBackgroundColor(themeColors.surfaceVariant)
+        bannerView.setBackgroundColor(bannerFallbackColor)
         if (url.isEmpty()) return
 
         val target = bannerView
