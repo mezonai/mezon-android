@@ -361,6 +361,12 @@ class FriendsHomeFragment : BaseFragment() {
                     isOwnProfile = false,
                     isDM = true,
                     listener = object : UserProfileBottomSheet.UserProfileListener {
+                        override fun onSendMessage(userId: Long) {
+                            openDmWithFriend(friend)
+                        }
+                        override fun onVoiceCall(userId: Long) {
+                            beginVoiceCallWithFriend(friend)
+                        }
                         override fun onAddFriend(userId: Long) {
                             friendController.sendFriendRequest(userId, friend.user.username) {}
                         }
