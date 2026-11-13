@@ -4325,6 +4325,7 @@ open class ChatFragment : BaseFragment() {
             }
             .distinctBy { it.url }
             .toList()
+            .asReversed()
 
     private fun buildPhotoViewerItems(selectedUrl: String, seedUrls: List<String> = emptyList(), msg: MessageEntity? = null): List<PhotoViewer.GalleryItem> {
         val base = channelGalleryImageItems()
@@ -4343,7 +4344,15 @@ open class ChatFragment : BaseFragment() {
                 else -> listOf(PhotoViewer.GalleryItem(url = selectedUrl, senderName = fallbackSenderName, senderAvatarUrl = fallbackSenderAvatar, timestamp = fallbackTimestamp, uploaderId = uploaderId))
             }
         }
-        return if (selectedUrl.isEmpty() || base.any { it.url == selectedUrl }) base else listOf(PhotoViewer.GalleryItem(url = selectedUrl, senderName = fallbackSenderName, senderAvatarUrl = fallbackSenderAvatar, timestamp = fallbackTimestamp, uploaderId = uploaderId)) + base
+        if (selectedUrl.isEmpty() || base.any { it.url == selectedUrl }) return base
+        val selected = PhotoViewer.GalleryItem(
+            url = selectedUrl,
+            senderName = fallbackSenderName,
+            senderAvatarUrl = fallbackSenderAvatar,
+            timestamp = fallbackTimestamp,
+            uploaderId = uploaderId
+        )
+        return (base + selected).sortedBy { it.timestamp }
     }
 
     private fun openChannelPhotoViewer(context: Context, url: String, thumbBmp: Bitmap?, seedUrls: List<String>, msg: MessageEntity? = null) {

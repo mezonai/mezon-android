@@ -357,13 +357,10 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
 
     private fun maybeNotifyOldestEdge(position: Int) {
         if (items.size < 2) return
-        if (oldestEdgeBaselinePosition < 0) {
-            oldestEdgeBaselinePosition = position
-            return
-        }
-        if (position <= oldestEdgeBaselinePosition) return
-        if (position < items.size - 2) return
+        val previousPosition = oldestEdgeBaselinePosition
         oldestEdgeBaselinePosition = position
+        if (position >= previousPosition) return
+        if (position > 1) return
         onReachedOldestEdge?.invoke()
     }
 
@@ -382,7 +379,7 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
         val thumbUrl = items[0].url
         val singleAnimated = urlNeedsAnimatedDrawable(thumbUrl) || preferDrawableLoaderForSingle
         val singleShowsThumb = single && !singleAnimated
-        oldestEdgeBaselinePosition = -1
+        oldestEdgeBaselinePosition = currentIndex
         viewPager.adapter = PhotoPagerAdapter(thumbBitmap.takeIf { singleShowsThumb })
         viewPager.setCurrentItem(currentIndex, false)
         
@@ -429,6 +426,7 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
         val prevSize = items.size
         items = newItems
         currentIndex = keepIndex
+        oldestEdgeBaselinePosition = keepIndex
         if (appendOnly) {
             viewPager.adapter?.notifyItemRangeInserted(prevSize, newItems.size - prevSize)
             thumbnailRecyclerView?.adapter?.notifyItemRangeInserted(prevSize, newItems.size - prevSize)
