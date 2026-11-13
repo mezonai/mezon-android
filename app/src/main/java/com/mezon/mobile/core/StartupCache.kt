@@ -23,6 +23,7 @@ object StartupCache {
     private const val KEY_CACHED_DM_LOGO_URL = "cached_dm_logo_url"
     private const val KEY_CACHED_USER_DISPLAY_NAME = "cached_user_display_name"
     private const val KEY_CACHED_USER_AVATAR_URL = "cached_user_avatar_url"
+    private const val KEY_CACHED_USER_BANNER_URL = "cached_user_banner_url"
 
     private lateinit var prefs: SharedPreferences
 
@@ -69,10 +70,17 @@ object StartupCache {
             prefs.edit().putString(KEY_CACHED_USER_AVATAR_URL, value).commit()
         }
 
+    var cachedUserBannerUrl: String
+        get() = prefs.getString(KEY_CACHED_USER_BANNER_URL, "") ?: ""
+        set(value) {
+            prefs.edit().putString(KEY_CACHED_USER_BANNER_URL, value).commit()
+        }
+
     fun clearAccountProfileScratch() {
         cachedDmLogoUrl = ""
         cachedUserDisplayName = ""
         cachedUserAvatarUrl = ""
+        cachedUserBannerUrl = ""
     }
 
     fun init(context: Context) {
@@ -92,6 +100,7 @@ object StartupCache {
                     remove(KEY_CACHED_DM_LOGO_URL)
                     remove(KEY_CACHED_USER_DISPLAY_NAME)
                     remove(KEY_CACHED_USER_AVATAR_URL)
+                    remove(KEY_CACHED_USER_BANNER_URL)
                 }
             }
             .commit()

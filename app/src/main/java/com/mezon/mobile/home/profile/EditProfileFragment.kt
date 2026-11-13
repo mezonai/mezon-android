@@ -49,7 +49,10 @@ class EditProfileFragment : BaseFragment() {
     companion object {
         private const val REQUEST_CODE_PICK_AVATAR = 2001
         private const val REQUEST_CODE_PICK_DM_LOGO = 2002
+        private const val REQUEST_CODE_PICK_COVER = 2003
         private const val MAX_AVATAR_SIZE_BYTES = 10L * 1024 * 1024
+        private const val MAX_COVER_SIZE_BYTES = 10L * 1024 * 1024
+        private val COVER_MIME_TYPES = arrayOf("image/jpeg", "image/png", "image/gif", "image/webp")
         private const val MAX_DM_LOGO_SIZE_BYTES = 1L * 1024 * 1024
         private const val MAX_DISPLAY_NAME_UTF8_BYTES = 32
         private const val TAB_PERSONAL = 0
@@ -79,11 +82,15 @@ class EditProfileFragment : BaseFragment() {
     private lateinit var aboutMeCell: InputCell
     private lateinit var loadingView: View
     private lateinit var bannerView: View
+    private lateinit var coverView: ProfileCoverImageView
     private lateinit var avatarView: AvatarView
     private lateinit var nameView: TextView
     private lateinit var usernameSubView: TextView
 
     private var currentAvatarUrl: String = ""
+    private var currentCoverUrl: String = ""
+    private var savedCoverUrl: String = ""
+    private var isUploadingCover = false
 
     override fun onFragmentDestroy() {
         super.onFragmentDestroy()
@@ -150,6 +157,7 @@ class EditProfileFragment : BaseFragment() {
     private lateinit var clanSelectorNameView: TextView
     private lateinit var clanSelectorAvatarView: AvatarView
     private lateinit var clanBannerView: View
+    private lateinit var clanCoverView: ProfileCoverImageView
     private lateinit var clanAvatarView: AvatarView
     private lateinit var clanNameView: TextView
     private lateinit var clanUsernameView: TextView
@@ -166,6 +174,8 @@ class EditProfileFragment : BaseFragment() {
         currentMainDisplayName = displayName.ifEmpty { username }
         currentAvatarUrl = info.avatarUrl.ifEmpty { userController.avatarUrl }
         currentDmLogoUrl = info.logo
+        currentCoverUrl = info.bannerUrl
+        savedCoverUrl = info.bannerUrl
 
         val clans = clansController.clans.value
         val initialClan = clans.find { it.clanId == clansController.selectedClanId.value } ?: clans.firstOrNull()
@@ -271,6 +281,13 @@ class EditProfileFragment : BaseFragment() {
         if (currentAvatarUrl.isNotEmpty()) {
             loadBannerFromAvatar(currentAvatarUrl)
         }
+        coverView = ProfileCoverImageView(context)
+        bannerContainer.addView(coverView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, BANNER_H))
+        coverView.bind(currentCoverUrl)
+        bannerContainer.addView(createEditCoverButton(context), LayoutHelper.createFrame(
+            LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.TOP or Gravity.END,
+            0f, 12f, 12f, 0f
+        ))
 
         avatarView = AvatarView(context).apply {
             setSizeDp(100)
@@ -524,6 +541,9 @@ class EditProfileFragment : BaseFragment() {
             setBackgroundColor(themeColors.getColor(ThemeColors.key_sheetItemBackground))
         }
         clanBannerContainer.addView(clanBannerView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, BANNER_H))
+        clanCoverView = ProfileCoverImageView(context)
+        clanBannerContainer.addView(clanCoverView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, BANNER_H))
+        clanCoverView.bind(currentCoverUrl)
 
         clanAvatarView = AvatarView(context).apply {
             setSizeDp(100)
@@ -794,6 +814,10 @@ class EditProfileFragment : BaseFragment() {
             if (currentDmLogoUrl.isEmpty() && updatedInfo.logo.isNotEmpty()) {
                 currentDmLogoUrl = updatedInfo.logo
             }
+            if (!isUploadingCover && currentCoverUrl == savedCoverUrl && updatedInfo.bannerUrl != savedCoverUrl) {
+                savedCoverUrl = updatedInfo.bannerUrl
+                setDraftCover(updatedInfo.bannerUrl)
+            }
             bindDmLogoPreview()
             nameView.text = updatedInfo.displayName.ifEmpty { updatedInfo.username }
             usernameSubView.text = updatedInfo.username
@@ -846,6 +870,143 @@ class EditProfileFragment : BaseFragment() {
         dialog.show()
     }
 
+    private fun createEditCoverButton(context: Context): View {
+        val button = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = GradientDrawable().apply {
+                setColor(0x99000000.toInt())
+                cornerRadius = LayoutHelper.dpf(999f)
+            }
+            setPadding(LayoutHelper.dp(10), LayoutHelper.dp(6), LayoutHelper.dp(12), LayoutHelper.dp(6))
+            contentDescription = getString(R.string.edit_profile_edit_cover)
+            setOnClickListener { showCoverBottomSheet() }
+        }
+        val icon = ImageView(context).apply {
+            setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_camera_20, ThemeMode.DARK.iconTint))
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+        }
+        button.addView(icon, LayoutHelper.createLinear(16, 16, 0f, Gravity.CENTER_VERTICAL))
+        val label = TextView(context).apply {
+            text = getString(R.string.edit_profile_edit_cover)
+            setTextColor(0xFFFFFFFF.toInt())
+            textSize = 13f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+        button.addView(label, LayoutHelper.createLinear(
+            LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.CENTER_VERTICAL, 6f, 0f, 0f, 0f
+        ))
+        return button
+    }
+
+    private fun showCoverBottomSheet() {
+        if (isUploadingCover) return
+        val context = getContext() ?: return
+        var dialog: Dialog? = null
+        dialog = MezonBottomSheetDialog.create(
+            context, themeColors, title = null, scrollable = false
+        ) { container ->
+            val changeButton = TextView(context).apply {
+                text = getString(R.string.edit_profile_change_cover)
+                setTextColor(themeColors.onSurface)
+                textSize = 16f
+                val pad = LayoutHelper.dp(14)
+                setPadding(0, pad, 0, pad)
+                setOnClickListener {
+                    dialog?.dismiss()
+                    openCoverPicker()
+                }
+            }
+            container.addView(changeButton, LayoutHelper.createLinear(
+                LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT
+            ))
+
+            if (currentCoverUrl.isNotEmpty()) {
+                val removeButton = TextView(context).apply {
+                    text = getString(R.string.edit_profile_remove_cover)
+                    setTextColor(themeColors.error)
+                    textSize = 16f
+                    val pad = LayoutHelper.dp(14)
+                    setPadding(0, pad, 0, pad)
+                    setOnClickListener {
+                        dialog?.dismiss()
+                        setDraftCover("")
+                    }
+                }
+                container.addView(removeButton, LayoutHelper.createLinear(
+                    LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT
+                ))
+            }
+        }
+        dialog.show()
+    }
+
+    private fun openCoverPicker() {
+        val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+            type = "image/*"
+            putExtra(Intent.EXTRA_MIME_TYPES, COVER_MIME_TYPES)
+            addCategory(Intent.CATEGORY_OPENABLE)
+        }
+        getParentActivity()?.startActivityForResult(
+            Intent.createChooser(intent, getString(R.string.edit_profile_change_cover)),
+            REQUEST_CODE_PICK_COVER
+        )
+    }
+
+    private fun handleCoverPicked(uri: Uri) {
+        val context = getContext() ?: return
+        val mimeType = runCatching {
+            context.contentResolver.getType(uri)?.substringBefore(';')?.trim()?.lowercase()
+        }.getOrNull()
+        if ((mimeType != null && mimeType !in COVER_MIME_TYPES) || pickedFileSize(uri) > MAX_COVER_SIZE_BYTES) {
+            showCoverUploadError()
+            return
+        }
+        if (mimeType != "image/gif" && mimeType != "image/webp") {
+            presentFragment(ProfileCoverTransformFragment.newInstance(uri.toString()).apply {
+                onCoverUploaded = { url -> setDraftCover(url) }
+            })
+            return
+        }
+        isUploadingCover = true
+        updateSaveButtonState()
+        loadingView.visibility = View.VISIBLE
+        com.mezon.mobile.core.AndroidUtilities.hideKeyboard(loadingView)
+        accountController.uploadAvatar(uri, context.contentResolver) { success, cdnUrl ->
+            isUploadingCover = false
+            updateSaveButtonState()
+            loadingView.visibility = View.GONE
+            if (success && cdnUrl.isNotEmpty()) {
+                setDraftCover(cdnUrl)
+            } else {
+                showCoverUploadError()
+            }
+        }
+    }
+
+    private fun pickedFileSize(uri: Uri): Long = try {
+        requireContext().contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.SIZE), null, null, null)
+            ?.use { cursor ->
+                val index = cursor.getColumnIndex(android.provider.OpenableColumns.SIZE)
+                if (index != -1 && cursor.moveToFirst() && !cursor.isNull(index)) cursor.getLong(index) else -1L
+            } ?: -1L
+    } catch (_: Exception) {
+        -1L
+    }
+
+    private fun setDraftCover(url: String) {
+        currentCoverUrl = url
+        if (::coverView.isInitialized) coverView.bind(url)
+        if (::clanCoverView.isInitialized) clanCoverView.bind(url)
+    }
+
+    private fun showCoverUploadError() {
+        val ctx = getContext() ?: return
+        getParentActivity()?.findViewById<ViewGroup>(android.R.id.content)?.let { root ->
+            ToastOverlay(ctx, themeColors).show(root, ToastOverlay.ToastType.ERROR, getString(R.string.edit_profile_cover_upload_failed))
+        }
+    }
+
     private fun openImagePicker() {
         val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
             type = "image/*"
@@ -864,6 +1025,8 @@ class EditProfileFragment : BaseFragment() {
                 handleAvatarPicked(uri)
             } else if (requestCode == REQUEST_CODE_PICK_DM_LOGO) {
                 handleDmLogoPicked(uri)
+            } else if (requestCode == REQUEST_CODE_PICK_COVER) {
+                handleCoverPicked(uri)
             }
         }
     }
@@ -933,7 +1096,7 @@ class EditProfileFragment : BaseFragment() {
 
     private fun updateSaveButtonState() {
         if (!::saveButtonView.isInitialized) return
-        saveButtonView.alpha = if (isUploadingAvatar || isUploadingDmLogo) 0.6f else 1.0f
+        saveButtonView.alpha = if (isUploadingAvatar || isUploadingDmLogo || isUploadingCover) 0.6f else 1.0f
     }
 
     private fun handleAvatarPicked(uri: Uri) {
@@ -1007,7 +1170,7 @@ class EditProfileFragment : BaseFragment() {
     }
 
     private fun handleSavePersonal() {
-        if (isUploadingAvatar || isUploadingDmLogo) return
+        if (isUploadingAvatar || isUploadingDmLogo || isUploadingCover) return
         val displayName = displayNameCell.getText().trim()
         val aboutMe = aboutMeCell.getText().trim()
 
@@ -1017,7 +1180,8 @@ class EditProfileFragment : BaseFragment() {
             displayName,
             currentAvatarUrl,
             aboutMe,
-            currentDmLogoUrl
+            currentDmLogoUrl,
+            currentCoverUrl.takeIf { it != savedCoverUrl }
         ) { success, errorMsg ->
             loadingView.visibility = View.GONE
             if (success) {

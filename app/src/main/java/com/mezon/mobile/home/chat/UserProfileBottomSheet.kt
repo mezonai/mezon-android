@@ -27,6 +27,7 @@ import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.clans.CHANNEL_TYPE_VOICE
 import com.mezon.mobile.home.clans.ChannelItemCell
 import com.mezon.mobile.home.friends.showUserBlockProgress
+import com.mezon.mobile.home.profile.ProfileCoverImageView
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.applyActionLabelColor
 import com.mezon.mobile.util.ColorUtilities
@@ -109,6 +110,7 @@ class UserProfileBottomSheet(
         get() = theme.onSurface
 
     private var backdropColorView: View? = null
+    private var coverView: ProfileCoverImageView? = null
     private var profileAvatarView: ImageView? = null
     private val profileAvatarDrawable = AvatarDrawable()
     private var avatarLoadDisposable: MezonImageLoader.Cancellable? = null
@@ -138,13 +140,13 @@ class UserProfileBottomSheet(
         val scrollView = ScrollView(context).apply {
             isVerticalScrollBarEnabled = false
             overScrollMode = View.OVER_SCROLL_NEVER
-            clipChildren = false      // Allow avatar to overflow below backdrop
+            clipChildren = false
             clipToPadding = false
         }
 
         val rootLayout = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            clipChildren = false      // Allow avatar to overflow below backdrop
+            clipChildren = false
             clipToPadding = false
             setPadding(0, 0, 0, AndroidUtilities.navigationBarHeight)
         }
@@ -227,12 +229,22 @@ class UserProfileBottomSheet(
         containerView?.clipToPadding = false
 
         loadProfileAvatarAndBackdropTint()
+        coverView?.bind(resolveProfileCoverUrl())
     }
 
     override fun dismiss() {
         avatarLoadDisposable?.cancel()
         avatarLoadDisposable = null
+        coverView?.cancel()
         super.dismiss()
+    }
+
+    private fun resolveProfileCoverUrl(): String {
+        if (userId == 0L) return ""
+        val entryPoint = EntryPointAccessors.fromApplication(context.applicationContext, FragmentEntryPoint::class.java)
+        val account = entryPoint.accountController().accountInfo.value
+        if (account.userId == userId) return account.bannerUrl
+        return entryPoint.userClanController().getProfileBanner(userId).orEmpty()
     }
 
     private fun buildBackdropWithAvatar(): FrameLayout {
@@ -245,6 +257,11 @@ class UserProfileBottomSheet(
         }
         backdropColorView = backdrop
         container.addView(backdrop, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, LayoutHelper.dp(120)
+        ))
+        val cover = ProfileCoverImageView(context)
+        coverView = cover
+        container.addView(cover, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, LayoutHelper.dp(120)
         ))
 

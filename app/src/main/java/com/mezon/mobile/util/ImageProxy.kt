@@ -176,6 +176,12 @@ fun channelMediaThumbnailImgproxyUrl(sourceUrl: String): String {
     return createImgproxyUrl(source, MEDIA_THUMBNAIL_SIZE_PX, MEDIA_THUMBNAIL_SIZE_PX, "fill")
 }
 
+const val PROFILE_COVER_WIDTH_PX = 1200
+const val PROFILE_COVER_HEIGHT_PX = 360
+
+fun profileCoverImgproxyUrl(sourceUrl: String): String =
+    createImgproxyUrl(sourceUrl.trim(), PROFILE_COVER_WIDTH_PX, PROFILE_COVER_HEIGHT_PX, "fill")
+
 fun isAnimatedImageUrl(url: String): Boolean {
     if (url.isEmpty()) return false
     val ext = sourceExtension(url)

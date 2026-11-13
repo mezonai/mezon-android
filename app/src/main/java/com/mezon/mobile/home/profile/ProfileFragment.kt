@@ -109,6 +109,7 @@ class ProfileFragment : BaseFragment() {
     var onLogout: (() -> Unit)? = null
 
     private lateinit var bannerView: View
+    private lateinit var coverView: ProfileCoverImageView
     private var bannerAvatarUrl: String? = null
     private var bannerColor: Int? = null
     private var bannerLoad: MezonImageLoader.Cancellable? = null
@@ -219,6 +220,10 @@ class ProfileFragment : BaseFragment() {
             setBackgroundColor(themeColors.surface)
         }
         headerContainer.addView(bannerView, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, LayoutHelper.dp(160)
+        ))
+        coverView = ProfileCoverImageView(context)
+        headerContainer.addView(coverView, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, LayoutHelper.dp(160)
         ))
 
@@ -710,6 +715,7 @@ class ProfileFragment : BaseFragment() {
         val avatarUrl = info.avatarUrl.ifEmpty { userController.avatarUrl }.trim()
         avatarView.setImageUrl(avatarUrl)
         updateAvatarBanner(avatarUrl)
+        coverView.bind(info.bannerUrl)
 
         displayNameText.text = name
         usernameText.text = user.removePrefix("@")
@@ -829,6 +835,7 @@ class ProfileFragment : BaseFragment() {
         bannerLoad?.cancel()
         bannerLoad = null
         bannerAvatarUrl = null
+        if (::coverView.isInitialized) coverView.cancel()
         super.onFragmentDestroy()
     }
 

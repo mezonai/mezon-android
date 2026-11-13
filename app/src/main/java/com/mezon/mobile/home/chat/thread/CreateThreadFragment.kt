@@ -341,7 +341,9 @@ class CreateThreadFragment : BaseFragment() {
             val h = LayoutHelper.dp(20)
             setPadding(h, h, h, h)
         }
-        topBlock.addView(buildThreadIconRow(context), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+        if (!fromTopicFlow) {
+            topBlock.addView(buildThreadIconRow(context), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+        }
         topBlock.addView(buildNameField(context), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
         topBlock.addView(buildPreviewBox(context), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
@@ -461,7 +463,9 @@ class CreateThreadFragment : BaseFragment() {
             d.colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
             setImageDrawable(d)
         }
-        titleRow.addView(chevron, LayoutHelper.createLinear(14, 14, 0f, Gravity.CENTER_VERTICAL))
+        if (!fromTopicFlow) {
+            titleRow.addView(chevron, LayoutHelper.createLinear(14, 14, 0f, Gravity.CENTER_VERTICAL))
+        }
 
         titleCol.addView(titleRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
@@ -539,8 +543,7 @@ class CreateThreadFragment : BaseFragment() {
             }
         }
         val icon = ImageView(context).apply {
-            val iconType = if (fromTopicFlow) R.drawable.mz_topic_24 else R.drawable.mz_thread_24
-            setMezonIconResource(iconType)
+            setMezonIconResource(R.drawable.mz_thread_24)
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
         val slot = LayoutHelper.dp(26)

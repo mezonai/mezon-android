@@ -3227,10 +3227,6 @@ open class ChatFragment : BaseFragment() {
                         android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
                     )
                     inputField.setSelection(cursor + insertText.length)
-                    
-                    if (emojiSearchExpanded) {
-                        collapseEmojiSearch()
-                    }
                 }
 
                 override fun onStickerSelected(sticker: StickerItem, isAudio: Boolean) {

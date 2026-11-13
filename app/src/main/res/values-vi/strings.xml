@@ -1113,6 +1113,10 @@
     <string name="edit_profile_change_avatar">Đổi ảnh đại diện</string>
     <string name="edit_profile_remove_avatar">Xóa ảnh đại diện</string>
     <string name="edit_profile_avatar_too_large">Kích thước ảnh không được vượt quá 10MB</string>
+    <string name="edit_profile_edit_cover">Sửa ảnh bìa</string>
+    <string name="edit_profile_change_cover">Đổi ảnh bìa</string>
+    <string name="edit_profile_remove_cover">Xóa ảnh bìa</string>
+    <string name="edit_profile_cover_upload_failed">Không thể tải ảnh bìa. Hãy dùng JPEG, PNG, GIF hoặc WebP tối đa 10 MB.</string>
     <string name="edit_profile_dm_logo_too_large">Kích thước logo không được vượt quá 1MB</string>
     <string name="edit_profile_select_clan">Chọn một clan</string>
     <string name="edit_profile_clan_nickname">Biệt danh Clan</string>
