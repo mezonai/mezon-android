@@ -8,13 +8,11 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
-import android.media.ExifInterface
 import android.net.Uri
 import android.text.InputFilter
 import android.text.InputType
@@ -38,6 +36,8 @@ import com.mezon.mobile.core.InAppOverlayHost
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.ui.shared.TransformCanvasView
 import com.mezon.mobile.ui.theme.ThemeMode
+import com.mezon.mobile.util.applyImageOrientation
+import com.mezon.mobile.util.readImageOrientation
 import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
@@ -871,7 +871,7 @@ class ChatImageEditorDialog(
                     })
                 } ?: return null
 
-                bitmap = applyOrientation(bitmap, readOrientation(context, uri, mimeType))
+                bitmap = applyImageOrientation(bitmap, readImageOrientation(resolver, uri, mimeType))
                 val longest = max(bitmap.width, bitmap.height)
                 if (longest > maxEdge) {
                     val scale = maxEdge.toFloat() / longest
@@ -888,45 +888,6 @@ class ChatImageEditorDialog(
             } catch (_: Throwable) {
                 null
             }
-        }
-
-        private fun readOrientation(context: Context, uri: Uri, mimeType: String): Int {
-            val supportsExif = mimeType.equals("image/jpeg", true) ||
-                mimeType.equals("image/jpg", true) ||
-                mimeType.equals("image/heic", true) ||
-                mimeType.equals("image/heif", true)
-            if (!supportsExif) return ExifInterface.ORIENTATION_NORMAL
-            return runCatching {
-                context.contentResolver.openInputStream(uri)?.use {
-                    ExifInterface(it).getAttributeInt(
-                        ExifInterface.TAG_ORIENTATION,
-                        ExifInterface.ORIENTATION_NORMAL,
-                    )
-                } ?: ExifInterface.ORIENTATION_NORMAL
-            }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
-        }
-
-        private fun applyOrientation(bitmap: Bitmap, orientation: Int): Bitmap {
-            val matrix = Matrix()
-            when (orientation) {
-                ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
-                ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
-                ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
-                ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.postScale(-1f, 1f)
-                ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.postScale(1f, -1f)
-                ExifInterface.ORIENTATION_TRANSPOSE -> {
-                    matrix.postRotate(90f)
-                    matrix.postScale(-1f, 1f)
-                }
-                ExifInterface.ORIENTATION_TRANSVERSE -> {
-                    matrix.postRotate(270f)
-                    matrix.postScale(-1f, 1f)
-                }
-                else -> return bitmap
-            }
-            val oriented = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
-            if (oriented !== bitmap) bitmap.recycle()
-            return oriented
         }
     }
 }
