@@ -145,6 +145,7 @@ class ClansFragment : BaseFragment() {
 
     private var headerSwitch: FrameLayout? = null
     private var normalClanHeaderRoot: View? = null
+    private val headerActionBackgrounds = mutableListOf<GradientDrawable>()
     private var emptyClanHeaderRoot: LinearLayout? = null
     private lateinit var discoverListSection: DiscoverClansListSection
     private var discoveringFromRailWhileHasClans = false
@@ -263,6 +264,10 @@ class ClansFragment : BaseFragment() {
         }
         observe(NotificationCenter.themeChanged) { _, _, _ ->
             if (fragmentView == null) return@observe
+            headerActionBackgrounds.forEach {
+                it.setColor(themeColors.surfaceVariant)
+                it.setStroke(LayoutHelper.dp(1), themeColors.outline)
+            }
             fragmentView?.setBackgroundColor(themeColors.serverRailBg)
             serverRail.setBackgroundColor(themeColors.serverRailBg)
             (pinnedDmLogo.parent as? View)?.setBackgroundColor(themeColors.serverRailBg)
@@ -312,6 +317,7 @@ class ClansFragment : BaseFragment() {
     }
 
     override fun onFragmentDestroy() {
+        headerActionBackgrounds.clear()
         clanEventEditorDialog?.setOnDismissListener(null)
         clanEventEditorDialog?.dismiss()
         clanEventEditorDialog = null
@@ -564,10 +570,11 @@ class ClansFragment : BaseFragment() {
     }
 
     private fun LinearLayout.applyChannelPanelBg() {
-        applyThemeSurface(themeColors.channelPanelBg, themeColors.desktop.conversationGradient)
+        applyThemeSurface(themeColors.surface, themeColors.desktop.conversationGradient)
     }
 
     private fun buildClanHeader(context: Context): View {
+        headerActionBackgrounds.clear()
         val header = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
         }
@@ -651,8 +658,10 @@ class ClansFragment : BaseFragment() {
 
         val searchPill = FrameLayout(context).apply {
             val pillBg = android.graphics.drawable.GradientDrawable().apply {
-                setColor(themeColors.secondaryLight)
+                setColor(themeColors.surfaceVariant)
+                setStroke(LayoutHelper.dp(1), themeColors.outline)
                 cornerRadius = LayoutHelper.dp(32f).toFloat()
+                headerActionBackgrounds.add(this)
             }
             val rippleMask = android.graphics.drawable.GradientDrawable().apply {
                 setColor(0xFFFFFFFF.toInt())
@@ -698,8 +707,9 @@ class ClansFragment : BaseFragment() {
         fun roundActionBackground(): RippleDrawable {
             val circleBg = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(themeColors.secondaryLight)
+                setColor(themeColors.surfaceVariant)
                 setStroke(LayoutHelper.dp(1), themeColors.outline)
+                headerActionBackgrounds.add(this)
             }
             val rippleMask = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL

@@ -98,7 +98,7 @@ class MessagesFragment : BaseFragment() {
 
         observe(NotificationCenter.themeChanged) { _, _, _ ->
             if (fragmentView == null) return@observe
-            fragmentView?.applyThemeSurface(themeColors.background, themeColors.desktop.conversationGradient, anchorToWindow = true)
+            fragmentView?.applyThemeSurface(themeColors.surface, themeColors.desktop.conversationGradient, anchorToWindow = true)
             headerTitle.setTextColor(themeColors.onSurface)
             emptyView.setTextColor(themeColors.onSurfaceVariant)
             adapter.notifyDataSetChanged()
@@ -158,7 +158,7 @@ class MessagesFragment : BaseFragment() {
     override fun createView(context: Context): View {
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            applyThemeSurface(themeColors.background, themeColors.desktop.conversationGradient, anchorToWindow = true)
+            applyThemeSurface(themeColors.surface, themeColors.desktop.conversationGradient, anchorToWindow = true)
         }
 
         root.addView(buildHeader(context), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))

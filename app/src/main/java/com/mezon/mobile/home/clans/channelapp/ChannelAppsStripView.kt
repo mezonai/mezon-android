@@ -179,7 +179,7 @@ class ChannelAppsStripView(
             )
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(12).toFloat()
-                setColor(themeColors.secondaryLight)
+                setColor(themeColors.surfaceVariant)
                 setStroke(LayoutHelper.dp(1), themeColors.border)
             }
             val lp = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)

@@ -333,7 +333,7 @@ class MainTabsActivity : ViewPagerActivity() {
     private fun updateContentRootBackground() {
         if (!::contentRoot.isInitialized) return
         contentRoot.setBackgroundColor(
-            if (currentTab == TAB_CLANS) themeColors.serverRailBg else themeColors.background
+            if (currentTab == TAB_CLANS) themeColors.serverRailBg else themeColors.surface
         )
     }
 

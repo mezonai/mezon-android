@@ -79,6 +79,12 @@ class ProfileFragment : BaseFragment() {
     private var cachedLocale: Locale? = null
 
     private var selectableItemBgResId: Int = 0
+    private val itemBackgrounds = mutableListOf<GradientDrawable>()
+
+    private fun itemBackground(): GradientDrawable = GradientDrawable().apply {
+        setColor(themeColors.surfaceVariant)
+        itemBackgrounds.add(this)
+    }
 
     private fun getDateFormat(): SimpleDateFormat {
         val currentLocale = Locale.getDefault()
@@ -201,9 +207,10 @@ class ProfileFragment : BaseFragment() {
     }
 
     override fun createView(context: Context): View {
+        itemBackgrounds.clear()
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(themeColors.background)
+            setBackgroundColor(themeColors.surface)
         }
 
         val headerContainer = FrameLayout(context)
@@ -325,7 +332,7 @@ class ProfileFragment : BaseFragment() {
                         path.arcTo(0f, 0f, 2 * r, 2 * r, 180f, 90f, false)
                         path.close()
                     }
-                    paint.color = themeColors.background
+                    paint.color = themeColors.surfaceVariant
                     canvas.drawPath(path, paint)
                 }
                 override fun setAlpha(alpha: Int) { paint.alpha = alpha }
@@ -559,15 +566,13 @@ class ProfileFragment : BaseFragment() {
                 .apply { leftMargin = LayoutHelper.dp(12) }
         )
 
-        val friendAvatarBgColor = themeColors.getColor(ThemeColors.key_sheetItemBackground)
         val friendSlotSize = LayoutHelper.dp(32)
         val friendAvatarSize = LayoutHelper.dp(28)
         val friendSlotOverlap = -LayoutHelper.dp(10)
         for (i in 0 until MAX_FRIENDS_DISPLAY) {
             val slot = FrameLayout(context).apply {
-                background = GradientDrawable().apply {
+                background = itemBackground().apply {
                     shape = GradientDrawable.OVAL
-                    setColor(friendAvatarBgColor)
                 }
                 visibility = View.INVISIBLE
             }
@@ -628,7 +633,7 @@ class ProfileFragment : BaseFragment() {
     private fun createCircleIconButton(context: Context, icon: Int, onClick: () -> Unit): FrameLayout {
         val size = LayoutHelper.dp(36)
         val container = FrameLayout(context).apply {
-            val bg = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(themeColors.getColor(ThemeColors.key_sheetItemBackground)) }
+            val bg = itemBackground().apply { shape = GradientDrawable.OVAL }
             background = bg
             isClickable = true; isFocusable = true; setOnClickListener { onClick() }
         }
@@ -646,8 +651,8 @@ class ProfileFragment : BaseFragment() {
             orientation = LinearLayout.VERTICAL
             val pad = LayoutHelper.dp(16)
             setPadding(pad, LayoutHelper.dp(14), pad, LayoutHelper.dp(14))
-            val bg = GradientDrawable().apply {
-                cornerRadius = LayoutHelper.dp(20f).toFloat(); setColor(themeColors.getColor(ThemeColors.key_sheetItemBackground))
+            val bg = itemBackground().apply {
+                cornerRadius = LayoutHelper.dp(20f).toFloat()
             }
             background = bg
         }
@@ -826,6 +831,7 @@ class ProfileFragment : BaseFragment() {
     }
 
     override fun onFragmentDestroy() {
+        itemBackgrounds.clear()
         bannerLoad?.cancel()
         bannerLoad = null
         bannerAvatarUrl = null
@@ -833,7 +839,8 @@ class ProfileFragment : BaseFragment() {
     }
 
     private fun applyTheme() {
-        fragmentView?.setBackgroundColor(themeColors.background)
+        fragmentView?.setBackgroundColor(themeColors.surface)
+        itemBackgrounds.forEach { it.setColor(themeColors.surfaceVariant) }
         if (::statusBubble.isInitialized) {
             statusBubble.invalidate()
             badgeStatusText.setTextColor(themeColors.onSurface)
@@ -923,7 +930,7 @@ class ProfileFragment : BaseFragment() {
         serverChip.visibility = View.VISIBLE
         val connected = connectionController.mezonSocket.connectionState.value == ConnectionState.CONNECTED
         val statusColor = if (connected) themeColors.connectedColor else themeColors.connectingColor
-        (serverChip.background as? GradientDrawable)?.setColor(themeColors.getColor(ThemeColors.key_sheetItemBackground))
+        (serverChip.background as? GradientDrawable)?.setColor(themeColors.surfaceVariant)
         serverStatusHalo.setColor(ColorUtils.setAlphaComponent(statusColor, 77))
         serverStatusDot.setColor(statusColor)
         serverLabel.setTextColor(themeColors.onSurface)
