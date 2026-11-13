@@ -218,7 +218,6 @@ class BlockedUsersFragment : BaseFragment() {
                 val sizePx = LayoutHelper.dp(40)
                 val proxyUrl = avatarImgproxyUrl(user.avatarUrl, sizePx)
                 if (proxyUrl == currentAvatarUrl) {
-                    unblockBtn.setOnClickListener { onUnblockClicked(friend) }
                     setWillNotDraw(!divider)
                     return
                 }
@@ -238,8 +237,6 @@ class BlockedUsersFragment : BaseFragment() {
                 currentAvatarUrl = null
                 avatar.setMezonIconResource(R.drawable.mz_user_24)
             }
-
-            unblockBtn.setOnClickListener { onUnblockClicked(friend) }
 
             setWillNotDraw(!divider)
         }
