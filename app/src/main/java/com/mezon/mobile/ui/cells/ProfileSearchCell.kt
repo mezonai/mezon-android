@@ -2,10 +2,15 @@ package com.mezon.mobile.ui.cells
 
 import android.content.Context
 import android.graphics.Canvas
+import android.graphics.Paint
 import android.graphics.RectF
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.InsetDrawable
 import android.text.StaticLayout
 import android.text.TextPaint
 import android.text.TextUtils
+import com.mezon.mobile.R
 import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.BaseCell
 import com.mezon.mobile.core.LayoutHelper
@@ -29,8 +34,11 @@ class ProfileSearchCell(context: Context, private val theme: ThemeColors) : Base
     private var attachedToWindow = false
     private val tmpRect = RectF()
 
-    private val namePaint = TextPaint()
-    private val statusPaint = TextPaint()
+    private val namePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+    }
+    private val statusPaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
+    private var showDivider = true
     private var nameLayout: StaticLayout? = null
     private var statusLayout: StaticLayout? = null
 
@@ -61,10 +69,25 @@ class ProfileSearchCell(context: Context, private val theme: ThemeColors) : Base
         update(0)
     }
 
-    fun update(mask: Int, newMember: SearchMember? = null) {
+    fun update(
+        mask: Int,
+        newMember: SearchMember? = null,
+        isFirst: Boolean = true,
+        isLast: Boolean = true,
+        showDivider: Boolean = true,
+    ) {
         val m = newMember ?: member ?: return
         if (newMember != null) member = newMember
-        setBackgroundColor(theme.background)
+        this.showDivider = showDivider
+        val topRadius = if (isFirst) LayoutHelper.dpf(10f) else 0f
+        val bottomRadius = if (isLast) LayoutHelper.dpf(10f) else 0f
+        background = InsetDrawable(GradientDrawable().apply {
+            setColor(theme.background)
+            cornerRadii = floatArrayOf(
+                topRadius, topRadius, topRadius, topRadius,
+                bottomRadius, bottomRadius, bottomRadius, bottomRadius
+            )
+        }, CARD_INSET, 0, CARD_INSET, 0)
         bindAvatar(m)
         buildLayouts()
         invalidate()
@@ -79,14 +102,14 @@ class ProfileSearchCell(context: Context, private val theme: ThemeColors) : Base
         val w = measuredWidth
         if (w == 0) return
 
-        val textLeft = AVATAR_LEFT + AVATAR_SIZE + TEXT_LEFT_MARGIN
-        val textWidth = w - textLeft - PAD_RIGHT
+        val textLeft = CARD_INSET + AVATAR_LEFT + AVATAR_SIZE + TEXT_LEFT_MARGIN
+        val textWidth = w - CARD_INSET - textLeft - PAD_RIGHT
 
         if (textWidth <= 0) return
 
-        namePaint.set(theme.dialogNamePaint)
+        namePaint.textSize = LayoutHelper.sp(15f)
         namePaint.color = theme.onSurface
-        statusPaint.set(theme.dialogMessagePaint)
+        statusPaint.textSize = LayoutHelper.sp(13f)
         statusPaint.color = theme.textDisabled
         val name = m.displayName.ifEmpty { m.username }
         nameLayout = StaticLayout.Builder.obtain(name, 0, name.length, namePaint, textWidth)
@@ -94,10 +117,10 @@ class ProfileSearchCell(context: Context, private val theme: ThemeColors) : Base
             .setEllipsize(TextUtils.TruncateAt.END)
             .build()
 
-        val status = if (m.username.isNotEmpty() && !(m.isDm && m.channelType == CHANNEL_TYPE_GROUP)) {
-            "@${m.username}"
-        } else {
-            ""
+        val status = when {
+            m.isDm && m.channelType == CHANNEL_TYPE_GROUP -> context.getString(R.string.search_group_label)
+            m.username.isNotEmpty() -> "@${m.username}"
+            else -> ""
         }
         if (status.isNotEmpty()) {
             statusLayout = StaticLayout.Builder.obtain(status, 0, status.length, statusPaint, textWidth)
@@ -126,19 +149,19 @@ class ProfileSearchCell(context: Context, private val theme: ThemeColors) : Base
     }
 
     override fun onDraw(canvas: Canvas) {
-        val m = member ?: return
+        if (member == null) return
         val w = measuredWidth
         val h = measuredHeight
 
         val avatarTop = (h - AVATAR_SIZE) / 2f
         tmpRect.set(
-            AVATAR_LEFT.toFloat(), avatarTop,
-            (AVATAR_LEFT + AVATAR_SIZE).toFloat(), avatarTop + AVATAR_SIZE
+            (CARD_INSET + AVATAR_LEFT).toFloat(), avatarTop,
+            (CARD_INSET + AVATAR_LEFT + AVATAR_SIZE).toFloat(), avatarTop + AVATAR_SIZE
         )
         avatarDrawable.setBounds(tmpRect.left.toInt(), tmpRect.top.toInt(), tmpRect.right.toInt(), tmpRect.bottom.toInt())
         avatarDrawable.draw(canvas)
 
-        val textLeft = (AVATAR_LEFT + AVATAR_SIZE + TEXT_LEFT_MARGIN).toFloat()
+        val textLeft = (CARD_INSET + AVATAR_LEFT + AVATAR_SIZE + TEXT_LEFT_MARGIN).toFloat()
 
         val hasStatus = statusLayout != null
         val nameTop = if (hasStatus) {
@@ -161,13 +184,15 @@ class ProfileSearchCell(context: Context, private val theme: ThemeColors) : Base
             canvas.restore()
         }
 
-        val dividerLeft = textLeft
-        canvas.drawLine(dividerLeft, (h - 1).toFloat(), w.toFloat(), (h - 1).toFloat(), theme.dividerPaint)
+        if (showDivider) {
+            canvas.drawLine(CARD_INSET.toFloat(), (h - 1).toFloat(), (w - CARD_INSET).toFloat(), (h - 1).toFloat(), theme.dividerPaint)
+        }
     }
 
     companion object {
         private val CELL_HEIGHT = LayoutHelper.dp(60f)
-        private val AVATAR_SIZE = LayoutHelper.dp(46f)
+        private val CARD_INSET = LayoutHelper.dp(12f)
+        private val AVATAR_SIZE = LayoutHelper.dp(40f)
         private val AVATAR_LEFT = LayoutHelper.dp(16f)
         private val TEXT_LEFT_MARGIN = LayoutHelper.dp(12f)
         private val PAD_RIGHT = LayoutHelper.dp(16f)

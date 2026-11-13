@@ -663,23 +663,13 @@ class GlobalSearchFragment : BaseFragment() {
     private fun updateChannelsList() {
         val ctx = getContext() ?: return
         if (searchText.isBlank()) {
-            adapter.setChannelSearchItems(
-                emptyList(),
-                ctx.getString(R.string.search_section_text_channels),
-                ctx.getString(R.string.search_section_voice_channels),
-                ctx.getString(R.string.search_section_streaming_channels)
-            )
+            adapter.setChannelSearchItems(emptyList())
             adapter.hasMore = false
             updateEmptyState(isEmpty = true, emptyTextRes = R.string.search_type_to_search)
             return
         }
         val filtered = searchController.ctrlKChannelDisplays(channelsDisplayLimit)
-        adapter.setChannelSearchItems(
-            filtered,
-            ctx.getString(R.string.search_section_text_channels),
-            ctx.getString(R.string.search_section_voice_channels),
-            ctx.getString(R.string.search_section_streaming_channels)
-        )
+        adapter.setChannelSearchItems(filtered)
         adapter.hasMore = filtered.size < searchController.ctrlKChannelsCount()
         updateEmptyState(filtered.isEmpty())
     }
