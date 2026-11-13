@@ -342,7 +342,7 @@ class SearchController @Inject constructor(
         val snapshot: List<ClanChannelEntity>
         synchronized(this) { snapshot = ArrayList(ctrlKChannels) }
         val enriched = enrichChannelDisplays(snapshot, hideClanName = false)
-        return orderTextVoiceStreaming(enriched).take(limit)
+        return enriched.take(limit)
     }
 
     fun recentMembers(limit: Int = RECENT_INIT_LIMIT): List<SearchMember> {
@@ -509,24 +509,6 @@ class SearchController @Inject constructor(
                 hideClanName = hideClanName
             )
         }
-    }
-
-    private fun orderTextVoiceStreaming(items: List<ChannelSearchDisplay>): List<ChannelSearchDisplay> {
-        val text = ArrayList<ChannelSearchDisplay>()
-        val voice = ArrayList<ChannelSearchDisplay>()
-        val stream = ArrayList<ChannelSearchDisplay>()
-        for (d in items) {
-            when (d.channel.type) {
-                CHANNEL_TYPE_VOICE -> voice.add(d)
-                CHANNEL_TYPE_STREAMING -> stream.add(d)
-                else -> text.add(d)
-            }
-        }
-        val out = ArrayList<ChannelSearchDisplay>(items.size)
-        out.addAll(text)
-        out.addAll(voice)
-        out.addAll(stream)
-        return out
     }
 
     companion object {

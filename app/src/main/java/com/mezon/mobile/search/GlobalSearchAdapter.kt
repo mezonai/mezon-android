@@ -6,8 +6,6 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mezon.api.SearchMessageDocument
 import com.mezon.mobile.core.ThemeColors
-import com.mezon.mobile.home.clans.CHANNEL_TYPE_STREAMING
-import com.mezon.mobile.home.clans.CHANNEL_TYPE_VOICE
 import com.mezon.mobile.ui.cells.ChannelSearchCell
 import com.mezon.mobile.ui.cells.HeaderCell
 import com.mezon.mobile.ui.cells.ProfileSearchCell
@@ -95,12 +93,23 @@ class GlobalSearchAdapter(
             holder.itemView.setBackgroundColor(themeColors.surface)
         }
         when (val view = holder.itemView) {
-            is ProfileSearchCell -> if (item is SearchMember) view.update(0, item)
+            is ProfileSearchCell -> if (item is SearchMember) {
+                val hasPrevious = items.hasAdjacentMember(position, -1)
+                val hasNext = items.hasAdjacentMember(position, 1)
+                view.update(0, item, isFirst = !hasPrevious, isLast = !hasNext, showDivider = hasNext)
+            }
             is ChannelSearchCell -> if (item is ChannelSearchDisplay) {
                 view.setJoinClickListener(
                     if (item.showJoinUi) onChannelJoinClick else null
                 )
-                view.update(0, item, showDivider = items.hasNextChannel(position))
+                val hasNext = items.hasNextChannel(position)
+                view.update(
+                    0, item,
+                    showDivider = hasNext,
+                    grouped = true,
+                    isFirst = !items.hasPreviousChannel(position),
+                    isLast = !hasNext,
+                )
             }
             is MessageSearchCell -> if (item is SearchMessageDocument) {
                 view.update(0, item, resolveMessageSenderName(item))
@@ -125,35 +134,19 @@ class GlobalSearchAdapter(
             newItems.add(EmptyItem)
         } else {
             if (header != null) newItems.add(SectionHeader(header, MEMBERS_HEADER_STABLE_ID, muted = true))
-            newItems.addAll(members)
+            val (groups, users) = members.partition { it.isGroupResult() }
+            newItems.addAll(groups)
+            newItems.addAll(users)
         }
         submitList(newItems, forceSync = true)
     }
 
-    fun setChannelSearchItems(
-        displays: List<ChannelSearchDisplay>,
-        textHeader: String,
-        voiceHeader: String,
-        streamHeader: String
-    ) {
+    fun setChannelSearchItems(displays: List<ChannelSearchDisplay>) {
         val newItems = ArrayList<Any>()
         if (displays.isEmpty()) {
             newItems.add(EmptyItem)
         } else {
-            var lastSec = -1
-            for (d in displays) {
-                val sec = channelSectionIndex(d.channel.type)
-                if (sec != lastSec) {
-                    val title = when (sec) {
-                        0 -> textHeader
-                        1 -> voiceHeader
-                        else -> streamHeader
-                    }
-                    newItems.add(SectionHeader(title, sectionStableId(sec)))
-                    lastSec = sec
-                }
-                newItems.add(d)
-            }
+            newItems.addAll(displays)
         }
         submitList(newItems, forceSync = true)
     }
@@ -208,18 +201,22 @@ data class SectionHeader(val title: String, val stableId: Long, val muted: Boole
 
 object EmptyItem
 
-private fun channelSectionIndex(type: Int): Int = when (type) {
-    CHANNEL_TYPE_VOICE -> 1
-    CHANNEL_TYPE_STREAMING -> 2
-    else -> 0
-}
-
-private fun sectionStableId(sec: Int): Long = -(2000L + sec)
-
 private const val MEMBERS_HEADER_STABLE_ID = -3000L
 
 private fun List<Any>.hasNextChannel(position: Int): Boolean =
     getOrNull(position + 1) is ChannelSearchDisplay
+
+private fun List<Any>.hasPreviousChannel(position: Int): Boolean =
+    getOrNull(position - 1) is ChannelSearchDisplay
+
+private fun List<Any>.hasAdjacentMember(position: Int, offset: Int): Boolean {
+    val member = getOrNull(position) as? SearchMember ?: return false
+    val adjacent = getOrNull(position + offset) as? SearchMember ?: return false
+    return member.isGroupResult() == adjacent.isGroupResult()
+}
+
+private fun SearchMember.isGroupResult(): Boolean =
+    isDm && channelType == com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 
 private class SearchDiffCallback(
     private val oldList: List<Any>,
@@ -248,7 +245,12 @@ private class SearchDiffCallback(
         val oldItem = oldList[oldPos]
         val newItem = newList[newPos]
         if (oldItem != newItem) return false
+        if (oldItem is SearchMember) {
+            return oldList.hasAdjacentMember(oldPos, -1) == newList.hasAdjacentMember(newPos, -1) &&
+                oldList.hasAdjacentMember(oldPos, 1) == newList.hasAdjacentMember(newPos, 1)
+        }
         return oldItem !is ChannelSearchDisplay ||
-            oldList.hasNextChannel(oldPos) == newList.hasNextChannel(newPos)
+            (oldList.hasNextChannel(oldPos) == newList.hasNextChannel(newPos) &&
+                oldList.hasPreviousChannel(oldPos) == newList.hasPreviousChannel(newPos))
     }
 }

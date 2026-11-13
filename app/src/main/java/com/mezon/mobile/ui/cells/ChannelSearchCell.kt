@@ -7,7 +7,9 @@ import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.InsetDrawable
 import android.graphics.drawable.RippleDrawable
+import android.os.Build
 import android.text.StaticLayout
 import android.text.TextPaint
 import android.text.TextUtils
@@ -18,9 +20,11 @@ import com.mezon.mobile.R
 import com.mezon.mobile.core.BaseCell
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.core.theme.MobileThemeColors
 import com.mezon.mobile.home.clans.ChannelItemCell
 import com.mezon.mobile.home.clans.ClanChannelEntity
 import com.mezon.mobile.search.ChannelSearchDisplay
+import com.mezon.mobile.ui.theme.ThemeMode
 import kotlin.math.max
 
 class ChannelSearchCell(context: Context, private val theme: ThemeColors) : BaseCell(context) {
@@ -31,12 +35,22 @@ class ChannelSearchCell(context: Context, private val theme: ThemeColors) : Base
     val channel: ClanChannelEntity? get() = display?.channel
 
     private var iconDrawable: Drawable? = null
+    private val channelIconColor: Int
+        get() = when {
+            theme.resolvedMode == ThemeMode.PURPLE_HAZE -> 0xFFA9ACB7.toInt()
+            theme.resolvedMode.isLight -> 0xFF6C7077.toInt()
+            else -> 0xFFAEAEAE.toInt()
+        }
     private var nameLayout: StaticLayout? = null
     private var clanLayout: StaticLayout? = null
     private var joinTextLayout: StaticLayout? = null
 
     private val clanLinePaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
+    private val namePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+    }
     private val joinTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
+    private var cardInset = 0
     private var showJoin = false
     private var showDivider = true
     private var joinClickListener: ((ChannelSearchDisplay) -> Unit)? = null
@@ -59,7 +73,11 @@ class ChannelSearchCell(context: Context, private val theme: ThemeColors) : Base
     }
 
     init {
-        joinTextPaint.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        joinTextPaint.typeface = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            Typeface.create(Typeface.DEFAULT, 600, false)
+        } else {
+            Typeface.DEFAULT_BOLD
+        }
         clanLinePaint.typeface = Typeface.DEFAULT
         addView(joinButton)
     }
@@ -78,7 +96,7 @@ class ChannelSearchCell(context: Context, private val theme: ThemeColors) : Base
             cornerRadius = LayoutHelper.dp(6f).toFloat()
             setColor(android.graphics.Color.WHITE)
         }
-        val color = (theme.primary and 0x00FFFFFF) or 0x26000000
+        val color = (MobileThemeColors.accent and 0x00FFFFFF) or 0x26000000
         return RippleDrawable(ColorStateList.valueOf(color), null, mask)
     }
 
@@ -99,7 +117,7 @@ class ChannelSearchCell(context: Context, private val theme: ThemeColors) : Base
         val w = MeasureSpec.getSize(widthMeasureSpec)
         val d = display
         if (d == null) {
-            setMeasuredDimension(w, CELL_HEIGHT_MIN + ROW_MARGIN_BOTTOM)
+            setMeasuredDimension(w, CELL_HEIGHT_MIN)
             return
         }
         measureJoinLabel()
@@ -107,9 +125,9 @@ class ChannelSearchCell(context: Context, private val theme: ThemeColors) : Base
             MeasureSpec.makeMeasureSpec(joinLabelW, MeasureSpec.EXACTLY),
             MeasureSpec.makeMeasureSpec(joinLabelH, MeasureSpec.EXACTLY)
         )
-        val textLeft = ICON_LEFT + ICON_SIZE + ICON_TEXT_GAP
+        val textLeft = cardInset + ICON_LEFT + ICON_SIZE + ICON_TEXT_GAP
         val joinSlot = if (showJoin) joinLabelW + JOIN_GAP_FROM_TEXT else 0
-        val textWidth = max(0, w - textLeft - PAD_RIGHT - joinSlot)
+        val textWidth = max(0, w - cardInset - textLeft - PAD_RIGHT - joinSlot)
         buildNameAndClanLayouts(d, textWidth)
         val hasClan = !d.hideClanName && d.clanName.isNotEmpty()
         val nameH = nameLayout?.height ?: 0
@@ -117,12 +135,12 @@ class ChannelSearchCell(context: Context, private val theme: ThemeColors) : Base
         val textBlock = nameH + clanH
         val contentH = max(ICON_SIZE, textBlock) + PAD_TOP + PAD_BOTTOM
         val rowH = if (showJoin) max(contentH, joinLabelH + PAD_TOP + PAD_BOTTOM) else contentH
-        setMeasuredDimension(w, rowH + ROW_MARGIN_BOTTOM)
+        setMeasuredDimension(w, rowH)
     }
 
     override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
-        val buttonLeft = measuredWidth - PAD_RIGHT - joinLabelW
-        val buttonTop = (measuredHeight - ROW_MARGIN_BOTTOM - joinLabelH) / 2
+        val buttonLeft = measuredWidth - cardInset - PAD_RIGHT - joinLabelW
+        val buttonTop = (measuredHeight - joinLabelH) / 2
         joinButton.layout(buttonLeft, buttonTop, buttonLeft + joinLabelW, buttonTop + joinLabelH)
     }
 
@@ -131,7 +149,14 @@ class ChannelSearchCell(context: Context, private val theme: ThemeColors) : Base
         super.invalidate()
     }
 
-    fun update(mask: Int, newDisplay: ChannelSearchDisplay? = null, showDivider: Boolean = true) {
+    fun update(
+        mask: Int,
+        newDisplay: ChannelSearchDisplay? = null,
+        showDivider: Boolean = true,
+        grouped: Boolean = false,
+        isFirst: Boolean = false,
+        isLast: Boolean = false,
+    ) {
         val d = newDisplay ?: display ?: return
         this.showDivider = showDivider
         if (newDisplay != null) {
@@ -140,20 +165,32 @@ class ChannelSearchCell(context: Context, private val theme: ThemeColors) : Base
             iconDrawable = MezonIcon.loadDrawable(
                 context,
                 ChannelItemCell.resolveChannelIcon(ch.type, ch.isPrivate, ch.isAgeRestricted),
-                ThemeColors.defaultIconTint,
+                channelIconColor,
             )
             showJoin = d.showJoinUi
             isJoinTouch = false
             joinButton.isPressed = false
             joinButton.visibility = if (showJoin && joinClickListener != null) VISIBLE else GONE
         }
-        setBackgroundColor(theme.background)
-        joinTextPaint.textSize = theme.dialogNamePaint.textSize
-        joinTextPaint.color = theme.primary
-        (joinButton.background as RippleDrawable).setColor(
-            ColorStateList.valueOf((theme.primary and 0x00FFFFFF) or 0x26000000)
-        )
-        clanLinePaint.textSize = theme.dialogNamePaint.textSize
+        cardInset = if (grouped) LayoutHelper.dp(12) else 0
+        if (grouped) {
+            val topRadius = if (isFirst) LayoutHelper.dpf(10f) else 0f
+            val bottomRadius = if (isLast) LayoutHelper.dpf(10f) else 0f
+            background = InsetDrawable(GradientDrawable().apply {
+                setColor(theme.background)
+                cornerRadii = floatArrayOf(
+                    topRadius, topRadius, topRadius, topRadius,
+                    bottomRadius, bottomRadius, bottomRadius, bottomRadius
+                )
+            }, cardInset, 0, cardInset, 0)
+        } else {
+            setBackgroundColor(theme.background)
+        }
+        namePaint.textSize = LayoutHelper.sp(15f)
+        namePaint.color = theme.onSurface
+        joinTextPaint.textSize = LayoutHelper.sp(14f)
+        joinTextPaint.color = MobileThemeColors.accent
+        clanLinePaint.textSize = LayoutHelper.sp(13f)
         clanLinePaint.color = theme.textDisabled
         requestLayout()
         invalidate()
@@ -190,7 +227,7 @@ class ChannelSearchCell(context: Context, private val theme: ThemeColors) : Base
             ch.channelLabel
         }
         nameLayout = StaticLayout.Builder.obtain(
-            primary, 0, primary.length, theme.dialogNameBoldPaint, textWidth
+            primary, 0, primary.length, namePaint, textWidth
         ).setMaxLines(1).setEllipsize(TextUtils.TruncateAt.END).build()
 
         if (!d.hideClanName && d.clanName.isNotEmpty()) {
@@ -206,19 +243,20 @@ class ChannelSearchCell(context: Context, private val theme: ThemeColors) : Base
         val d = display ?: return
         val ch = d.channel
         val w = measuredWidth
-        val h = measuredHeight - ROW_MARGIN_BOTTOM
+        val h = measuredHeight
 
         val icon = iconDrawable
             ?: MezonIcon.loadDrawable(
                 context,
                 ChannelItemCell.resolveChannelIcon(ch.type, ch.isPrivate, ch.isAgeRestricted),
-                ThemeColors.defaultIconTint,
+                channelIconColor,
             ).also { iconDrawable = it }
         val iconTop = (h - ICON_SIZE) / 2
-        icon.setBounds(ICON_LEFT, iconTop, ICON_LEFT + ICON_SIZE, iconTop + ICON_SIZE)
+        val iconLeft = cardInset + ICON_LEFT
+        icon.setBounds(iconLeft, iconTop, iconLeft + ICON_SIZE, iconTop + ICON_SIZE)
         icon.draw(canvas)
 
-        val textLeft = (ICON_LEFT + ICON_SIZE + ICON_TEXT_GAP).toFloat()
+        val textLeft = (iconLeft + ICON_SIZE + ICON_TEXT_GAP).toFloat()
         val hasClan = clanLayout != null
         val nameH = nameLayout?.height?.toFloat() ?: 0f
         val clanH = if (hasClan) (clanLayout?.height?.toFloat() ?: 0f) + NAME_CLAN_GAP_FLOAT else 0f
@@ -241,7 +279,7 @@ class ChannelSearchCell(context: Context, private val theme: ThemeColors) : Base
         }
 
         if (showJoin && joinLabelW > 0) {
-            val labelLeft = w - PAD_RIGHT - joinLabelW
+            val labelLeft = w - cardInset - PAD_RIGHT - joinLabelW
             val labelTop = ((h - joinLabelH) / 2).toFloat()
             joinTextLayout?.let { jl ->
                 val jtx = labelLeft + JOIN_HIT_PAD_H
@@ -255,7 +293,7 @@ class ChannelSearchCell(context: Context, private val theme: ThemeColors) : Base
 
         if (showDivider) {
             val dividerY = (h - 1).toFloat()
-            canvas.drawLine(textLeft, dividerY, w.toFloat(), dividerY, theme.dividerPaint)
+            canvas.drawLine(cardInset.toFloat(), dividerY, (w - cardInset).toFloat(), dividerY, theme.dividerPaint)
         }
     }
 
@@ -269,7 +307,6 @@ class ChannelSearchCell(context: Context, private val theme: ThemeColors) : Base
         private val PAD_BOTTOM = LayoutHelper.dp(8f)
         private val NAME_CLAN_GAP_INT = LayoutHelper.dp(2f)
         private val NAME_CLAN_GAP_FLOAT = NAME_CLAN_GAP_INT.toFloat()
-        private val ROW_MARGIN_BOTTOM = LayoutHelper.dp(12f)
         private val JOIN_HIT_PAD_H = LayoutHelper.dp(8f)
         private val JOIN_HIT_PAD_V = LayoutHelper.dp(6f)
         private val JOIN_GAP_FROM_TEXT = LayoutHelper.dp(14f)
