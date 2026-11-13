@@ -63,6 +63,14 @@ class UserClanController @Inject constructor(
         appScope.launch { observeClanUsersRemoved() }
         appScope.launch { observeUserChannelAdded() }
         appScope.launch { observeUserChannelRemoved() }
+        appScope.launch { observeProfileBannerUpdates() }
+    }
+
+    private suspend fun observeProfileBannerUpdates() {
+        socketEventDispatcher.userProfileUpdatedEvents.collect { event ->
+            if (event.userId == 0L || event.banner.isEmpty()) return@collect
+            synchronized(this@UserClanController) { profileBanners.put(event.userId, event.banner) }
+        }
     }
 
     // --- All users across all clans (for search) ---
@@ -139,8 +147,11 @@ class UserClanController @Inject constructor(
     }
 
     private val membersByClan = LongSparseArray<List<ClanMember>>()
+    private val profileBanners = LongSparseArray<String>()
     private val rosterCappedClans = HashSet<Long>()
     private val inFlightLoads = HashSet<String>()
+
+    fun getProfileBanner(userId: Long): String? = synchronized(this) { profileBanners[userId] }
 
     private fun beginLoad(key: String): Boolean = synchronized(this) { inFlightLoads.add(key) }
 
@@ -331,16 +342,21 @@ class UserClanController @Inject constructor(
                         val clanUsers = response.clanUsersList
 
                         val members = ArrayList<ClanMember>(clanUsers.size)
+                        val banners = LongSparseArray<String>(clanUsers.size)
                         val seen = HashSet<Long>(clanUsers.size)
                         for (cu in clanUsers) {
                             val user = cu.user ?: continue
                             if (user.id in seen) continue
                             seen.add(user.id)
                             members.add(cu.toClanMember())
+                            banners.put(user.id, user.banner)
                         }
 
                         synchronized(this@UserClanController) {
                             membersByClan.put(clanId, members)
+                            for (i in 0 until banners.size()) {
+                                profileBanners.put(banners.keyAt(i), banners.valueAt(i))
+                            }
                             if (clanUsers.size >= LIST_CLAN_USERS_CAP) {
                                 rosterCappedClans.add(clanId)
                             } else {
@@ -576,6 +592,7 @@ class UserClanController @Inject constructor(
             usersDict.clear()
             loaded = false
             membersByClan.clear()
+            profileBanners.clear()
             rosterCappedClans.clear()
             membersByChannel.clear()
             directMembersByChannel.clear()

@@ -7,6 +7,7 @@ import android.content.Context
 import android.graphics.Typeface
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -15,6 +16,7 @@ import android.widget.TextView
 import androidx.recyclerview.widget.ConcatAdapter
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.mezon.mezon.api.User
 import com.mezon.mobile.R
 import com.mezon.mobile.core.AlertDialog
@@ -48,6 +50,7 @@ import com.mezon.mobile.util.NetworkErrorMessages
 import com.mezon.mobile.ui.theme.ThemeMode
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -66,6 +69,7 @@ class MessagesFragment : BaseFragment() {
     private lateinit var headerTitle: TextView
     private lateinit var addFriendBadgeText: TextView
     private lateinit var recyclerView: RecyclerListView
+    private lateinit var swipeRefresh: SwipeRefreshLayout
     private lateinit var loadingView: ProgressBar
     private lateinit var emptyView: TextView
     private lateinit var errorView: TextView
@@ -101,6 +105,8 @@ class MessagesFragment : BaseFragment() {
             fragmentView?.applyThemeSurface(themeColors.surface, themeColors.desktop.conversationGradient, anchorToWindow = true)
             headerTitle.setTextColor(themeColors.onSurface)
             emptyView.setTextColor(themeColors.onSurfaceVariant)
+            swipeRefresh.setColorSchemeColors(themeColors.blurple)
+            swipeRefresh.setProgressBackgroundColorSchemeColor(themeColors.secondaryLight)
             adapter.notifyDataSetChanged()
             if (::headerStripAdapter.isInitialized) headerStripAdapter.notifyDataSetChanged()
             if (::addMessageFab.isInitialized) {
@@ -180,7 +186,13 @@ class MessagesFragment : BaseFragment() {
             setHasFixedSize(true)
             visibility = View.GONE
         }
-        contentFrame.addView(recyclerView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
+        swipeRefresh = SwipeRefreshLayout(context).apply {
+            setColorSchemeColors(themeColors.blurple)
+            setProgressBackgroundColorSchemeColor(themeColors.secondaryLight)
+            setOnRefreshListener { refreshDialogs() }
+            addView(recyclerView, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        }
+        contentFrame.addView(swipeRefresh, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
         recyclerView.setEmptyView(emptyView)
         recyclerView.setOnItemClickListener(RecyclerListView.OnItemClickListener { view, _ ->
             if (view is DialogCell) {
@@ -512,6 +524,15 @@ class MessagesFragment : BaseFragment() {
                 val visible = bottom > 0 && top < recyclerView.height
                 child.setVisibleOnScreen(visible)
             }
+        }
+    }
+
+    private fun refreshDialogs() {
+        messageActivitiesController.loadListActivities()
+        val load = controller.loadDialogs(noCache = true)
+        fragmentScope.launch(Dispatchers.Main) {
+            load.join()
+            swipeRefresh.isRefreshing = false
         }
     }
 

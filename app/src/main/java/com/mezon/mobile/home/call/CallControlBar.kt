@@ -10,7 +10,6 @@ import android.view.View
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.core.graphics.ColorUtils
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.voice.VoiceChrome
@@ -35,7 +34,7 @@ class CallControlBar(
     private val micBtn: VoiceStyleCircleButton
     private val endBtn: VoiceStyleCircleButton
     private val row: LinearLayout
-    private val pillBg: GradientDrawable
+    private val pillBg: GradientDrawable?
     private val speakerItem: View
     private val micItem: View
     private val micLabel: TextView?
@@ -63,12 +62,11 @@ class CallControlBar(
     }
 
     init {
-        pillBg = GradientDrawable().apply {
-            cornerRadius = if (showLabels) LayoutHelper.dp(28).toFloat() else PILL_RADIUS
-            if (showLabels) {
-                setColor(ColorUtils.blendARGB(themeColors.serverRailBg, themeColors.onSurface, 0.07f))
-                setStroke(LayoutHelper.dp(1), ColorUtils.setAlphaComponent(themeColors.onSurface, 22))
-            } else {
+        pillBg = if (showLabels) {
+            null
+        } else {
+            GradientDrawable().apply {
+                cornerRadius = PILL_RADIUS
                 setColor(themeColors.channelPanelBg)
             }
         }

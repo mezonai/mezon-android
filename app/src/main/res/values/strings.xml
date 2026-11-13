@@ -1279,6 +1279,10 @@
     <string name="edit_profile_change_avatar">Change Avatar</string>
     <string name="edit_profile_remove_avatar">Remove Avatar</string>
     <string name="edit_profile_avatar_too_large">Avatar file size must not exceed 10MB</string>
+    <string name="edit_profile_edit_cover">Edit cover photo</string>
+    <string name="edit_profile_change_cover">Change Cover Photo</string>
+    <string name="edit_profile_remove_cover">Remove Cover Photo</string>
+    <string name="edit_profile_cover_upload_failed">Unable to upload cover. Use JPEG, PNG, GIF or WebP up to 10 MB.</string>
     <string name="edit_profile_dm_logo_too_large">Icon file size must not exceed 1MB</string>
     <string name="edit_profile_select_clan">Select a Clan</string>
     <string name="edit_profile_clan_nickname">Clan Nickname</string>

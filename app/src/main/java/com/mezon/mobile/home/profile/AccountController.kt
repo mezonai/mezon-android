@@ -47,6 +47,7 @@ data class AccountInfo(
     val phoneNumber: String = "",
     val avatarUrl: String = "",
     val logo: String = "",
+    val bannerUrl: String = "",
     val passwordSetted: Boolean = false,
     val createTimeSeconds: Long = 0L,
     val userStatus: String = "",
@@ -81,14 +82,22 @@ class AccountController @Inject constructor(
         val logo = StartupCache.cachedDmLogoUrl
         val displayName = StartupCache.cachedUserDisplayName
         val avatarUrl = StartupCache.cachedUserAvatarUrl
+        val bannerUrl = StartupCache.cachedUserBannerUrl
         if (userId == 0L && logo.isEmpty() && displayName.isEmpty() && avatarUrl.isEmpty()) return AccountInfo()
-        return AccountInfo(userId = userId, displayName = displayName, avatarUrl = avatarUrl, logo = logo)
+        return AccountInfo(
+            userId = userId,
+            displayName = displayName,
+            avatarUrl = avatarUrl,
+            logo = logo,
+            bannerUrl = bannerUrl
+        )
     }
 
     private fun persistAccountScratch(info: AccountInfo) {
         StartupCache.cachedDmLogoUrl = info.logo
         StartupCache.cachedUserDisplayName = info.displayName
         StartupCache.cachedUserAvatarUrl = info.avatarUrl
+        StartupCache.cachedUserBannerUrl = info.bannerUrl
     }
 
     private val _accountInfo = MutableStateFlow(readBootstrappedAccountInfo())
@@ -118,7 +127,8 @@ class AccountController @Inject constructor(
             if (current.userId == 0L || event.userId != current.userId) return@collect
             val updated = current.copy(
                 displayName = event.displayName.ifEmpty { current.displayName },
-                avatarUrl = event.avatar.ifEmpty { current.avatarUrl }
+                avatarUrl = event.avatar.ifEmpty { current.avatarUrl },
+                bannerUrl = event.banner.ifEmpty { current.bannerUrl }
             )
             _accountInfo.value = updated
             persistAccountScratch(updated)
@@ -217,6 +227,7 @@ class AccountController @Inject constructor(
                         phoneNumber = user.phoneNumber,
                         avatarUrl = user.avatarUrl,
                         logo = account.logo,
+                        bannerUrl = account.banner,
                         passwordSetted = account.passwordSetted,
                         createTimeSeconds = user.createTimeSeconds.toLong(),
                         userStatus = user.userStatus,
@@ -383,6 +394,7 @@ class AccountController @Inject constructor(
         avatarUrl: String,
         aboutMe: String,
         logoUrl: String = "",
+        bannerUrl: String? = null,
         onResult: (success: Boolean, errorMsg: String) -> Unit
     ) {
         appScope.launch {
@@ -396,7 +408,8 @@ class AccountController @Inject constructor(
                             displayName,
                             avatarUrl.ifEmpty { null },
                             aboutMe,
-                            logoUrl
+                            logoUrl,
+                            bannerUrl
                         )
                     }
                 }
@@ -405,7 +418,8 @@ class AccountController @Inject constructor(
                     displayName = displayName,
                     avatarUrl = avatarUrl.ifEmpty { current.avatarUrl },
                     aboutMe = aboutMe,
-                    logo = logoUrl
+                    logo = logoUrl,
+                    bannerUrl = bannerUrl ?: current.bannerUrl
                 )
                 _accountInfo.value = updated
                 cacheTracker.invalidateByPrefix(ACCOUNT_CACHE_PREFIX)
@@ -457,6 +471,23 @@ class AccountController @Inject constructor(
                 withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(true, cdnUrl) }
             } catch (e: Exception) {
                 withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(false, "") }
+            }
+        }
+    }
+
+    suspend fun uploadCoverJpeg(jpegBytes: ByteArray, originalFilename: String? = null): String {
+        require(jpegBytes.isNotEmpty())
+        return sessionManager.withAutoRefresh { session ->
+            withContext(ioDispatcher) {
+                AttachmentUploader.uploadPublicImage(
+                    api,
+                    session.apiUrl,
+                    session.token,
+                    "${System.currentTimeMillis() / 1000}_cover.jpg",
+                    "image/jpeg",
+                    jpegBytes,
+                    originalFilename = originalFilename,
+                )
             }
         }
     }

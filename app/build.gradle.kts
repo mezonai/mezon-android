@@ -59,8 +59,8 @@ android {
                 arguments += "-DONNXRUNTIME_ROOT=${layout.buildDirectory.get().asFile}/onnxruntime-native"
             }
         }
-        versionCode = 1259
-        versionName = "2.1.3"
+        versionCode = 1266
+        versionName = "2.1.4"
 
         vectorDrawables {
             useSupportLibrary = true

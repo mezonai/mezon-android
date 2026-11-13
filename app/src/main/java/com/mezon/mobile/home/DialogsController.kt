@@ -67,6 +67,7 @@ import com.mezon.mezon.rtapi.UserChannelRemoved
 import com.mezon.mezon.rtapi.UserProfileRedis
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
@@ -634,8 +635,8 @@ class DialogsController @Inject constructor(
         return participants
     }
 
-    fun loadDialogs(page: Int = 1, limit: Int = 500, noCache: Boolean = false) {
-        appScope.launch(ioDispatcher) {
+    fun loadDialogs(page: Int = 1, limit: Int = 500, noCache: Boolean = false): Job {
+        return appScope.launch(ioDispatcher) {
             try {
                 ensureDialogsHydratedFromDb()
                 if (StartupCache.suppressHomeListApiForIncomingCallWake) {

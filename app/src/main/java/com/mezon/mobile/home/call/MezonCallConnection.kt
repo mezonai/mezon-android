@@ -1,11 +1,14 @@
 package com.mezon.mobile.home.call
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.telecom.Connection
 import android.telecom.DisconnectCause
 import android.util.Log
+import androidx.core.content.ContextCompat
 import com.mezon.mobile.di.FragmentEntryPoint
 import dagger.hilt.android.EntryPointAccessors
 
@@ -41,11 +44,12 @@ class MezonCallConnection(private val context: Context, val localCallId: String)
         launchIncomingCallActivity()
     }
 
-    private fun launchIncomingCallActivity() {
+    private fun launchIncomingCallActivity(autoAnswer: Boolean = false) {
         val intent = Intent(context, IncomingCallActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             incomingExtras?.let { putExtras(it) }
             putExtra(CallManager.EXTRA_LOCAL_CALL_ID, localCallId)
+            if (autoAnswer) putExtra(CallManager.EXTRA_AUTO_ANSWER, true)
         }
         try {
             context.startActivity(intent)
@@ -58,6 +62,10 @@ class MezonCallConnection(private val context: Context, val localCallId: String)
         val controller = ensureCallController()
         if (controller == null) {
             ensureTelecomBridge()?.endOwnedConnection(this, DisconnectCause.CANCELED)
+        } else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            launchIncomingCallActivity(autoAnswer = true)
         } else {
             controller.acceptCall()
         }

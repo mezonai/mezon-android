@@ -31,6 +31,8 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.theme.ThemeMode
+import com.mezon.mobile.util.applyImageOrientation
+import com.mezon.mobile.util.readImageOrientation
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -1409,7 +1411,13 @@ open class ImageTransformFragment : BaseFragment() {
         val opts = BitmapFactory.Options().apply {
             inSampleSize = sample
         }
-        return resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }
+        val decoded = resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) } ?: return null
+        val orientation = readImageOrientation(resolver, uri, runCatching { resolver.getType(uri) }.getOrNull())
+        return try {
+            applyImageOrientation(decoded, orientation)
+        } catch (_: OutOfMemoryError) {
+            decoded
+        }
     }
 
     protected open fun writeJpegUnderCap(bitmap: Bitmap, maxBytes: Int): File? {

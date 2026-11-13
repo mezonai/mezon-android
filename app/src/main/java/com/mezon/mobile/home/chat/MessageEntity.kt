@@ -698,7 +698,9 @@ private fun mergeMentionsIntoContent(content: String, mentionsBytes: com.google.
         }
         val lastBrace = content.lastIndexOf('}')
         if (lastBrace < 0) return content
-        content.substring(0, lastBrace) + ",\"mentions\":" + arr.toString() + "}"
+        val head = content.substring(0, lastBrace)
+        val separator = if (head.trimEnd().endsWith('{')) "" else ","
+        head + separator + "\"mentions\":" + arr.toString() + "}"
     } catch (_: Exception) {
         content
     }
@@ -728,7 +730,9 @@ private fun mergeReferencesIntoContent(content: String, referencesBytes: com.goo
         }
         val lastBrace = content.lastIndexOf('}')
         if (lastBrace < 0) return content
-        content.substring(0, lastBrace) + ",\"references\":" + arr.toString() + "}"
+        val head = content.substring(0, lastBrace)
+        val separator = if (head.trimEnd().endsWith('{')) "" else ","
+        head + separator + "\"references\":" + arr.toString() + "}"
     } catch (_: Exception) {
         content
     }
