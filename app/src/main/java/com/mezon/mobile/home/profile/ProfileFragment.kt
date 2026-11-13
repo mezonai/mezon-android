@@ -79,11 +79,10 @@ class ProfileFragment : BaseFragment() {
     private var cachedLocale: Locale? = null
 
     private var selectableItemBgResId: Int = 0
-    private val itemBackgrounds = mutableListOf<GradientDrawable>()
 
-    private fun itemBackground(): GradientDrawable = GradientDrawable().apply {
+    private fun itemBackground(withOutline: Boolean = true): GradientDrawable = GradientDrawable().apply {
         setColor(themeColors.surfaceVariant)
-        itemBackgrounds.add(this)
+        if (withOutline) setStroke(LayoutHelper.dp(1), themeColors.outline)
     }
 
     private fun getDateFormat(): SimpleDateFormat {
@@ -207,7 +206,6 @@ class ProfileFragment : BaseFragment() {
     }
 
     override fun createView(context: Context): View {
-        itemBackgrounds.clear()
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(themeColors.surface)
@@ -223,7 +221,7 @@ class ProfileFragment : BaseFragment() {
         bannerAvatarUrl = null
         bannerColor = null
         bannerView = View(context).apply {
-            setBackgroundColor(themeColors.surface)
+            setBackgroundColor(themeColors.surfaceVariant)
         }
         headerContainer.addView(bannerView, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, LayoutHelper.dp(160)
@@ -311,8 +309,10 @@ class ProfileFragment : BaseFragment() {
                 private var lastWidth = 0f
                 private var lastHeight = 0f
                 override fun draw(canvas: Canvas) {
-                    val w = bounds.width().toFloat()
-                    val h = bounds.height().toFloat()
+                    val strokeWidth = LayoutHelper.dpf(1f)
+                    val w = bounds.width().toFloat() - strokeWidth
+                    val h = bounds.height().toFloat() - strokeWidth
+                    if (w <= 0f || h <= 0f) return
                     if (w != lastWidth || h != lastHeight) {
                         lastWidth = w
                         lastHeight = h
@@ -332,8 +332,17 @@ class ProfileFragment : BaseFragment() {
                         path.arcTo(0f, 0f, 2 * r, 2 * r, 180f, 90f, false)
                         path.close()
                     }
+                    val saveCount = canvas.save()
+                    canvas.translate(bounds.left + strokeWidth / 2, bounds.top + strokeWidth / 2)
+                    paint.style = Paint.Style.FILL
                     paint.color = themeColors.surfaceVariant
                     canvas.drawPath(path, paint)
+                    paint.style = Paint.Style.STROKE
+                    paint.strokeWidth = strokeWidth
+                    paint.strokeJoin = Paint.Join.ROUND
+                    paint.color = themeColors.outline
+                    canvas.drawPath(path, paint)
+                    canvas.restoreToCount(saveCount)
                 }
                 override fun setAlpha(alpha: Int) { paint.alpha = alpha }
                 override fun setColorFilter(colorFilter: ColorFilter?) { paint.colorFilter = colorFilter }
@@ -571,7 +580,7 @@ class ProfileFragment : BaseFragment() {
         val friendSlotOverlap = -LayoutHelper.dp(10)
         for (i in 0 until MAX_FRIENDS_DISPLAY) {
             val slot = FrameLayout(context).apply {
-                background = itemBackground().apply {
+                background = itemBackground(withOutline = false).apply {
                     shape = GradientDrawable.OVAL
                 }
                 visibility = View.INVISIBLE
@@ -797,13 +806,13 @@ class ProfileFragment : BaseFragment() {
     }
 
     private fun updateAvatarBanner(url: String) {
-        bannerView.setBackgroundColor(bannerColor ?: themeColors.surface)
+        bannerView.setBackgroundColor(bannerColor ?: themeColors.surfaceVariant)
         if (url == bannerAvatarUrl) return
         bannerLoad?.cancel()
         bannerLoad = null
         bannerAvatarUrl = url
         bannerColor = null
-        bannerView.setBackgroundColor(themeColors.surface)
+        bannerView.setBackgroundColor(themeColors.surfaceVariant)
         if (url.isEmpty()) return
 
         val target = bannerView
@@ -831,7 +840,6 @@ class ProfileFragment : BaseFragment() {
     }
 
     override fun onFragmentDestroy() {
-        itemBackgrounds.clear()
         bannerLoad?.cancel()
         bannerLoad = null
         bannerAvatarUrl = null
@@ -840,7 +848,6 @@ class ProfileFragment : BaseFragment() {
 
     private fun applyTheme() {
         fragmentView?.setBackgroundColor(themeColors.surface)
-        itemBackgrounds.forEach { it.setColor(themeColors.surfaceVariant) }
         if (::statusBubble.isInitialized) {
             statusBubble.invalidate()
             badgeStatusText.setTextColor(themeColors.onSurface)

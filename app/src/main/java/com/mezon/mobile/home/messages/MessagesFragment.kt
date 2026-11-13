@@ -337,6 +337,7 @@ class MessagesFragment : BaseFragment() {
             val circleBg = android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.OVAL
                 setColor(themeColors.tertiary)
+                setStroke(LayoutHelper.dp(1), themeColors.outline)
             }
             val rippleMask = android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.OVAL
@@ -369,6 +370,7 @@ class MessagesFragment : BaseFragment() {
             gravity = Gravity.CENTER_VERTICAL
             val bg = android.graphics.drawable.GradientDrawable().apply {
                 setColor(themeColors.tertiary)
+                setStroke(LayoutHelper.dp(1), themeColors.outline)
                 cornerRadius = LayoutHelper.dp(20).toFloat()
             }
             background = bg

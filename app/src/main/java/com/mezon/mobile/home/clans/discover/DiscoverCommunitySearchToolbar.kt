@@ -10,11 +10,13 @@ import android.text.Editable
 import android.text.TextWatcher
 import android.view.Gravity
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import com.mezon.mobile.R
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.core.theme.themeSurfaceShape
 import com.mezon.mobile.ui.cells.MezonIcon
 
 fun buildDiscoverCommunitySearchToolbar(
@@ -28,9 +30,9 @@ fun buildDiscoverCommunitySearchToolbar(
     val wrap = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
         setPadding(
-            LayoutHelper.dp(12),
+            0,
             LayoutHelper.dp(8),
-            LayoutHelper.dp(12),
+            0,
             LayoutHelper.dp(10)
         )
     }
@@ -38,37 +40,38 @@ fun buildDiscoverCommunitySearchToolbar(
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
     }
-    val searchWrap = LinearLayout(context).apply {
-        orientation = LinearLayout.HORIZONTAL
-        gravity = Gravity.CENTER_VERTICAL
-        val innerPad = LayoutHelper.dp(12)
-        setPadding(innerPad, 0, innerPad, 0)
-        background = GradientDrawable().apply {
-            setColor(themeColors.secondaryLight)
-            cornerRadius = LayoutHelper.dp(12f).toFloat()
-            setStroke(LayoutHelper.dp(1), themeColors.outlineVariant)
-        }
-        layoutParams = LinearLayout.LayoutParams(0, LayoutHelper.dp(40), 1f)
+    val searchWrap = FrameLayout(context).apply {
+        background = themeSurfaceShape(
+            themeColors.surfaceVariant,
+            LayoutHelper.dp(32f).toFloat(),
+            themeColors.outline,
+            LayoutHelper.dp(1)
+        )
+        layoutParams = LinearLayout.LayoutParams(0, LayoutHelper.dp(32), 1f)
     }
     searchWrap.addView(ImageView(context).apply {
-        setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_search_24, ThemeColors.defaultIconTint))
+        setImageDrawable(MezonIcon.loadDrawable(context, R.drawable.mz_search_20, themeColors.onSurfaceVariant))
+        scaleType = ImageView.ScaleType.FIT_CENTER
+        isClickable = false
+        isFocusable = false
         val iconSize = LayoutHelper.dp(18)
-        layoutParams = LinearLayout.LayoutParams(iconSize, iconSize).apply {
-            rightMargin = LayoutHelper.dp(8)
+        layoutParams = FrameLayout.LayoutParams(iconSize, iconSize, Gravity.START or Gravity.CENTER_VERTICAL).apply {
+            marginStart = LayoutHelper.dp(12)
         }
     })
     val edit = EditText(context).apply {
         hint = context.getString(R.string.discover_explore_communities)
         setHintTextColor(themeColors.onSurfaceVariant)
         setTextColor(themeColors.onSurface)
-        textSize = 14f
-        gravity = Gravity.CENTER_VERTICAL
+        textSize = 15f
+        gravity = Gravity.START or Gravity.CENTER_VERTICAL
         includeFontPadding = false
-        setPadding(0, 0, 0, 0)
+        val textInset = LayoutHelper.dp(38)
+        setPadding(textInset, 0, textInset, 0)
         setLineSpacing(0f, 1f)
         isSingleLine = true
         setBackgroundColor(android.graphics.Color.TRANSPARENT)
-        layoutParams = LinearLayout.LayoutParams(0, LayoutHelper.MATCH_PARENT, 1f)
+        layoutParams = FrameLayout.LayoutParams(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT)
         setText(DiscoverFilterHolder.searchQuery)
     }
     val debounceRunnable = Runnable {
@@ -91,6 +94,7 @@ fun buildDiscoverCommunitySearchToolbar(
             val circleBg = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 setColor(themeColors.tertiary)
+                setStroke(LayoutHelper.dp(1), themeColors.outline)
             }
             background = RippleDrawable(
                 ColorStateList.valueOf(themeColors.onSurface and 0x1AFFFFFF),

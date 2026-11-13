@@ -191,7 +191,7 @@ class ChannelAppsStripView(
             applyRipple(this, cornerDp = 12)
         }
 
-        val logo = buildLogoView(item, LayoutHelper.dp(30), LayoutHelper.dp(10))
+        val logo = buildLogoView(item, LayoutHelper.dp(30), LayoutHelper.dp(10), themeColors.surface)
         row.addView(logo)
 
         val textCol = LinearLayout(context).apply {
@@ -316,7 +316,12 @@ class ChannelAppsStripView(
         return col
     }
 
-    private fun buildLogoView(item: ChannelAppUiModel, sizeDp: Int, cornerDp: Int): View {
+    private fun buildLogoView(
+        item: ChannelAppUiModel,
+        sizeDp: Int,
+        cornerDp: Int,
+        backgroundColor: Int = themeColors.surfaceVariant,
+    ): View {
         val isCircle = cornerDp * 2 >= sizeDp
         val box = FrameLayout(context).apply {
             layoutParams = LayoutParams(sizeDp, sizeDp)
@@ -326,7 +331,8 @@ class ChannelAppsStripView(
                 } else {
                     cornerRadius = cornerDp.toFloat()
                 }
-                setColor(themeColors.serverRailBg)
+                setColor(backgroundColor)
+                setStroke(LayoutHelper.dp(1), themeColors.outline)
             }
             clipChildren = true
             clipToOutline = true
