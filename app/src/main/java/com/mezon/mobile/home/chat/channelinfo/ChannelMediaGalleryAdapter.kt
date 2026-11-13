@@ -437,8 +437,8 @@ internal class ChannelMediaGalleryAdapter(
         val orderedImages =
             galleryController.getItems(channelId)
                 .sortedWith(
-                    compareByDescending<ChannelGalleryMediaItem> { it.createTimeSeconds }
-                        .thenByDescending { it.id }
+                    compareBy<ChannelGalleryMediaItem> { it.createTimeSeconds }
+                        .thenBy { it.id }
                 )
                 .filter { !it.isVideo && it.url.isNotEmpty() }
                 .map { mediaItem ->
